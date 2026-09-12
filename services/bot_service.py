@@ -18,6 +18,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     WebAppInfo,
     MenuButtonWebApp,
+    MenuButtonDefault,
     FSInputFile,
 )
 from config import config, is_escalation_chat
@@ -85,11 +86,14 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
 
         if not is_admin(sender_id):
             if event.chat.type == "private":
-                await event.answer(
-                    "🚫 **Ruxsat berilmagan!**\n\n"
-                    "Ushbu bot faqat tizim administratori (@mentor_cc) uchun shaxsiy boshqaruv boti hisoblanadi.\n"
-                    f"Sizning Telegram ID ingiz: `{sender_id}`"
-                )
+                try:
+                    await event.bot.set_chat_menu_button(
+                        chat_id=sender_id,
+                        menu_button=MenuButtonDefault(),
+                    )
+                except Exception:
+                    pass
+                await event.answer("Sizga ruxsat berilmagan.")
             return
 
         return await handler(event, data)
@@ -101,7 +105,7 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
 
         if not is_admin(sender_id):
             await event.answer(
-                "🚫 Ushbu amal faqat administrator (@mentor_cc) uchun ruxsat etilgan!",
+                "Sizga ruxsat berilmagan.",
                 show_alert=True,
             )
             return
@@ -313,15 +317,21 @@ async def start_bot_service() -> None:
     await setup_bot_handlers(dp)
 
     try:
-        token = generate_admin_token(user_id=config.mentor_user_id)
+        # Begona foydalanuvchilar uchun standart bo'sh menyu
+        await bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+
+        # Faqat mentor (admin) uchun maxsus Admin Panel menu tugmasi
+        admin_id = config.mentor_user_id or 8105823872
+        token = generate_admin_token(user_id=admin_id)
         app_url = f"{config.web_app_url}/app?token={token}"
         await bot.set_chat_menu_button(
+            chat_id=admin_id,
             menu_button=MenuButtonWebApp(
                 text="📱 Admin Panel",
                 web_app=WebAppInfo(url=app_url),
-            )
+            ),
         )
-        logger.info("✅ Bot Menu Button muvaffaqiyatli sozlandi.")
+        logger.info("✅ Bot Menu Button faqat admin uchun muvaffaqiyatli sozlandi.")
     except Exception as e:
         logger.warning("Bot Menu Button sozlashda ogohlantirish: %s", e)
 
