@@ -65,44 +65,106 @@ def register_command_handlers(client: TelegramClient) -> None:
             f"{prefix}guruh start",
         }
 
+        help_triggers = {
+            "help",
+            "yordam",
+            "komandalar",
+            "commands",
+            f"{prefix}help",
+            f"{prefix}yordam",
+        }
+        status_triggers = {
+            "status",
+            "holat",
+            f"{prefix}status",
+            f"{prefix}holat",
+        }
+
         # Guruhlar avto-javobini boshqarish
         if lower_text in group_stop_triggers:
             config.group_reply_enabled = False
+            memory_service.set_setting("group_reply_enabled", "false")
             await event.edit(
                 "👥 **Guruhlar avto-javobi TO'XTATILDI (STOP)!**\n"
                 "• AI endi guruhlardagi savollarga javob bermaydi.\n"
-                "• Faqat shaxsiy xabarlarga (lichka) javob beradi.\n\n"
+                "• Faqat shaxsiy xabarlarga (lichka) javob beradi.\n"
+                "• Server restart bo'lsa ham bu holat saqlanadi.\n\n"
                 "Qayta yoqish uchun: `guruh start` deb yozing."
             )
             return
 
         if lower_text in group_start_triggers:
             config.group_reply_enabled = True
+            memory_service.set_setting("group_reply_enabled", "true")
             await event.edit(
                 "👥 **Guruhlar avto-javobi ISHGA TUSHIRILDI (START)!**\n"
                 "• AI guruhlardagi savollarga ham 5 soniya kutib javob beradi.\n"
-                "• Agar 5 soniya ichida o'zingiz yozsangiz, AI to'xtaydi.\n\n"
+                "• Agar 5 soniya ichida o'zingiz yozsangiz, AI to'xtaydi.\n"
+                "• Server restart bo'lsa ham bu holat saqlanadi.\n\n"
                 "O'chirish uchun: `guruh stop` deb yozing."
             )
             return
 
         if lower_text in stop_triggers:
             config.auto_reply_enabled = False
+            memory_service.set_setting("auto_reply_enabled", "false")
             await event.edit(
                 "🔒 **XAVFSIZLIK: AI Agent to'liq to'xtatildi!**\n"
                 "• Avto-javob: O'chirilgan (shaxsiy va guruhlar)\n"
-                "• Barcha xabarlar faqat siz tomondan qo'lda boshqariladi.\n\n"
+                "• Barcha xabarlar faqat siz tomondan qo'lda boshqariladi.\n"
+                "• Server restart bo'lsa ham start deb yozmaguningizcha ISHLAMAYDI.\n\n"
                 "Qayta faollashtirish uchun: `ai start` deb yozing."
             )
             return
 
         if lower_text in start_triggers:
             config.auto_reply_enabled = True
+            memory_service.set_setting("auto_reply_enabled", "true")
             await event.edit(
                 "🔓 **XAVFSIZLIK: AI Agent qayta faollashtirildi!**\n"
                 "• Avto-javob: Yoqilgan\n"
                 "• O'quvchilar xabarlariga 120B AI yordam berishni boshladi."
             )
+            return
+
+        # -----------------------------------------------------------
+        # help va status buyruqlari (nuqtasiz ham ishlaydi, masalan "Vazifalar"da)
+        # -----------------------------------------------------------
+        if lower_text in help_triggers:
+            help_text = (
+                "🤖 **coddyHelper AI Yordamchi — Barcha Buyruqlar Ro'yxati:**\n\n"
+                "🎛 **Asosiy Boshqaruv (Start / Stop):**\n"
+                "• `ai stop` — AI'ni butunlay to'xtatish (lichka va guruhlarda to'xtaydi, server restart bo'lsa ham qayta yonmaydi)\n"
+                "• `ai start` — AI'ni qayta ishga tushirish\n"
+                "• `guruh start` — Guruhlardagi savollarga javob berishni yoqish\n"
+                "• `guruh stop` — Guruhlarga javob berishni to'xtatish (faqat lichkada ishlaydi)\n\n"
+                "📊 **Tizim va Holat:**\n"
+                "• `status` yoki `.status` — Tizim holati (Lichka va Guruhlar holati, xotiradagi o'quvchilar soni)\n"
+                "• `help` yoki `.help` — Ushbu buyruqlar ro'yxatini ko'rsatish\n\n"
+                "🛠 **Qo'lda Tezkor Ishlatish:**\n"
+                f"• `{prefix}ai <savol>` — Tezkor AI javobini olish\n"
+                f"• Biror xabar yoki rasmga reply qilib `{prefix}ai` deb yozish — O'sha xabarni yoki LMS vazifasini AI orqali tahlil qilish\n"
+                f"• `{prefix}clear` — Joriy chatdagi o'quvchi suhbat tarixini tozalash"
+            )
+            await event.edit(help_text)
+            return
+
+        if lower_text in status_triggers:
+            auto_status = "🟢 Yoqilgan" if config.auto_reply_enabled else "🔴 O'chirilgan"
+            group_status = "🟢 Yoqilgan" if config.group_reply_enabled else "🔴 O'chirilgan"
+            active_chats = memory_service.total_active_chats()
+            active_model = f"Groq ({config.groq_model})" if (config.groq_api_keys or config.groq_api_key) else f"Gemini ({config.gemini_model})"
+            status_text = (
+                "📊 **coddyHelper Tizim Holati**\n\n"
+                f"- **Shaxsiy xabarlar (Lichka):** {auto_status}\n"
+                f"- **Guruhlarda javob berish:** {group_status}\n"
+                f"- **AI Modeli:** `{active_model}`\n"
+                f"- **Kutish vaqti:** {config.mentor_wait_seconds} soniya\n"
+                f"- **Xotiradagi faol chatlar:** {active_chats} ta\n"
+                f"- **Buyruqlar prefiksi:** `{config.command_prefix}`\n"
+                f"- **Xotira chegarasi:** {config.memory_limit} ta xabar"
+            )
+            await event.edit(status_text)
             return
 
         if not raw_text.startswith(prefix):

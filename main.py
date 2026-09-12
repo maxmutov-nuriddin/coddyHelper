@@ -75,6 +75,18 @@ async def main():
         api_hash=config.api_hash,
     )
 
+    # Doimiy SQLite sozlamalarini yuklash (restart bo'lganda ham to'xtagan holatda qolishi uchun)
+    from services.memory_service import memory_service
+    saved_auto = memory_service.get_setting("auto_reply_enabled")
+    if saved_auto is not None:
+        config.auto_reply_enabled = (saved_auto == "true")
+        logger.info("Xotiradan avto-javob holati tiklandi: %s", config.auto_reply_enabled)
+
+    saved_group = memory_service.get_setting("group_reply_enabled")
+    if saved_group is not None:
+        config.group_reply_enabled = (saved_group == "true")
+        logger.info("Xotiradan guruhlar javobi holati tiklandi: %s", config.group_reply_enabled)
+
     # Handlerlarni ro'yxatga olish
     register_command_handlers(client)
     register_auto_reply_handlers(client)
@@ -91,8 +103,9 @@ async def main():
     print(f"✅ Muvaffaqiyatli ulandi: {first_name} ({username})")
     active_model = f"⚡ Groq ({config.groq_model})" if (config.groq_api_key or config.groq_api_keys) else f"Gemini ({config.gemini_model})"
     print(f"🤖 AI Modeli: {active_model}")
-    print(f"📩 Avto-javob: {'Yoqilgan' if config.auto_reply_enabled else 'O‘chirilgan'}")
-    print(f"⌨️  Buyruqlar: '{config.command_prefix}help' Telegram orqali yuborib ko'ring")
+    print(f"📩 Lichka avto-javob: {'Yoqilgan' if config.auto_reply_enabled else 'O‘chirilgan'}")
+    print(f"👥 Guruhlar javobi: {'Yoqilgan' if config.group_reply_enabled else 'O‘chirilgan'}")
+    print(f"⌨️  Buyruqlar: 'help' yoki '{config.command_prefix}help' Telegram orqali yuborib ko'ring")
     print("-" * 60)
     print("Tizim faol ishlamoqda. To'xtatish uchun Ctrl+C bosing.\n")
 

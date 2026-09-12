@@ -48,9 +48,41 @@ class SQLiteMemoryService:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_chat_id ON messages (chat_id, id)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    )
+                    """
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        """Doimiy sozlamani o'qiydi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+                row = cursor.fetchone()
+                return row[0] if row else default
+        except Exception as e:
+            logger.error("Sozlamani o'qishda xatolik: %s", e)
+            return default
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Doimiy sozlamani saqlaydi."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    (key, str(value)),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error("Sozlamani saqlashda xatolik: %s", e)
 
     def add_message(self, chat_id: int, role: Literal["user", "model"], content: str) -> None:
         """Yangi xabarni doimiy bazaga qo'shadi."""
