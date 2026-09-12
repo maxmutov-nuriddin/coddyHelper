@@ -433,10 +433,8 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             reply = await ai_service.generate_reply(
                 chat_id=config.mentor_user_id,
                 user_message=msg,
-                is_group=False,
-                sender_name="Teacher (Mentor)",
             )
-            return web.json_response({"ok": True, "reply": reply})
+            return web.json_response({"ok": True, "reply": str(reply)})
         except Exception as e:
             logger.error("AI Chat xatolik: %s", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
@@ -458,6 +456,17 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             },
         )
 
+    async def handle_api_backup_bot(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            from services.bot_service import send_or_update_database_backup
+            ok, err = await send_or_update_database_backup()
+            return web.json_response({"ok": ok, "error": err if not ok else None})
+        except Exception as e:
+            logger.error("Botga backup yuborishda xatolik: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
@@ -470,5 +479,6 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_post("/api/ignored/remove", handle_api_remove_ignored)
     app.router.add_post("/api/ai_chat", handle_api_ai_chat)
     app.router.add_get("/api/backup", handle_api_backup)
+    app.router.add_post("/api/backup/send_bot", handle_api_backup_bot)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")

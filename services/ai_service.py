@@ -299,8 +299,8 @@ class AIService:
             if not self._groq_clients and not self._gemini_client:
                 return AIResult("⚠️ **Xatolik:** Hech qanday AI provayderi sozlanmagan. Iltimos `.env` faylini tekshiring.")
 
-        # Vazifalar (Admin) guruhi ekanini aniqlash
-        is_admin_mode = is_escalation_chat(chat_id)
+        # Vazifalar (Admin) guruhi yoki Mentor ekanini aniqlash
+        is_admin_mode = is_escalation_chat(chat_id) or (chat_id in (config.mentor_user_id, 8105823872))
 
         # Standart xatoliklarga (FAQ) 0.01 soniyada tezkor javob berish
         if not is_admin_mode and not file_text and not image_bytes:
