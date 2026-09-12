@@ -94,6 +94,11 @@ def register_command_handlers(client: TelegramClient) -> None:
             "/panel",
             "/app",
             "/admin",
+            "button",
+            "tugma",
+            f"{prefix}button",
+            f"{prefix}tugma",
+            "/button",
         }
 
         # Telegram Mini App Admin Panel ochish
@@ -121,6 +126,17 @@ def register_command_handlers(client: TelegramClient) -> None:
                     )
                 except Exception as me_err:
                     logger.warning("Saved messages ga yuborib bo'lmadi: %s", me_err)
+
+                # Agar Telegram Bot ulangan bo'lsa, guruhga haqiqiy tugmali xabar chiqarib, pin qilamiz
+                if config.bot_token:
+                    try:
+                        from services.bot_service import post_group_panel_button
+                        ok, _ = await post_group_panel_button(event.chat_id)
+                        if ok:
+                            await event.delete()
+                            return
+                    except Exception as b_err:
+                        logger.warning("Bot orqali tugma chiqarishda ogohlantirish: %s", b_err)
 
                 await event.edit(
                     "🔐 **coddyHelper Admin Panel**\n\n"
@@ -650,7 +666,7 @@ def register_command_handlers(client: TelegramClient) -> None:
     # -----------------------------------------------------------
     # 5. Guruhdan (Vazifalar) kelgan panel/app buyruqlari
     # -----------------------------------------------------------
-    @client.on(events.NewMessage(incoming=True, pattern=r"(?i)^([./])?(panel|app|admin|webapp)($|\s)"))
+    @client.on(events.NewMessage(incoming=True, pattern=r"(?i)^([./])?(panel|app|admin|webapp|button|tugma)($|\s)"))
     async def handle_incoming_panel_command(event: events.NewMessage.Event):
         from config import is_escalation_chat
         if not (is_escalation_chat(event.chat_id) or event.is_private):
@@ -675,6 +691,16 @@ def register_command_handlers(client: TelegramClient) -> None:
             )
         except Exception:
             pass
+
+        # Agar Telegram Bot ulangan bo'lsa, guruhga haqiqiy tugmali xabar chiqarib, pin qilamiz
+        if config.bot_token and not event.is_private:
+            try:
+                from services.bot_service import post_group_panel_button
+                ok, _ = await post_group_panel_button(event.chat_id)
+                if ok:
+                    return
+            except Exception as b_err:
+                logger.warning("Incoming handlerda bot tugmasi chiqarishda xatolik: %s", b_err)
 
         await event.reply(
             "🔐 **coddyHelper Admin Panel**\n\n"

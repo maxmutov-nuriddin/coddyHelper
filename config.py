@@ -42,6 +42,7 @@ class Config:
     memory_limit: int = 10
     escalation_chat: str = "me"
     bot_token: str = ""
+    bot_username: str = "coddyassistanstbot"
     session_name: str = "coddy_helper_session"
     string_session: str = ""
     port: int = 10000
@@ -61,6 +62,7 @@ class Config:
         api_hash = os.getenv("TELEGRAM_API_HASH", "").strip()
         phone = os.getenv("TELEGRAM_PHONE", "").strip()
         bot_token = os.getenv("BOT_TOKEN", "").strip()
+        bot_username = os.getenv("BOT_USERNAME", "coddyassistanstbot").strip().lstrip("@")
         gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
         gemini_model = os.getenv("GEMINI_MODEL", "gemini-flash-latest").strip()
         
@@ -99,6 +101,7 @@ class Config:
             api_hash=api_hash,
             phone=phone,
             bot_token=bot_token,
+            bot_username=bot_username,
             gemini_api_key=gemini_api_key,
             gemini_model=gemini_model,
             groq_api_key=groq_api_key,

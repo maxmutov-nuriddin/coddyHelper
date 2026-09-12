@@ -237,6 +237,11 @@ async def main():
     asyncio.create_task(start_reminder_worker(client))
     asyncio.create_task(start_backup_worker(client))
 
+    # Telegram Bot xizmatini fonda ishga tushirish (Guruh Mini App tugmasi va faqat admin boshqaruvi)
+    if config.bot_token:
+        from services.bot_service import start_bot_service
+        asyncio.create_task(start_bot_service())
+
     me = await client.get_me()
     first_name = getattr(me, "first_name", "Foydalanuvchi")
     username = f"@{me.username}" if getattr(me, "username", None) else f"ID: {me.id}"
