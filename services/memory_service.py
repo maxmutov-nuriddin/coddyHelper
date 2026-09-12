@@ -65,6 +65,22 @@ class SQLiteMemoryService:
                     )
                     """
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS reminders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        chat_id INTEGER NOT NULL,
+                        creator_id INTEGER NOT NULL,
+                        reminder_text TEXT NOT NULL,
+                        remind_at TEXT NOT NULL,
+                        is_sent INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_remind_at ON reminders (is_sent, remind_at)"
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -214,6 +230,110 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("O'quvchilar savollarini olishda xatolik: %s", e)
             return []
+
+    # -----------------------------------------------------------
+    # Eslatmalar (Reminders) Boshqaruvi
+    # -----------------------------------------------------------
+    def add_reminder(
+        self, chat_id: int, reminder_text: str, remind_at: str, creator_id: int = 0
+    ) -> int:
+        """Yangi eslatmani bazaga saqlaydi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO reminders (chat_id, creator_id, reminder_text, remind_at, is_sent)
+                    VALUES (?, ?, ?, ?, 0)
+                    """,
+                    (chat_id, creator_id, reminder_text.strip(), remind_at),
+                )
+                conn.commit()
+                return cursor.lastrowid
+        except Exception as e:
+            logger.error("Eslatmani saqlashda xatolik: %s", e)
+            return 0
+
+    def get_active_reminders(self, limit: int = 20) -> list[dict]:
+        """Kutilayotgan faol eslatmalar ro'yxatini qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, chat_id, creator_id, reminder_text, remind_at, created_at
+                    FROM reminders
+                    WHERE is_sent = 0
+                    ORDER BY remind_at ASC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "id": r[0],
+                        "chat_id": r[1],
+                        "creator_id": r[2],
+                        "text": r[3],
+                        "remind_at": r[4],
+                        "created_at": r[5],
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("Faol eslatmalarni olishda xatolik: %s", e)
+            return []
+
+    def get_due_reminders(self, current_time_str: str) -> list[dict]:
+        """Vaqti yetgan (muddati kelgan) eslatmalarni qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, chat_id, creator_id, reminder_text, remind_at
+                    FROM reminders
+                    WHERE is_sent = 0 AND remind_at <= ?
+                    ORDER BY remind_at ASC
+                    """,
+                    (current_time_str,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "id": r[0],
+                        "chat_id": r[1],
+                        "creator_id": r[2],
+                        "text": r[3],
+                        "remind_at": r[4],
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("Muddati kelgan eslatmalarni olishda xatolik: %s", e)
+            return []
+
+    def mark_reminder_sent(self, reminder_id: int) -> None:
+        """Eslatmani yuborilgan (is_sent = 1) deb belgilaydi."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute("UPDATE reminders SET is_sent = 1 WHERE id = ?", (reminder_id,))
+                conn.commit()
+        except Exception as e:
+            logger.error("Eslatmani yuborilgan deb belgilashda xatolik: %s", e)
+
+    def delete_reminder(self, reminder_id: int) -> bool:
+        """Eslatmani bekor qiladi/o'chiradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Eslatmani o'chirishda xatolik: %s", e)
+            return False
 
 
 # Global xotira instansiyasi

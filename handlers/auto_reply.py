@@ -5,7 +5,9 @@ Mentor ustuvorligi (Human-First): Agar mentor 5 soniya ichida o'zi yozsa, AI ara
 
 import asyncio
 import logging
+import re
 import time
+from pathlib import Path
 from telethon import TelegramClient, events
 from config import config
 from services.ai_service import ai_service
@@ -31,9 +33,9 @@ def is_escalation_chat(chat_id: int) -> bool:
 
 
 def is_relevant_group_message(
-    message_text: str, has_photo: bool, has_voice: bool, reply_to_me: bool
+    message_text: str, has_photo: bool, has_voice: bool, has_doc_file: bool, has_github: bool, reply_to_me: bool
 ) -> bool:
-    if has_photo or has_voice or reply_to_me:
+    if has_photo or has_voice or has_doc_file or has_github or reply_to_me:
         return True
 
     text = message_text.lower().strip()
@@ -164,7 +166,22 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             )
         )
 
-        if not message_text.strip() and not has_photo and not has_voice:
+        # Kod yoki hujjat fayllarini aniqlash (.py, .txt, .html, .sql, .pdf, ...)
+        doc_name = getattr(event.message.file, "name", "") or ""
+        doc_ext = (Path(doc_name).suffix.lower() if doc_name else "") or (
+            getattr(event.message.file, "ext", "").lower() if event.message.file else ""
+        )
+        supported_code_exts = {
+            ".py", ".txt", ".html", ".css", ".js", ".ts",
+            ".json", ".sql", ".java", ".c", ".cpp", ".md",
+            ".xml", ".sh", ".yml", ".yaml", ".pdf",
+        }
+        has_doc_file = bool(
+            event.message.document and not has_photo and not has_voice and doc_ext in supported_code_exts
+        )
+        has_github = bool("github.com/" in message_text)
+
+        if not message_text.strip() and not has_photo and not has_voice and not has_doc_file:
             return
 
         # Agar xabar reply qilingan bo'lsa
@@ -180,7 +197,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     reply_to_me = True
 
         # Guruhlarda faqat aniq savol yoki yordam so'rovlariga javob berish
-        if is_group and not is_relevant_group_message(message_text, has_photo, has_voice, reply_to_me):
+        if is_group and not is_relevant_group_message(
+            message_text, has_photo, has_voice, has_doc_file, has_github, reply_to_me
+        ):
             return
 
         task_key = event.chat_id
@@ -249,7 +268,26 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         except Exception as v_err:
                             logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
 
-                    if not input_text.strip() and not has_photo:
+                    # Agar kod yoki hujjat fayli bo'lsa (.py, .pdf, .txt va h.k.)
+                    file_name = None
+                    file_text = None
+                    if has_doc_file:
+                        try:
+                            file_bytes = await event.message.download_media(bytes)
+                            if file_bytes:
+                                file_name = doc_name or f"file{doc_ext}"
+                                if doc_ext == ".pdf":
+                                    import io
+                                    from pypdf import PdfReader
+                                    reader = PdfReader(io.BytesIO(file_bytes))
+                                    file_text = "\n".join([p.extract_text() or "" for p in reader.pages[:10]])
+                                else:
+                                    file_text = file_bytes.decode("utf-8", errors="ignore")
+                                logger.info("Fayl muvaffaqiyatli o'qildi [%s]: %s (%d bayt)", task_key, file_name, len(file_bytes))
+                        except Exception as f_err:
+                            logger.warning("Faylni o'qishda xatolik: %s", f_err)
+
+                    if not input_text.strip() and not has_photo and not file_text:
                         return
 
                     # Agar rasm bo'lsa, yuklab olish
@@ -257,13 +295,20 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     if has_photo:
                         image_bytes = await event.message.download_media(bytes)
 
-                    # AI javobini olish
-                    answer = await ai_service.generate_reply(
-                        chat_id=task_key,
-                        user_message=input_text,
-                        reply_to_context=reply_context,
-                        image_bytes=image_bytes,
-                    )
+                    # Agar GitHub linki bo'lsa va alohida savol bo'lmasa, Auto-Review qilish
+                    github_match = re.search(r"https?://github\.com/[^\s]+", input_text)
+                    if github_match and not file_text and not has_photo and len(input_text.strip()) < 100:
+                        answer = await ai_service.analyze_github_link(github_match.group(0))
+                    else:
+                        # AI javobini olish
+                        answer = await ai_service.generate_reply(
+                            chat_id=task_key,
+                            user_message=input_text,
+                            reply_to_context=reply_context,
+                            image_bytes=image_bytes,
+                            file_name=file_name,
+                            file_text=file_text,
+                        )
 
                     # Yakuniy tekshiruv: agar shu daqiqada mentor yozib qolgan bo'lsa, yubormaslik
                     if time.time() - LAST_MENTOR_ACTIVITY.get(task_key, 0.0) < 2.0:

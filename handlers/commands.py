@@ -3,6 +3,9 @@ Foydalanuvchi buyruqlari (Userbot komandalari)
 """
 
 import logging
+import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from telethon import TelegramClient, events
 from config import config
 from services.ai_service import ai_service
@@ -138,6 +141,12 @@ def register_command_handlers(client: TelegramClient) -> None:
                 "• `ai start` — AI'ni qayta ishga tushirish\n"
                 "• `guruh start` — Guruhlardagi savollarga javob berishni yoqish\n"
                 "• `guruh stop` — Guruhlarga javob berishni to'xtatish (faqat lichkada ishlaydi)\n\n"
+                "⏰ **Aqlli Eslatmalar (Reminders):**\n"
+                "• `ai eslatma <vaqt va vazifa>` — Eslatma o'rnatish (masalan: `ai eslatma ertaga 10:00 da dars`)\n"
+                "• `eslatmalar` — Barcha faol eslatmalar ro'yxati\n"
+                "• `ai eslatma bekor <ID>` — Eslatmani bekor qilish\n\n"
+                "🔍 **GitHub Code Review:**\n"
+                "• `review <github_link>` yoki reply qilib `review` — Repozitoriy kodini tahlil qilish va 10 ballik baho olish\n\n"
                 "📊 **Tizim va Mentor Analitikasi:**\n"
                 "• `report` yoki `ai report` — O'quvchilar xatoliklari bo'yicha haftalik tahliliy hisobot\n"
                 "• `status` yoki `.status` — Tizim holati (Lichka va Guruhlar holati, xotiradagi o'quvchilar soni)\n"
@@ -148,7 +157,7 @@ def register_command_handlers(client: TelegramClient) -> None:
                 "• `ai ignored` — Bloklanganlar ro'yxati\n\n"
                 "🛠 **Qo'lda Tezkor Ishlatish:**\n"
                 f"• `{prefix}ai <savol>` — Tezkor AI javobini olish\n"
-                f"• Biror xabar, rasm yoki audioga reply qilib `{prefix}ai` deb yozish — O'sha xabarni AI orqali tahlil qilish\n"
+                f"• Biror xabar, rasm, audio yoki faylga reply qilib `{prefix}ai` deb yozish — O'sha xabarni AI orqali tahlil qilish\n"
                 f"• `{prefix}clear` — Joriy chatdagi o'quvchi suhbat tarixini tozalash"
             )
             await event.edit(help_text)
@@ -271,6 +280,128 @@ def register_command_handlers(client: TelegramClient) -> None:
                 await event.edit("ℹ️ **Foydalanish:** `ai unignore @username`")
             return
 
+        # -----------------------------------------------------------
+        # Eslatmalar (Reminders)
+        # -----------------------------------------------------------
+        if lower_text in ("eslatmalar", "ai eslatmalar", ".eslatmalar", f"{prefix}eslatmalar"):
+            active = memory_service.get_active_reminders()
+            if not active:
+                await event.edit("ℹ️ Hozirda hech qanday faol eslatma yo'q.\n\nYangi eslatma qo'shish: `ai eslatma ertaga 10:00 da dars o'tish`")
+            else:
+                lines = [
+                    f"• **ID `{r['id']}`**: {r['text']}\n  🕒 `{r['remind_at']}`"
+                    for r in active
+                ]
+                text = (
+                    "⏰ **Faol Eslatmalar Ro'yxati (Toshkent vaqti):**\n\n"
+                    + "\n\n".join(lines)
+                    + "\n\nBekor qilish uchun: `ai eslatma bekor <ID>`"
+                )
+                await event.edit(text)
+            return
+
+        # Eslatmani bekor qilish
+        is_cancel_reminder = False
+        cancel_id_str = ""
+        for kw in ["ai eslatma bekor", "eslatma bekor", f"{prefix}eslatma bekor"]:
+            if lower_text.startswith(kw):
+                is_cancel_reminder = True
+                cancel_id_str = raw_text[len(kw):].strip()
+                break
+
+        if is_cancel_reminder:
+            if cancel_id_str.isdigit():
+                rem_id = int(cancel_id_str)
+                deleted = memory_service.delete_reminder(rem_id)
+                if deleted:
+                    await event.edit(f"✅ **ID `{rem_id}` bo'lgan eslatma muvaffaqiyatli bekor qilindi!**")
+                else:
+                    await event.edit(f"ℹ️ ID `{rem_id}` bo'lgan faol eslatma topilmadi.")
+            else:
+                await event.edit("ℹ️ **Foydalanish:** `ai eslatma bekor <ID>`\nMasalan: `ai eslatma bekor 3`")
+            return
+
+        # Yangi eslatma qo'shish
+        is_add_reminder = False
+        reminder_query = ""
+        for kw in ["ai eslatma", "eslatma", f"{prefix}eslatma"]:
+            if lower_text.startswith(kw):
+                is_add_reminder = True
+                reminder_query = raw_text[len(kw):].strip()
+                break
+
+        if is_add_reminder:
+            if not reminder_query:
+                await event.edit(
+                    "ℹ️ **Eslatma yaratish bo'yicha qo'llanma:**\n\n"
+                    "Misollar:\n"
+                    "• `ai eslatma ertaga 10:00 da AnyDesk orqali dars`\n"
+                    "• `ai eslatma 15 daqiqadan keyin o'quvchiga yozish`\n"
+                    "• `ai eslatma bugun soat 20:30 da guruhda e'lon berish`\n"
+                    "• `ai eslatma 25 sentyabr 14:00 da test o'tkazish`"
+                )
+                return
+
+            await event.edit("⏳ **AI eslatma vaqti va vazifasini tahlil qilmoqda...**")
+            now_tashkent = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
+            parsed = await ai_service.parse_reminder_text(reminder_query, current_tashkent_time=now_tashkent)
+
+            task_val = (parsed.get("reminder_text") or parsed.get("task")) if parsed else None
+            if parsed and parsed.get("remind_at") and task_val:
+                remind_at = parsed["remind_at"]
+                task = task_val
+                rem_id = memory_service.add_reminder(event.chat_id, task, remind_at)
+                await event.edit(
+                    "⏰ **Eslatma muvaffaqiyatli saqlandi!**\n\n"
+                    f"📌 **Vazifa:** {task}\n"
+                    f"🕒 **Vaqti:** `{remind_at}` (Toshkent vaqti)\n"
+                    f"🆔 **ID:** `{rem_id}`\n\n"
+                    "_Vaqti kelganda AI ushbu chatda eslatma xabarini yuboradi._"
+                )
+            else:
+                await event.edit(
+                    "❌ **Eslatmani aniqlab bo'lmadi!**\n"
+                    "Iltimos, vaqt yoki muddatni aniqroq yozing.\n"
+                    "Masalan: `ai eslatma 20 daqiqadan keyin dars boshlash` yoki `ai eslatma 18:00 da tekshirish`"
+                )
+            return
+
+        # -----------------------------------------------------------
+        # GitHub Code Review
+        # -----------------------------------------------------------
+        is_review = False
+        review_arg = ""
+        for kw in ["ai review", "review", f"{prefix}review"]:
+            if lower_text.startswith(kw):
+                is_review = True
+                review_arg = raw_text[len(kw):].strip()
+                break
+
+        if is_review:
+            github_url = None
+            github_match = re.search(r"https?://github\.com/[^\s]+", review_arg)
+            if github_match:
+                github_url = github_match.group(0)
+            elif event.is_reply:
+                reply_msg = await event.get_reply_message()
+                if reply_msg and reply_msg.text:
+                    rep_match = re.search(r"https?://github\.com/[^\s]+", reply_msg.text)
+                    if rep_match:
+                        github_url = rep_match.group(0)
+
+            if not github_url:
+                await event.edit(
+                    "ℹ️ **GitHub Code Review ishlatish:**\n"
+                    f"• `{prefix}review https://github.com/foydalanuvchi/loyiha`\n"
+                    "• Yoki GitHub havolasi bor xabarga reply qilib `review` deb yozing."
+                )
+                return
+
+            await event.edit(f"🔍 **GitHub repozitoriysi tahlil qilinmoqda:**\n`{github_url}`\n_Kodlar va arxitektura o'rganilmoqda..._")
+            review_result = await ai_service.analyze_github_link(github_url)
+            await event.edit(review_result)
+            return
+
         if not raw_text.startswith(prefix):
             return
 
@@ -380,9 +511,16 @@ def register_command_handlers(client: TelegramClient) -> None:
                 "**Boshqaruv (Maxfiy buyruqlar):**\n"
                 "- `ai stop` / `ai start` — AI avto-javobini to'liq to'xtatish / yoqish\n"
                 "- `guruh start` / `guruh stop` — Guruhlarga javob berishni yoqish / to'xtatish\n\n"
+                "**Aqlli Eslatmalar:**\n"
+                "- `ai eslatma <vaqt va vazifa>` — Eslatma o'rnatish\n"
+                "- `eslatmalar` — Barcha faol eslatmalar\n"
+                "- `ai eslatma bekor <ID>` — Eslatmani bekor qilish\n\n"
+                "**GitHub Code Review:**\n"
+                f"- `{prefix}review <link>` yoki reply qilib `review` — Repozitoriy tahlili\n\n"
                 "**Qo'shimcha komandalar:**\n"
                 f"- `{prefix}ai <matn>` — Tezkor AI javobini olish\n"
                 f"- `reply + {prefix}ai` — Xabarni tahlil qilish yoki unga javob yozish\n"
+                "- `report` / `ai report` — Mentor haftalik analitikasi\n"
                 f"- `{prefix}status` — Tizim va xotira holatini ko'rish\n"
                 f"- `{prefix}clear` — Joriy chatdagi suhbat tarixini o'chirish\n"
                 f"- `{prefix}help` — Ushbu yordam oynasini ko'rsatish"
