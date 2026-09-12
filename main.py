@@ -130,9 +130,10 @@ async def start_render_web_server(port: int):
             except Exception as e:
                 me_info = f"Xatolik: {e}"
 
+        from handlers.auto_reply import RECENT_ACTIVITY_LOGS
         return web.json_response({
             "status": "online",
-            "version": "v2.6.2",
+            "version": "v2.6.3",
             "service": "coddyHelper AI Mentor Agent",
             "active_ai": "Groq Multi-Key Cluster",
             "telegram_authorized": is_auth,
@@ -141,6 +142,7 @@ async def start_render_web_server(port: int):
             "group_reply_enabled": config.group_reply_enabled,
             "escalation_chat": str(config.escalation_chat),
             "has_string_session": bool(config.string_session),
+            "recent_activity_logs": list(reversed(RECENT_ACTIVITY_LOGS[-15:])),
         })
 
     app = web.Application()

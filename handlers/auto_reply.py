@@ -7,6 +7,7 @@ import asyncio
 import logging
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 from telethon import TelegramClient, events
 from config import config, is_escalation_chat
@@ -21,6 +22,16 @@ LAST_MENTOR_ACTIVITY: dict[int, float] = {}
 LAST_REPLY_TIME: dict[int, float] = {}
 BOT_SENT_MESSAGE_IDS: set[int] = set()
 MIN_INTERVAL_SECONDS = 2.0
+RECENT_ACTIVITY_LOGS: list[str] = []
+
+
+def log_activity(msg: str) -> None:
+    from zoneinfo import ZoneInfo
+    now_str = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%H:%M:%S")
+    entry = f"[{now_str}] {msg}"
+    RECENT_ACTIVITY_LOGS.append(entry)
+    if len(RECENT_ACTIVITY_LOGS) > 30:
+        RECENT_ACTIVITY_LOGS.pop(0)
 
 # Xavfsizlik: Spamerlar uchun limit va fayl hajmi
 USER_REQUEST_TIMESTAMPS: dict[int, list[float]] = {}
@@ -359,6 +370,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         chat_id = event.chat_id
         message_received_time = time.time()
         debounce_key = (chat_id, sender_id) if is_group else chat_id
+        log_activity(f"Kelgan xabar [{chat_id}]: {message_text[:35]}")
 
         # Agar oldinroq ushbu o'quvchi/chat uchun kutilayotgan vazifa bo'lsa, bekor qilamiz (debounce)
         if debounce_key in PENDING_TASKS and not PENDING_TASKS[debounce_key].done():
@@ -378,14 +390,18 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                     # 5 soniya o'tdi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi?
                     if LAST_MENTOR_ACTIVITY.get(chat_id, 0.0) >= message_received_time:
+                        log_activity(f"Mentor o'zi javob yozgani uchun AI aralashmadi [{chat_id}]")
                         logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", chat_id)
                         return
 
                 if not config.auto_reply_enabled and not is_admin_chat:
+                    log_activity(f"auto_reply_enabled o'chirilgan, javob berilmadi [{chat_id}]")
                     return
                 if is_group and not config.group_reply_enabled and not is_admin_chat:
+                    log_activity(f"group_reply_enabled o'chirilgan, javob berilmadi [{chat_id}]")
                     return
 
+                log_activity(f"AI javob tayyorlamoqda [{chat_id}]...")
                 logger.info("AI ishga kirishmoqda [%s]", chat_id)
 
                 # Xavfsizlik: agar .apk yoki xavfli fayl bo'lsa, yuklamasdan ogohlantirish beramiz
@@ -507,9 +523,10 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         file_text=file_text,
                     )
 
-                # Yakuniy tekshiruv: agar shu daqiqada mentor yozib qolgan bo'lsa, yubormaslik
-                if time.time() - LAST_MENTOR_ACTIVITY.get(chat_id, 0.0) < 2.0:
-                    logger.info("Mentor so'nggi daqiqada yozdi, AI javobi yuborilmadi.")
+                # Yakuniy tekshiruv: agar shu orada mentor o'zi yozgan bo'lsa, yubormaslik
+                if LAST_MENTOR_ACTIVITY.get(chat_id, 0.0) >= message_received_time:
+                    log_activity(f"Mentor o'zi yozgani aniqlandi [{chat_id}], AI javobi bekor qilindi.")
+                    logger.info("Mentor o'zi javob yozgan ekan [%s]. AI javobi yuborilmadi.", chat_id)
                     return
 
                 # Flood interval tekshiruvi (har bir chat uchun kamida 2 soniya)
@@ -518,11 +535,23 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     await asyncio.sleep(MIN_INTERVAL_SECONDS)
                 LAST_REPLY_TIME[chat_id] = time.time()
 
-                # Javobni yuborish (reply tarzida)
-                sent_reply = await event.reply(answer)
-                if sent_reply:
-                    BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
-                logger.info("Chat %s ga AI javobi yuborildi.", chat_id)
+                # Javobni yuborish (reply tarzida, fallback bilan)
+                sent_reply = None
+                try:
+                    sent_reply = await event.reply(answer)
+                    if sent_reply:
+                        BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
+                    log_activity(f"Javob muvaffaqiyatli yuborildi [{chat_id}]: {str(answer)[:40]}")
+                    logger.info("Chat %s ga AI javobi yuborildi.", chat_id)
+                except Exception as reply_err:
+                    log_activity(f"event.reply xatolik [{chat_id}]: {reply_err}, send_message bilan urinilmoqda")
+                    try:
+                        sent_reply = await client.send_message(chat_id, answer)
+                        if sent_reply:
+                            BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
+                        log_activity(f"send_message orqali yuborildi [{chat_id}]")
+                    except Exception as fb_err:
+                        log_activity(f"send_message ham xato berdi [{chat_id}]: {fb_err}")
 
                 # Mentorga yo'naltirish (Eskalyatsiya)
                 if getattr(answer, "escalation", None):
@@ -563,8 +592,10 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             logger.error("Eskalyatsiya xabarini yetkazishda xatolik: %s", exc)
 
             except asyncio.CancelledError:
+                log_activity(f"Kutish bekor qilindi (Mentor yozdi) [{chat_id}]")
                 logger.info("AI kutish vazifasi bekor qilindi (Mentor yozdi) [%s].", chat_id)
             except Exception as e:
+                log_activity(f"Kutilmagan xatolik [{chat_id}]: {type(e).__name__} - {e}")
                 logger.exception("Avto-javob berishda xatolik yuz berdi: %s", e)
             finally:
                 if PENDING_TASKS.get(debounce_key) is asyncio.current_task():
