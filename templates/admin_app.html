@@ -671,9 +671,23 @@
           <input type="text" id="rem-text" class="form-input" placeholder="Masalan: Ali vazifasini tekshirish" />
         </div>
         <div class="form-group">
-          <label class="form-label">Eslatish Vaqti (YYYY-MM-DD HH:MM:SS)</label>
-          <input type="text" id="rem-time" class="form-input" placeholder="Masalan: 2026-09-13 10:00:00" />
+          <label class="form-label">Sana va Vaqt (xx xx xxxx yoki Kalendar)</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="rem-time" class="form-input" placeholder="Masalan: 25 09 2026 15:00 yoki 25.09.2026 15:00" style="flex: 1;" />
+            <input type="datetime-local" id="rem-picker" class="form-input" style="width: 46px; padding: 10px 4px; cursor: pointer;" onchange="syncPickerToInput(this)" title="Kalendardan tanlash" />
+          </div>
         </div>
+
+        <!-- TEZKOR VAQT TUGMALARI -->
+        <div class="chat-chips" style="margin-bottom: 12px;">
+          <span class="chip" onclick="setQuickTime('today_20')">Bugun 20:00</span>
+          <span class="chip" onclick="setQuickTime('tomorrow_10')">Ertaga 10:00</span>
+          <span class="chip" onclick="setQuickTime('tomorrow_18')">Ertaga 18:00</span>
+          <span class="chip" onclick="setQuickTime('plus_30m')">+30 daqiqa</span>
+          <span class="chip" onclick="setQuickTime('plus_1h')">+1 soat</span>
+          <span class="chip" onclick="setQuickTime('plus_2h')">+2 soat</span>
+        </div>
+
         <button class="btn btn-primary" onclick="addReminder()">+ Eslatmani Saqlash</button>
       </div>
 
@@ -939,6 +953,41 @@
       `).join("");
     }
 
+    function syncPickerToInput(picker) {
+      if (picker.value) {
+        const parts = picker.value.split("T");
+        const dParts = parts[0].split("-"); // YYYY, MM, DD
+        document.getElementById("rem-time").value = `${dParts[2]} ${dParts[1]} ${dParts[0]} ${parts[1]}`;
+      }
+    }
+
+    function setQuickTime(type) {
+      haptic();
+      const now = new Date();
+      let target = new Date();
+
+      if (type === "today_20") {
+        target.setHours(20, 0, 0, 0);
+        if (target <= now) target.setDate(target.getDate() + 1);
+      } else if (type === "tomorrow_10") {
+        target.setDate(target.getDate() + 1);
+        target.setHours(10, 0, 0, 0);
+      } else if (type === "tomorrow_18") {
+        target.setDate(target.getDate() + 1);
+        target.setHours(18, 0, 0, 0);
+      } else if (type === "plus_30m") {
+        target = new Date(now.getTime() + 30 * 60000);
+      } else if (type === "plus_1h") {
+        target = new Date(now.getTime() + 60 * 60000);
+      } else if (type === "plus_2h") {
+        target = new Date(now.getTime() + 120 * 60000);
+      }
+
+      const pad = n => String(n).padStart(2, "0");
+      const formatted = `${pad(target.getDate())} ${pad(target.getMonth() + 1)} ${target.getFullYear()} ${pad(target.getHours())}:${pad(target.getMinutes())}`;
+      document.getElementById("rem-time").value = formatted;
+    }
+
     async function addReminder() {
       haptic();
       const text = document.getElementById("rem-text").value.trim();
@@ -950,7 +999,8 @@
 
       const res = await apiRequest("/api/reminders/add", "POST", { text, remind_at });
       if (res && res.ok) {
-        showToast("Eslatma saqlandi! ID: " + res.id);
+        const timeDisplay = res.remind_at || remind_at;
+        showToast("Eslatma saqlandi! (" + timeDisplay + ")");
         document.getElementById("rem-text").value = "";
         document.getElementById("rem-time").value = "";
         loadReminders();

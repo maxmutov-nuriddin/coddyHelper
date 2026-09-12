@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from config import config, is_escalation_chat
@@ -110,6 +111,52 @@ def redact_sensitive_data(text: str) -> str:
     # Maxfiy sessiya qatorlari
     text = re.sub(r"1[A-Za-z0-9+/=]{100,}", "[MAXFIY_SESSIYA]", text)
     return text
+
+
+def extract_explicit_reminder(text: str) -> dict | None:
+    """
+    Matndan aniq kiritilgan sanani (DD MM YYYY, DD.MM.YYYY, DD/MM/YYYY, YYYY-MM-DD va soatni)
+    tezkor regex orqali ajratib oladi.
+    Masalan:
+      '25 09 2026 15:00 da dars boshlanishi' -> {'reminder_text': 'dars boshlanishi', 'remind_at': '2026-09-25 15:00:00'}
+      '25.09.2026 da 15:00 da imtihon' -> {'reminder_text': 'imtihon', 'remind_at': '2026-09-25 15:00:00'}
+    """
+    t = text.strip()
+    if not t:
+        return None
+
+    date_patterns = [
+        # 1. DD MM YYYY yoki DD.MM.YYYY yoki DD/MM/YYYY yoki DD-MM-YYYY
+        r'(?:^|\s)(?P<day>\d{1,2})[\s\.\/\-](?P<month>\d{1,2})[\s\.\/\-](?P<year>\d{4})(?:\s+(?:da|kuni))?(?:\s+(?:soat\s+)?(?P<hour>\d{1,2})[:\.\-](?P<min>\d{2})(?:\s*da)?)?',
+        # 2. YYYY-MM-DD
+        r'(?:^|\s)(?P<year>\d{4})[\s\.\/\-](?P<month>\d{1,2})[\s\.\/\-](?P<day>\d{1,2})(?:\s+(?:da|kuni))?(?:\s+(?:soat\s+)?(?P<hour>\d{1,2})[:\.\-](?P<min>\d{2})(?:\s*da)?)?',
+    ]
+
+    for pat in date_patterns:
+        m = re.search(pat, t, re.IGNORECASE)
+        if m:
+            gd = m.groupdict()
+            try:
+                year = int(gd['year'])
+                month = int(gd['month'])
+                day = int(gd['day'])
+                h = int(gd['hour']) if gd.get('hour') else 10
+                mi = int(gd['min']) if gd.get('min') else 0
+                dt = datetime(year, month, day, h, mi, 0)
+                remind_at = dt.strftime('%Y-%m-%d %H:%M:%S')
+
+                # Sana va vaqt qismini matndan chiqarib tashlash
+                clean_text = t[:m.start()] + ' ' + t[m.end():]
+                clean_text = re.sub(r'^\s*(?:\b(?:da|soat|kuni)\b\s*)+', '', clean_text.strip(), flags=re.IGNORECASE)
+                clean_text = re.sub(r'(?:\s*\b(?:da|soat|kuni)\b)+\s*$', '', clean_text.strip(), flags=re.IGNORECASE)
+                clean_text = clean_text.strip(' -:,\t\n')
+                if not clean_text:
+                    clean_text = 'Eslatma vazifasi'
+                return {'reminder_text': clean_text, 'remind_at': remind_at}
+            except Exception:
+                pass
+
+    return None
 
 
 class AIResult(str):
@@ -423,6 +470,11 @@ class AIService:
         """
         O'zbek tilidagi eslatma matnidan vazifa va aniq YYYY-MM-DD HH:MM:SS vaqtini ajratib oladi.
         """
+        # 1. Tezkor aniq sana regex tekshiruvi (0.001s da aniqlash)
+        explicit = extract_explicit_reminder(text)
+        if explicit:
+            return explicit
+
         prompt = (
             f"Hozirgi sana va vaqt (Toshkent vaqti): {current_tashkent_time}\n\n"
             f"Foydalanuvchi quyidagi eslatma so'rovini yozdi:\n\"{text}\"\n\n"
@@ -433,6 +485,8 @@ class AIService:
             "}\n"
             "Qoidalar:\n"
             "- 'remind_at' qiymati aniq 24 soatlik formatda (YYYY-MM-DD HH:MM:SS) bo'lishi shart.\n"
+            "- Agar aniq sana kiritilsa (masalan: '25 09 2026', '25.09.2026', '25 sentyabr 15:00'), o'sha sana va soatni oling (masalan: '2026-09-25 15:00:00').\n"
+            "- Agar soat ko'rsatilmagan bo'lsa, o'sha kun soat 10:00:00 ni oling.\n"
             "- Agar '30 daqiqadan keyin' desa, hozirgi vaqtga 30 daqiqa qo'shing.\n"
             "- Agar 'ertaga soat 10:00 da' desa, ertangi kun sanasi va 10:00:00 ni oling.\n"
             "- Agar 'bugun 18:30 da' desa, bugungi sana va 18:30:00 ni oling.\n"

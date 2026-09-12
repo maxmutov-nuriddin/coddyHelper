@@ -384,10 +384,11 @@ def register_command_handlers(client: TelegramClient) -> None:
                 await event.edit(
                     "ℹ️ **Eslatma yaratish bo'yicha qo'llanma:**\n\n"
                     "Misollar:\n"
+                    "• `ai eslatma 25 09 2026 15:00 da dars boshlanishi`\n"
+                    "• `ai eslatma 25.09.2026 14:00 da imtihon`\n"
                     "• `ai eslatma ertaga 10:00 da AnyDesk orqali dars`\n"
                     "• `ai eslatma 15 daqiqadan keyin o'quvchiga yozish`\n"
-                    "• `ai eslatma bugun soat 20:30 da guruhda e'lon berish`\n"
-                    "• `ai eslatma 25 sentyabr 14:00 da test o'tkazish`"
+                    "• `ai eslatma bugun soat 20:30 da guruhda e'lon berish`"
                 )
                 return
 

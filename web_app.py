@@ -4,9 +4,12 @@ Faqat mentor (@mentor_cc / ID: 8105823872) uchun xavfsiz boshqaruv API va WebApp
 """
 
 import os
+import re
 import time
 import secrets
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from aiohttp import web
 from config import config
@@ -21,6 +24,69 @@ ACTIVE_ADMIN_TOKENS: dict[str, dict] = {}
 TOKEN_LIFETIME = 86400 * 3  # 72 soat
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+
+
+def normalize_remind_time(s: str) -> str:
+    """
+    Turli xil sana va vaqt formatlarini YYYY-MM-DD HH:MM:SS ga o'giradi.
+    Masalan:
+      '25 09 2026 15:00' -> '2026-09-25 15:00:00'
+      '25.09.2026 15:00' -> '2026-09-25 15:00:00'
+      '25/09/2026 15:00' -> '2026-09-25 15:00:00'
+      '2026-09-25T15:00' -> '2026-09-25 15:00:00'
+      '20:00'            -> '2026-09-12 20:00:00' (yoki ertaga)
+    """
+    if not s or not isinstance(s, str):
+        return ""
+    s = s.strip().replace("T", " ")
+
+    # 1. DD MM YYYY yoki DD.MM.YYYY yoki DD/MM/YYYY yoki DD-MM-YYYY (masalan: 25 09 2026 15:00)
+    m = re.match(
+        r"^(\d{1,2})[\s\.\/\-](\d{1,2})[\s\.\/\-](\d{4})(?:\s+(\d{1,2})[:\.](\d{2})(?:[:\.](\d{2}))?)?$",
+        s,
+    )
+    if m:
+        day, month, year, h, mi, sec = m.groups()
+        h = int(h) if h else 10
+        mi = int(mi) if mi else 0
+        sec = int(sec) if sec else 0
+        try:
+            dt = datetime(int(year), int(month), int(day), h, mi, sec)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+
+    # 2. YYYY-MM-DD HH:MM[:SS]
+    m = re.match(
+        r"^(\d{4})[\s\.\/\-](\d{1,2})[\s\.\/\-](\d{1,2})(?:\s+(\d{1,2})[:\.](\d{2})(?:[:\.](\d{2}))?)?$",
+        s,
+    )
+    if m:
+        year, month, day, h, mi, sec = m.groups()
+        h = int(h) if h else 10
+        mi = int(mi) if mi else 0
+        sec = int(sec) if sec else 0
+        try:
+            dt = datetime(int(year), int(month), int(day), h, mi, sec)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+
+    # 3. HH:MM (Bugun yoki ertaga shu soatda)
+    m = re.match(r"^(\d{1,2})[:\.](\d{2})(?:[:\.](\d{2}))?$", s)
+    if m:
+        h, mi, sec = m.groups()
+        now = datetime.now(ZoneInfo("Asia/Tashkent"))
+        dt = now.replace(
+            hour=int(h), minute=int(mi), second=int(sec) if sec else 0, microsecond=0
+        )
+        if dt <= now:
+            from datetime import timedelta
+            dt += timedelta(days=1)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    return ""
+
 
 
 def generate_admin_token(user_id: int = 8105823872) -> str:
@@ -282,9 +348,22 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         try:
             data = await request.json()
             text = (data.get("text") or "").strip()
-            remind_at = (data.get("remind_at") or "").strip()
-            if not text or not remind_at:
+            raw_time = (data.get("remind_at") or "").strip()
+            if not text or not raw_time:
                 return web.json_response({"ok": False, "error": "Matn va vaqt talab qilinadi"}, status=400)
+
+            # Sana va vaqtni tahlil qilish (xx xx xxxx, DD.MM.YYYY, HH:MM va h.k.)
+            remind_at = normalize_remind_time(raw_time)
+            if not remind_at:
+                now_str = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
+                ai_parsed = await ai_service.parse_reminder_text(f"{raw_time} {text}", current_tashkent_time=now_str)
+                if ai_parsed and ai_parsed.get("remind_at"):
+                    remind_at = ai_parsed["remind_at"]
+                else:
+                    return web.json_response({
+                        "ok": False,
+                        "error": "Sana yoki vaqt noto'g'ri kiritildi. Masalan: '25 09 2026 15:00' yoki '25.09.2026 15:00'"
+                    }, status=400)
 
             target = config.escalation_chat or "me"
             s = str(target).strip()
@@ -296,7 +375,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 remind_at=remind_at,
                 creator_id=config.mentor_user_id,
             )
-            return web.json_response({"ok": True, "id": rem_id})
+            return web.json_response({"ok": True, "id": rem_id, "remind_at": remind_at})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
