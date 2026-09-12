@@ -200,6 +200,89 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         if not ok:
             await message.answer(f"❌ Xatolik yuz berdi: {err}")
 
+    # 8. Lichka: Eslatmalar ro'yxati
+    @d.message(F.chat.type == "private", Command(commands=["eslatmalar", "reminders"]))
+    async def cmd_reminders_list(message: types.Message):
+        from services.memory_service import memory_service
+        reminders = memory_service.get_active_reminders(limit=20)
+        if not reminders:
+            await message.answer("ℹ️ Hozirda hech qanday faol eslatma yo'q.\n\nYangi eslatma qo'shish uchun: `ai eslatma 2 soatdan keyin dars` deb yozing.")
+            return
+
+        lines = ["⏰ **Faol Eslatmalar Ro'yxati:**\n"]
+        for r in reminders:
+            lines.append(f"• **[ID: {r['id']}]** `{r['remind_at']}`: {r['task']}")
+        lines.append("\nBekor qilish uchun: `/bekor <ID>`")
+        await message.answer("\n".join(lines), parse_mode="Markdown")
+
+    # 9. Lichka: Eslatmani bekor qilish
+    @d.message(F.chat.type == "private", Command(commands=["bekor", "cancel"]))
+    async def cmd_reminder_cancel(message: types.Message):
+        from services.memory_service import memory_service
+        args = (message.text or "").split()
+        if len(args) > 1 and args[1].isdigit():
+            rem_id = int(args[1])
+            success = memory_service.delete_reminder(rem_id)
+            if success:
+                await message.answer(f"✅ **ID `{rem_id}` bo'lgan eslatma bekor qilindi.**")
+            else:
+                await message.answer(f"ℹ️ ID `{rem_id}` bo'lgan faol eslatma topilmadi.")
+        else:
+            await message.answer("ℹ️ Foydalanish: `/bekor <ID>`\nMasalan: `/bekor 3`")
+
+    # 10. Lichka: Yangi eslatma qo'shish yoki matnli xabarlar
+    @d.message(F.chat.type == "private")
+    async def cmd_reminder_create(message: types.Message):
+        text = (message.text or "").strip()
+        lower = text.lower()
+
+        # Eslatma qo'shish prefikslari
+        is_rem = False
+        query = text
+        for prefix in ["/eslatma", "ai eslatma", "eslatma"]:
+            if lower.startswith(prefix):
+                is_rem = True
+                query = text[len(prefix):].strip()
+                break
+
+        if not is_rem:
+            for time_word in ["soatdan", "minutdan", "daqiqadan", "kundan", "ertaga", "bugun", "soat"]:
+                if time_word in lower and any(x in lower for x in ["elsat", "eslat", "keyin", "song", "so'ng"]):
+                    is_rem = True
+                    break
+
+        if is_rem:
+            from services.ai_service import extract_smart_reminder
+            from services.memory_service import memory_service
+            parsed = extract_smart_reminder(query)
+            if parsed and parsed.get("remind_at") and parsed.get("reminder_text"):
+                rem_id = memory_service.add_reminder(
+                    chat_id=message.chat.id,
+                    reminder_text=parsed["reminder_text"],
+                    remind_at=parsed["remind_at"],
+                )
+                await message.answer(
+                    "⏰ **Eslatma muvaffaqiyatli saqlandi!**\n\n"
+                    f"📌 **Vazifa:** {parsed['reminder_text']}\n"
+                    f"🕒 **Vaqti:** `{parsed['remind_at']}` (Toshkent vaqti)\n"
+                    f"🆔 **ID:** `{rem_id}`\n\n"
+                    "_Vaqti kelganda bot sizga eslatma xabarini yuboradi._",
+                    parse_mode="Markdown",
+                )
+                return
+
+        # Boshqa hollarda menyuni eslatish
+        kb = get_private_keyboard(message.from_user.id)
+        await message.answer(
+            "👋 **coddyHelper Admin Bot**\n\n"
+            "Eslatma o'rnatish uchun:\n"
+            "• `eslatma 2 soatdan keyin dars`\n"
+            "• `eslatma 30 minutdan song kitob o'qish`\n"
+            "• `eslatma ertaga 10:00 da imtihon`\n\n"
+            "Boshqaruv panelini ochish uchun quyidagi tugmani bosing 👇",
+            reply_markup=kb,
+        )
+
 
 async def send_or_update_database_backup() -> tuple[bool, str]:
     """

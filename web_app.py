@@ -86,6 +86,15 @@ def normalize_remind_time(s: str) -> str:
             dt += timedelta(days=1)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
 
+    # 4. Aqlli nisbiy vaqt (masalan: '2 soatdan keyin', '30 minutdan keyin')
+    try:
+        from services.ai_service import extract_smart_reminder
+        smart = extract_smart_reminder(s)
+        if smart and smart.get("remind_at"):
+            return smart["remind_at"]
+    except Exception:
+        pass
+
     return ""
 
 
