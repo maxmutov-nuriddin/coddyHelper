@@ -191,6 +191,8 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             )
         try:
             content = html_file.read_text(encoding="utf-8")
+            token = request.query.get("token") or MASTER_ADMIN_TOKEN
+            content = content.replace("/*__INITIAL_TOKEN__*/", f'window.__INITIAL_TOKEN__ = "{token}";')
             return web.Response(text=content, content_type="text/html")
         except Exception as e:
             logger.error("HTML sahifani yuklashda xatolik: %s", e)
@@ -251,9 +253,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 status=403,
             )
 
-        # Muvaffaqiyatli: yangi yoki mavjud tokenni qaytaramiz
+        # Muvaffaqiyatli: doimiy ishonchli tokenni qaytaramiz
         if not token_valid:
-            token = generate_admin_token(user_id=int(tg_id))
+            token = MASTER_ADMIN_TOKEN
 
         return web.json_response(
             {

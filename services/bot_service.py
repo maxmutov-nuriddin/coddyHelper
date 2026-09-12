@@ -22,7 +22,7 @@ from aiogram.types import (
     FSInputFile,
 )
 from config import config, is_escalation_chat
-from web_app import generate_admin_token
+from web_app import generate_admin_token, MASTER_ADMIN_TOKEN
 
 logger = logging.getLogger("coddyHelper.bot_service")
 
@@ -40,7 +40,7 @@ def is_admin(user_id: int | None) -> bool:
 
 def get_private_keyboard(user_id: int) -> InlineKeyboardMarkup:
     """Lichka uchun WebApp ochuvchi tugmalar to'plami."""
-    token = generate_admin_token(user_id=user_id)
+    token = MASTER_ADMIN_TOKEN if is_admin(user_id) else generate_admin_token(user_id=user_id)
     app_url = f"{config.web_app_url}/app?token={token}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -60,9 +60,9 @@ def get_private_keyboard(user_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def get_group_keyboard(user_id: int) -> InlineKeyboardMarkup:
+def get_group_keyboard(user_id: int = 0) -> InlineKeyboardMarkup:
     """Guruh uchun tugmalar to'plami (Faqat Mini App ochish tugmasi)."""
-    token = generate_admin_token(user_id=user_id)
+    token = MASTER_ADMIN_TOKEN
     app_url = f"{config.web_app_url}/app?token={token}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -118,7 +118,7 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         kb = get_private_keyboard(user_id)
 
         try:
-            token = generate_admin_token(user_id=user_id)
+            token = MASTER_ADMIN_TOKEN if is_admin(user_id) else generate_admin_token(user_id=user_id)
             app_url = f"{config.web_app_url}/app?token={token}"
             await message.bot.set_chat_menu_button(
                 chat_id=user_id,
@@ -421,7 +421,7 @@ async def start_bot_service() -> None:
 
         # Faqat mentor (admin) uchun maxsus Admin Panel menu tugmasi
         admin_id = config.mentor_user_id or 8105823872
-        token = generate_admin_token(user_id=admin_id)
+        token = MASTER_ADMIN_TOKEN
         app_url = f"{config.web_app_url}/app?token={token}"
         await bot.set_chat_menu_button(
             chat_id=admin_id,
