@@ -37,6 +37,7 @@ class Config:
     groq_model: str = "openai/gpt-oss-120b"
     groq_vision_model: str = "qwen/qwen3.8-27b"
     auto_reply_enabled: bool = True
+    group_reply_enabled: bool = False
     command_prefix: str = "."
     memory_limit: int = 10
     escalation_chat: str = "me"
@@ -46,6 +47,8 @@ class Config:
     port: int = 10000
     secret_stop_word: str = "ai stop"
     secret_start_word: str = "ai start"
+    secret_group_stop_word: str = "guruh stop"
+    secret_group_start_word: str = "guruh start"
     mentor_wait_seconds: float = 5.0
 
     @classmethod
@@ -66,6 +69,7 @@ class Config:
         groq_vision_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
 
         auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
+        group_reply_enabled = str_to_bool(os.getenv("GROUP_REPLY_ENABLED", "false"), default=False)
         command_prefix = os.getenv("COMMAND_PREFIX", ".").strip()
         escalation_chat = os.getenv("ESCALATION_CHAT", "me").strip()
         string_session = os.getenv("TELEGRAM_STRING_SESSION", "").strip()
@@ -75,6 +79,8 @@ class Config:
 
         secret_stop_word = os.getenv("SECRET_STOP_WORD", "ai stop").strip().lower()
         secret_start_word = os.getenv("SECRET_START_WORD", "ai start").strip().lower()
+        secret_group_stop_word = os.getenv("SECRET_GROUP_STOP_WORD", "guruh stop").strip().lower()
+        secret_group_start_word = os.getenv("SECRET_GROUP_START_WORD", "guruh start").strip().lower()
 
         raw_wait = os.getenv("MENTOR_WAIT_SECONDS", "5").strip()
         mentor_wait_seconds = float(raw_wait) if raw_wait.replace(".", "", 1).isdigit() else 5.0
@@ -94,6 +100,7 @@ class Config:
             groq_model=groq_model,
             groq_vision_model=groq_vision_model,
             auto_reply_enabled=auto_reply_enabled,
+            group_reply_enabled=group_reply_enabled,
             command_prefix=command_prefix,
             memory_limit=memory_limit,
             escalation_chat=escalation_chat,
@@ -101,6 +108,8 @@ class Config:
             port=port,
             secret_stop_word=secret_stop_word,
             secret_start_word=secret_start_word,
+            secret_group_stop_word=secret_group_stop_word,
+            secret_group_start_word=secret_group_start_word,
             mentor_wait_seconds=mentor_wait_seconds,
         )
 

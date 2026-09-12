@@ -40,11 +40,57 @@ def register_command_handlers(client: TelegramClient) -> None:
             f"{prefix}start",
         }
 
+        group_stop_triggers = {
+            config.secret_group_stop_word,
+            "guruh stop",
+            "guruhlar stop",
+            "group stop",
+            "ai group stop",
+            "ai guruh stop",
+            f"{prefix}group off",
+            f"{prefix}group stop",
+            f"{prefix}guruh off",
+            f"{prefix}guruh stop",
+        }
+        group_start_triggers = {
+            config.secret_group_start_word,
+            "guruh start",
+            "guruhlar start",
+            "group start",
+            "ai group start",
+            "ai guruh start",
+            f"{prefix}group on",
+            f"{prefix}group start",
+            f"{prefix}guruh on",
+            f"{prefix}guruh start",
+        }
+
+        # Guruhlar avto-javobini boshqarish
+        if lower_text in group_stop_triggers:
+            config.group_reply_enabled = False
+            await event.edit(
+                "👥 **Guruhlar avto-javobi TO'XTATILDI (STOP)!**\n"
+                "• AI endi guruhlardagi savollarga javob bermaydi.\n"
+                "• Faqat shaxsiy xabarlarga (lichka) javob beradi.\n\n"
+                "Qayta yoqish uchun: `guruh start` deb yozing."
+            )
+            return
+
+        if lower_text in group_start_triggers:
+            config.group_reply_enabled = True
+            await event.edit(
+                "👥 **Guruhlar avto-javobi ISHGA TUSHIRILDI (START)!**\n"
+                "• AI guruhlardagi savollarga ham 5 soniya kutib javob beradi.\n"
+                "• Agar 5 soniya ichida o'zingiz yozsangiz, AI to'xtaydi.\n\n"
+                "O'chirish uchun: `guruh stop` deb yozing."
+            )
+            return
+
         if lower_text in stop_triggers:
             config.auto_reply_enabled = False
             await event.edit(
                 "🔒 **XAVFSIZLIK: AI Agent to'liq to'xtatildi!**\n"
-                "• Avto-javob: O'chirilgan\n"
+                "• Avto-javob: O'chirilgan (shaxsiy va guruhlar)\n"
                 "• Barcha xabarlar faqat siz tomondan qo'lda boshqariladi.\n\n"
                 "Qayta faollashtirish uchun: `ai start` deb yozing."
             )
@@ -132,11 +178,15 @@ def register_command_handlers(client: TelegramClient) -> None:
         # -----------------------------------------------------------
         if cmd == "status":
             auto_status = "🟢 Yoqilgan" if config.auto_reply_enabled else "🔴 O'chirilgan"
+            group_status = "🟢 Yoqilgan" if config.group_reply_enabled else "🔴 O'chirilgan"
             active_chats = memory_service.total_active_chats()
+            active_model = f"Groq ({config.groq_model})" if (config.groq_api_keys or config.groq_api_key) else f"Gemini ({config.gemini_model})"
             status_text = (
                 "📊 **coddyHelper Tizim Holati**\n\n"
-                f"- **Avto-javob rejimi:** {auto_status}\n"
-                f"- **AI Modeli:** `{config.gemini_model}`\n"
+                f"- **Shaxsiy xabarlar (Lichka):** {auto_status}\n"
+                f"- **Guruhlarda javob berish:** {group_status}\n"
+                f"- **AI Modeli:** `{active_model}`\n"
+                f"- **Kutish vaqti:** {config.mentor_wait_seconds} soniya\n"
                 f"- **Xotiradagi faol chatlar:** {active_chats} ta\n"
                 f"- **Buyruqlar prefiksi:** `{config.command_prefix}`\n"
                 f"- **Xotira chegarasi:** {config.memory_limit} ta xabar"
@@ -161,10 +211,12 @@ def register_command_handlers(client: TelegramClient) -> None:
         if cmd == "help":
             help_text = (
                 "🤖 **coddyHelper AI Yordamchi — Buyruqlar:**\n\n"
+                "**Boshqaruv (Maxfiy buyruqlar):**\n"
+                "- `ai stop` / `ai start` — AI avto-javobini to'liq to'xtatish / yoqish\n"
+                "- `guruh start` / `guruh stop` — Guruhlarga javob berishni yoqish / to'xtatish\n\n"
+                "**Qo'shimcha komandalar:**\n"
                 f"- `{prefix}ai <matn>` — Tezkor AI javobini olish\n"
                 f"- `reply + {prefix}ai` — Xabarni tahlil qilish yoki unga javob yozish\n"
-                f"- `{prefix}ai on` — Shaxsiy xabarlarga avto-javobni yoqish\n"
-                f"- `{prefix}ai off` — Avto-javobni to'xtatish\n"
                 f"- `{prefix}status` — Tizim va xotira holatini ko'rish\n"
                 f"- `{prefix}clear` — Joriy chatdagi suhbat tarixini o'chirish\n"
                 f"- `{prefix}help` — Ushbu yordam oynasini ko'rsatish"

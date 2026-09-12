@@ -20,6 +20,52 @@ LAST_REPLY_TIME: dict[int, float] = {}
 MIN_INTERVAL_SECONDS = 2.0
 
 
+def is_escalation_chat(chat_id: int) -> bool:
+    target = str(config.escalation_chat).strip()
+    c_id = str(chat_id).strip()
+    if c_id == target:
+        return True
+    c_norm = c_id.replace("-100", "-")
+    t_norm = target.replace("-100", "-")
+    return c_norm == t_norm
+
+
+def is_relevant_group_message(message_text: str, has_photo: bool, reply_to_me: bool) -> bool:
+    if has_photo or reply_to_me:
+        return True
+
+    text = message_text.lower().strip()
+    if not text:
+        return False
+
+    if "?" in text:
+        return True
+
+    code_indicators = [
+        "error", "exception", "traceback", "syntaxerror",
+        "indexerror", "keyerror", "nameerror", "typeerror", "valueerror",
+    ]
+    if any(ci in text for ci in code_indicators):
+        return True
+
+    help_keywords = [
+        "ustoz", "mentor", "yordam", "ishlamayapti", "xato",
+        "qanday", "tushunmadim", "vazifa", "kodim", "masala",
+        "lms", "tekshir", "kod", "python", "def ", "class ",
+    ]
+    if any(kw in text for kw in help_keywords):
+        return True
+
+    casual_words = {
+        "salom", "assalomu alaykum", "va alaykum assalom", "rahmat",
+        "ok", "ha", "yoq", "yo'q", "kettik", "bopti", "hop", "xop",
+    }
+    if len(text) > 15 and text not in casual_words:
+        return True
+
+    return False
+
+
 def register_auto_reply_handlers(client: TelegramClient) -> None:
     my_id = None
 
@@ -68,7 +114,23 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if not config.auto_reply_enabled:
             return
 
-        if not event.is_private:
+        is_private = event.is_private
+        is_group = event.is_group or event.is_channel
+
+        if not is_private and not is_group:
+            return
+
+        # Agar guruh bo'lsa, maxsus tekshiruvlar:
+        if is_group:
+            if not config.group_reply_enabled:
+                return
+
+            # "Vazifalar" (Eskalyatsiya) guruhi bo'lsa, aslo javob qaytarmaymiz
+            if is_escalation_chat(event.chat_id):
+                return
+
+        # Mentorning o'z xabari bo'lsa o'tkazib yuborish
+        if event.out:
             return
 
         sender = await event.get_sender()
@@ -88,59 +150,71 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if not message_text.strip() and not has_photo:
             return
 
+        # Agar xabar reply qilingan bo'lsa
+        reply_context = None
+        reply_to_me = False
+        if event.is_reply:
+            parent = await event.get_reply_message()
+            if parent:
+                if parent.text:
+                    reply_context = parent.text
+                self_id = await get_my_id()
+                if parent.sender_id == self_id:
+                    reply_to_me = True
+
+        # Guruhlarda faqat aniq savol yoki yordam so'rovlariga javob berish
+        if is_group and not is_relevant_group_message(message_text, has_photo, reply_to_me):
+            return
+
+        task_key = event.chat_id
         sender_id = event.sender_id or event.chat_id
 
         # Flood himoyasi
         now = time.time()
-        last_time = LAST_REPLY_TIME.get(sender_id, 0.0)
+        last_time = LAST_REPLY_TIME.get(task_key, 0.0)
         if now - last_time < MIN_INTERVAL_SECONDS:
-            logger.info("Foydalanuvchi %s uchun flood himoyasi faollashdi, kutilmoqda.", sender_id)
+            logger.info("Chat %s uchun flood himoyasi faollashdi, kutilmoqda.", task_key)
             return
 
-        LAST_REPLY_TIME[sender_id] = now
+        LAST_REPLY_TIME[task_key] = now
 
         # Agar oldinroq ushbu chat uchun kutilayotgan vazifa bo'lsa, bekor qilamiz
-        if sender_id in PENDING_TASKS and not PENDING_TASKS[sender_id].done():
-            PENDING_TASKS[sender_id].cancel()
-
-        # Agar xabar reply qilingan bo'lsa
-        reply_context = None
-        if event.is_reply:
-            parent = await event.get_reply_message()
-            if parent and parent.text:
-                reply_context = parent.text
+        if task_key in PENDING_TASKS and not PENDING_TASKS[task_key].done():
+            PENDING_TASKS[task_key].cancel()
 
         async def process_delayed_reply():
             try:
                 wait_sec = config.mentor_wait_seconds or 5.0
                 logger.info(
                     "Yangi xabar [%s]. Mentor yozishini %s soniya kutamiz...",
-                    sender_id,
+                    task_key,
                     wait_sec,
                 )
                 await asyncio.sleep(wait_sec)
 
                 # 5 soniya o'tdi: tekshiramiz, mentor o'zi yozdimi?
-                if time.time() - LAST_MENTOR_ACTIVITY.get(sender_id, 0.0) < wait_sec:
-                    logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", sender_id)
+                if time.time() - LAST_MENTOR_ACTIVITY.get(task_key, 0.0) < wait_sec:
+                    logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", task_key)
                     return
 
                 if not config.auto_reply_enabled:
                     return
+                if is_group and not config.group_reply_enabled:
+                    return
 
-                logger.info("5 soniya ichida mentor yozmadi. AI ishga kirishmoqda [%s]", sender_id)
+                logger.info("5 soniya ichida mentor yozmadi. AI ishga kirishmoqda [%s]", task_key)
 
                 # Telegram'da "yozmoqda..." (typing) animatsiyasini ko'rsatish
                 async with client.action(event.chat_id, "typing"):
                     # Agar xotirada suhbat tarixi kam bo'lsa, Telegram'dagi oxirgi xabarlarni sinxronlash
-                    if len(memory_service.get_history(sender_id)) < 3:
+                    if len(memory_service.get_history(task_key)) < 3:
                         try:
                             past_messages = await client.get_messages(event.chat_id, limit=8)
                             for pm in reversed(past_messages[1:]):
                                 if pm.text and pm.text.strip():
                                     r = "model" if pm.out else "user"
                                     memory_service.add_message(
-                                        chat_id=sender_id, role=r, content=pm.text.strip()
+                                        chat_id=task_key, role=r, content=pm.text.strip()
                                     )
                         except Exception as hist_err:
                             logger.debug("Telegram chat tarixini o'qishda ogohlantirish: %s", hist_err)
@@ -152,20 +226,20 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                     # AI javobini olish
                     answer = await ai_service.generate_reply(
-                        chat_id=sender_id,
+                        chat_id=task_key,
                         user_message=message_text,
                         reply_to_context=reply_context,
                         image_bytes=image_bytes,
                     )
 
                     # Yakuniy tekshiruv: agar shu daqiqada mentor yozib qolgan bo'lsa, yubormaslik
-                    if time.time() - LAST_MENTOR_ACTIVITY.get(sender_id, 0.0) < 2.0:
+                    if time.time() - LAST_MENTOR_ACTIVITY.get(task_key, 0.0) < 2.0:
                         logger.info("Mentor so'nggi daqiqada yozdi, AI javobi yuborilmadi.")
                         return
 
-                    # Javobni yuborish
+                    # Javobni yuborish (reply tarzida)
                     await event.reply(answer)
-                    logger.info("Foydalanuvchi %s ga AI javobi yuborildi.", sender_id)
+                    logger.info("Chat %s ga AI javobi yuborildi.", task_key)
 
                     # Mentorga yo'naltirish (Eskalyatsiya)
                     if getattr(answer, "escalation", None):
@@ -176,8 +250,17 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             f"@{sender.username}" if getattr(sender, "username", None) else "Mavjud emas"
                         )
 
+                        chat_source = "Shaxsiy xabar (Lichka)"
+                        if is_group:
+                            try:
+                                chat_entity = await event.get_chat()
+                                chat_source = f"Guruh: {getattr(chat_entity, 'title', 'Guruh')}"
+                            except Exception:
+                                chat_source = f"Guruh ID: `{event.chat_id}`"
+
                         alert_text = (
                             "🚨 **O'quvchi murojaati (Mentor aralashuvi kerak):**\n\n"
+                            f"📍 **Manba:** {chat_source}\n"
                             f"👤 **O'quvchi:** {sender_name} ({sender_user})\n"
                             f"🆔 **ID:** `{sender_id}`\n\n"
                             f"❓ **O'quvchi yozgan xabar:**\n\"{message_text}\"\n\n"
@@ -194,13 +277,13 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             logger.error("Eskalyatsiya xabarini yetkazishda xatolik: %s", exc)
 
             except asyncio.CancelledError:
-                logger.info("AI kutish vazifasi bekor qilindi (Mentor yozdi) [%s].", sender_id)
+                logger.info("AI kutish vazifasi bekor qilindi (Mentor yozdi) [%s].", task_key)
             except Exception as e:
                 logger.exception("Avto-javob berishda xatolik yuz berdi: %s", e)
             finally:
-                if PENDING_TASKS.get(sender_id) is asyncio.current_task():
-                    PENDING_TASKS.pop(sender_id, None)
+                if PENDING_TASKS.get(task_key) is asyncio.current_task():
+                    PENDING_TASKS.pop(task_key, None)
 
         # 5 soniyalik vazifani boshlash
         task = asyncio.create_task(process_delayed_reply())
-        PENDING_TASKS[sender_id] = task
+        PENDING_TASKS[task_key] = task
