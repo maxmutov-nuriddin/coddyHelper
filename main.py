@@ -133,7 +133,7 @@ async def start_render_web_server(port: int):
         from handlers.auto_reply import RECENT_ACTIVITY_LOGS
         return web.json_response({
             "status": "online",
-            "version": "v2.6.3",
+            "version": "v2.7.0",
             "service": "coddyHelper AI Mentor Agent",
             "active_ai": "Groq Multi-Key Cluster",
             "telegram_authorized": is_auth,

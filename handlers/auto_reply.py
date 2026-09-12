@@ -21,6 +21,7 @@ PENDING_TASKS: dict[object, asyncio.Task] = {}
 LAST_MENTOR_ACTIVITY: dict[int, float] = {}
 LAST_REPLY_TIME: dict[int, float] = {}
 BOT_SENT_MESSAGE_IDS: set[int] = set()
+CURRENT_SENDING_CHATS: set[int] = set()
 MIN_INTERVAL_SECONDS = 2.0
 RECENT_ACTIVITY_LOGS: list[str] = []
 
@@ -191,8 +192,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
     # -----------------------------------------------------------
     @client.on(events.NewMessage(outgoing=True))
     async def on_mentor_message(event: events.NewMessage.Event):
-        # Agar bu botning o'zi yuborgan AI javobi bo'lsa, mentor yozdi deb hisoblamaymiz
-        if event.message.id in BOT_SENT_MESSAGE_IDS:
+        # Agar bu botning o'zi hozir yuborayotgan xabari bo'lsa, e'tiborsiz qoldiramiz
+        if event.message.id in BOT_SENT_MESSAGE_IDS or event.chat_id in CURRENT_SENDING_CHATS:
             BOT_SENT_MESSAGE_IDS.discard(event.message.id)
             return
 
@@ -206,26 +207,6 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 if task and not task.done():
                     task.cancel()
         logger.info("Mentor o'zi xabar yozdi [%s], AI kutish vazifalari bekor qilindi.", chat_id)
-
-    # -----------------------------------------------------------
-    # 2. Mentor yozishni boshlaganini (typing) kuzatish
-    # -----------------------------------------------------------
-    @client.on(events.UserUpdate)
-    async def on_user_typing(event: events.UserUpdate.Event):
-        try:
-            if getattr(event, "typing", False):
-                self_id = await get_my_id()
-                if event.user_id == self_id:
-                    chat_id = event.chat_id
-                    LAST_MENTOR_ACTIVITY[chat_id] = time.time()
-                    for k in list(PENDING_TASKS.keys()):
-                        if k == chat_id or (isinstance(k, tuple) and k[0] == chat_id):
-                            task = PENDING_TASKS.pop(k, None)
-                            if task and not task.done():
-                                task.cancel()
-                    logger.info("Mentor yozmoqda (typing) [%s], AI kutish vazifalari bekor qilindi.", chat_id)
-        except Exception:
-            pass
 
     # -----------------------------------------------------------
     # 3. Kelgan xabarni qabul qilish va 5 soniya kutish
@@ -425,12 +406,6 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     await event.reply(sec_msg)
                     return
 
-                # Telegram'da "yozmoqda..." ko'rsatish
-                try:
-                    await client.send_read_acknowledge(event.chat_id, message=event.message)
-                except Exception:
-                    pass
-
                 # Agar xotirada suhbat tarixi kam bo'lsa, Telegram'dagi oxirgi xabarlarni sinxronlash
                 if len(memory_service.get_history(chat_id)) < 3:
                     try:
@@ -493,6 +468,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 if has_photo:
                     image_bytes = await event.message.download_media(bytes)
 
+                # GitHub linkini aniqlash
+                github_match = re.search(r"https?://github\.com/[\w\-]+/[\w\-]+/?", input_text)
+
                 # Agar mavzu tushuntirish so'ralgan bo'lsa (tushuntir <mavzu>)
                 lower_input = input_text.strip().lower()
                 if (
@@ -540,6 +518,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                 # Javobni yuborish (reply tarzida, fallback bilan)
                 sent_reply = None
+                CURRENT_SENDING_CHATS.add(chat_id)
                 try:
                     sent_reply = await event.reply(answer)
                     if sent_reply:
@@ -555,6 +534,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         log_activity(f"send_message orqali yuborildi [{chat_id}]")
                     except Exception as fb_err:
                         log_activity(f"send_message ham xato berdi [{chat_id}]: {fb_err}")
+                finally:
+                    CURRENT_SENDING_CHATS.discard(chat_id)
 
                 # Mentorga yo'naltirish (Eskalyatsiya)
                 if getattr(answer, "escalation", None):

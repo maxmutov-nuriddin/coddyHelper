@@ -140,7 +140,7 @@ class AIService:
                 from groq import AsyncGroq
                 for k in keys:
                     if k:
-                        self._groq_clients.append(AsyncGroq(api_key=k))
+                        self._groq_clients.append(AsyncGroq(api_key=k, timeout=25.0, max_retries=1))
                 logger.info(
                     "⚡ Groq AI muvaffaqiyatli ulandi (%d ta API kalit, Asosiy model: %s, Vision: %s)",
                     len(self._groq_clients),
