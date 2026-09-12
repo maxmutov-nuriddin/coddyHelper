@@ -32,27 +32,45 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
 
+    html, body {
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      max-height: 100%;
+      overflow: hidden !important;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overscroll-behavior: none !important;
+      overscroll-behavior-y: none !important;
+      -webkit-overscroll-behavior: none !important;
+    }
+
     body {
       background-color: var(--bg-color);
       color: var(--text-color);
       display: flex;
       flex-direction: column;
-      min-height: 100vh;
-      overflow-x: hidden;
-      padding-bottom: 75px;
+      padding-bottom: 0;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     /* HEADER */
     .header {
+      flex-shrink: 0;
       background-color: var(--secondary-bg);
       border-bottom: 1px solid var(--border-color);
       padding: 14px 16px;
+      padding-top: max(14px, env(safe-area-inset-top));
       display: flex;
       align-items: center;
       justify-content: space-between;
-      position: sticky;
-      top: 0;
       z-index: 100;
+      touch-action: none;
+      user-select: none;
     }
 
     .profile-info {
@@ -115,7 +133,12 @@
 
     /* MAIN CONTAINER */
     .container {
-      padding: 14px;
+      flex: 1;
+      overflow-y: auto !important;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain !important;
+      padding: 14px 14px calc(75px + max(15px, env(safe-area-inset-bottom))) 14px;
       max-width: 600px;
       margin: 0 auto;
       width: 100%;
@@ -475,7 +498,10 @@
       display: flex;
       justify-content: space-around;
       padding: 8px 0;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
       z-index: 100;
+      touch-action: none;
+      user-select: none;
     }
 
     .nav-item {
@@ -780,17 +806,70 @@
   <script>
     // Telegram WebApp SDK
     const tg = window.Telegram?.WebApp;
+
     function applyFullscreen() {
       if (tg) {
         try { tg.ready(); } catch (e) {}
         try { tg.expand(); } catch (e) {}
+        if (typeof tg.disableVerticalSwipes === "function") {
+          try { tg.disableVerticalSwipes(); } catch (e) {}
+        }
+        try { tg.isVerticalSwipesEnabled = false; } catch (e) {}
         if (typeof tg.requestFullscreen === "function") {
           try { tg.requestFullscreen(); } catch (e) {}
         }
         try { tg.enableClosingConfirmation(); } catch (e) {}
+        try {
+          if (tg.setHeaderColor) tg.setHeaderColor("#17212b");
+          if (tg.setBackgroundColor) tg.setBackgroundColor("#0e1621");
+        } catch (e) {}
       }
     }
+
     applyFullscreen();
+    setTimeout(applyFullscreen, 50);
+    setTimeout(applyFullscreen, 150);
+    setTimeout(applyFullscreen, 350);
+    setTimeout(applyFullscreen, 800);
+
+    // Viewport o'zgarganda yana to'liq ekranga kengaytirish
+    if (tg && typeof tg.onEvent === "function") {
+      try {
+        tg.onEvent("viewportChanged", () => {
+          applyFullscreen();
+        });
+      } catch (e) {}
+    }
+
+    // Ekranga birinchi teginishdayoq to'liq ekranga o'tkazish
+    document.addEventListener("touchstart", () => {
+      applyFullscreen();
+    }, { passive: true });
+
+    // Pastga tortib yopilib ketishni (swipe down to close / sudralishni) 100% bloklash
+    let touchStartY = 0;
+    document.addEventListener("touchstart", (e) => {
+      if (e.touches && e.touches.length > 0) {
+        touchStartY = e.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    document.addEventListener("touchmove", (e) => {
+      if (!e.touches || e.touches.length === 0) return;
+      const touchY = e.touches[0].clientY;
+      const deltaY = touchY - touchStartY;
+      const scrollable = e.target.closest(".container, .chat-messages, #ignored-list");
+
+      if (!scrollable) {
+        // Header, navbar yoki boshqa statik qismlarni pastga tortishni to'liq bloklash
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
+      // Agar ichki kontent eng yuqorida (scrollTop <= 0) bo'lsa va pastga tortilayotgan bo'lsa, bloklash
+      if (scrollable.scrollTop <= 0 && deltaY > 0) {
+        if (e.cancelable) e.preventDefault();
+      }
+    }, { passive: false });
 
     let authToken = localStorage.getItem("coddy_admin_token") || "";
     const urlParams = new URLSearchParams(window.location.search);
