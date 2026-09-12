@@ -33,41 +33,33 @@ def is_escalation_chat(chat_id: int) -> bool:
 
 
 def is_relevant_group_message(
-    message_text: str, has_photo: bool, has_voice: bool, has_doc_file: bool, has_github: bool, reply_to_me: bool
+    message_text: str,
+    has_photo: bool,
+    has_voice: bool,
+    has_doc_file: bool,
+    has_github: bool,
+    reply_to_me: bool,
+    is_dangerous: bool = False,
+    is_mentioned: bool = False,
 ) -> bool:
-    if has_photo or has_voice or has_doc_file or has_github or reply_to_me:
+    # Rasmlar, ovozli xabarlar, kod fayllari, xavfli fayllar, GitHub linki yoki mentorga qaratilgan xabarlar
+    if has_photo or has_voice or has_doc_file or has_github or reply_to_me or is_dangerous or is_mentioned:
         return True
 
     text = message_text.lower().strip()
     if not text:
         return False
 
-    if "?" in text:
-        return True
-
-    code_indicators = [
-        "error", "exception", "traceback", "syntaxerror",
-        "indexerror", "keyerror", "nameerror", "typeerror", "valueerror",
-    ]
-    if any(ci in text for ci in code_indicators):
-        return True
-
-    help_keywords = [
-        "ustoz", "mentor", "yordam", "ishlamayapti", "xato",
-        "qanday", "tushunmadim", "vazifa", "kodim", "masala",
-        "lms", "tekshir", "kod", "python", "def ", "class ",
-    ]
-    if any(kw in text for kw in help_keywords):
-        return True
-
-    casual_words = {
-        "salom", "assalomu alaykum", "va alaykum assalom", "rahmat",
-        "ok", "ha", "yoq", "yo'q", "kettik", "bopti", "hop", "xop",
+    # Guruhda faqat bitta so'zdan iborat bildirishnomalarni o'tkazib yuborish (keraksiz xabar bo'lmasligi uchun)
+    ignored_standalone = {
+        "ok", "ha", "yoq", "yo'q", "rahmat", "raxmat", "tushunarli",
+        "bopti", "hop", "xop", "+", "++", "+++", "spasibo", "thanks", "thx", "zo'r", "zor"
     }
-    if len(text) > 15 and text not in casual_words:
-        return True
+    if text in ignored_standalone:
+        return False
 
-    return False
+    # Qolgan barcha savollar, vazifalar, salomlar va so'rovlar qabul qilinadi
+    return True
 
 
 def register_auto_reply_handlers(client: TelegramClient) -> None:
@@ -129,10 +121,6 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             if not config.group_reply_enabled:
                 return
 
-            # "Vazifalar" (Eskalyatsiya) guruhi bo'lsa, aslo javob qaytarmaymiz
-            if is_escalation_chat(event.chat_id):
-                return
-
         # Mentorning o'z xabari bo'lsa o'tkazib yuborish
         if event.out:
             return
@@ -166,11 +154,26 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             )
         )
 
-        # Kod yoki hujjat fayllarini aniqlash (.py, .txt, .html, .sql, .pdf, ...)
+        # Xavfli fayllar (.apk, .exe, .bat, .cmd va h.k.) tekshiruvi
         doc_name = getattr(event.message.file, "name", "") or ""
         doc_ext = (Path(doc_name).suffix.lower() if doc_name else "") or (
             getattr(event.message.file, "ext", "").lower() if event.message.file else ""
         )
+        mime_type = (getattr(event.message.file, "mime_type", "") or "").lower()
+
+        DANGEROUS_EXTS = {
+            ".apk", ".xapk", ".apkm", ".exe", ".msi", ".bat",
+            ".cmd", ".scr", ".com", ".vbs", ".jar", ".bin",
+            ".dmg", ".iso", ".deb", ".rpm"
+        }
+        is_apk = (
+            doc_ext in {".apk", ".xapk", ".apkm"}
+            or mime_type in ("application/vnd.android.package-archive", "application/x-authorware-bin")
+            or doc_name.lower().endswith((".apk", ".xapk", ".apkm"))
+        )
+        is_dangerous = is_apk or (doc_ext in DANGEROUS_EXTS)
+
+        # Kod yoki hujjat fayllarini aniqlash (.py, .txt, .html, .sql, .pdf, ...)
         supported_code_exts = {
             ".py", ".txt", ".html", ".css", ".js", ".ts",
             ".json", ".sql", ".java", ".c", ".cpp", ".md",
@@ -181,7 +184,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         )
         has_github = bool("github.com/" in message_text)
 
-        if not message_text.strip() and not has_photo and not has_voice and not has_doc_file:
+        if not message_text.strip() and not has_photo and not has_voice and not has_doc_file and not is_dangerous:
             return
 
         # Agar xabar reply qilingan bo'lsa
@@ -196,25 +199,28 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 if parent.sender_id == self_id:
                     reply_to_me = True
 
-        # Guruhlarda faqat aniq savol yoki yordam so'rovlariga javob berish
+        is_mentioned = bool(getattr(event.message, "mentioned", False))
+        if "ustoz" in message_text.lower() or "mentor" in message_text.lower():
+            is_mentioned = True
+
+        # Guruhlarda xabarning o'rinliligini tekshirish
         if is_group and not is_relevant_group_message(
-            message_text, has_photo, has_voice, has_doc_file, has_github, reply_to_me
+            message_text=message_text,
+            has_photo=has_photo,
+            has_voice=has_voice,
+            has_doc_file=has_doc_file,
+            has_github=has_github,
+            reply_to_me=reply_to_me,
+            is_dangerous=is_dangerous,
+            is_mentioned=is_mentioned,
         ):
             return
 
         task_key = event.chat_id
         sender_id = event.sender_id or event.chat_id
+        message_received_time = time.time()
 
-        # Flood himoyasi
-        now = time.time()
-        last_time = LAST_REPLY_TIME.get(task_key, 0.0)
-        if now - last_time < MIN_INTERVAL_SECONDS:
-            logger.info("Chat %s uchun flood himoyasi faollashdi, kutilmoqda.", task_key)
-            return
-
-        LAST_REPLY_TIME[task_key] = now
-
-        # Agar oldinroq ushbu chat uchun kutilayotgan vazifa bo'lsa, bekor qilamiz
+        # Agar oldinroq ushbu chat uchun kutilayotgan vazifa bo'lsa, bekor qilamiz (debounce)
         if task_key in PENDING_TASKS and not PENDING_TASKS[task_key].done():
             PENDING_TASKS[task_key].cancel()
 
@@ -228,8 +234,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 )
                 await asyncio.sleep(wait_sec)
 
-                # 5 soniya o'tdi: tekshiramiz, mentor o'zi yozdimi?
-                if time.time() - LAST_MENTOR_ACTIVITY.get(task_key, 0.0) < wait_sec:
+                # 5 soniya o'tdi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi?
+                if LAST_MENTOR_ACTIVITY.get(task_key, 0.0) >= message_received_time:
                     logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", task_key)
                     return
 
@@ -240,20 +246,42 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                 logger.info("5 soniya ichida mentor yozmadi. AI ishga kirishmoqda [%s]", task_key)
 
-                # Telegram'da "yozmoqda..." (typing) animatsiyasini ko'rsatish
-                async with client.action(event.chat_id, "typing"):
-                    # Agar xotirada suhbat tarixi kam bo'lsa, Telegram'dagi oxirgi xabarlarni sinxronlash
-                    if len(memory_service.get_history(task_key)) < 3:
-                        try:
-                            past_messages = await client.get_messages(event.chat_id, limit=8)
-                            for pm in reversed(past_messages[1:]):
-                                if pm.text and pm.text.strip():
-                                    r = "model" if pm.out else "user"
-                                    memory_service.add_message(
-                                        chat_id=task_key, role=r, content=pm.text.strip()
-                                    )
-                        except Exception as hist_err:
-                            logger.debug("Telegram chat tarixini o'qishda ogohlantirish: %s", hist_err)
+                # Xavfsizlik: agar .apk yoki xavfli fayl bo'lsa, yuklamasdan ogohlantirish beramiz
+                if is_dangerous:
+                    logger.warning("Xavfsizlik: Xavfli fayl (%s) yuklanmadi [%s].", doc_name, task_key)
+                    if is_apk:
+                        sec_msg = (
+                            "🛡 **Xavfsizlik Ogohlantirishi:**\n"
+                            "Xavfsizlik talablariga muvofiq `.apk` (Android ilovasi) fayllari AI tomonidan ochilmaydi va yuklab olinmaydi.\n\n"
+                            "Iltimos, ilovangiz kodini (`.py`, `.java`, `.kt`, `.dart`), GitHub havolasini yoki xatolik skrinshotini yuboring. Mentor va AI sizga mamnuniyat bilan yordam beradi!"
+                        )
+                    else:
+                        sec_msg = (
+                            f"🛡 **Xavfsizlik Ogohlantirishi:**\n"
+                            f"Xavfsizlik talablariga muvofiq bajariluvchi (`{doc_ext}`) fayllar ochilmaydi va yuklab olinmaydi.\n\n"
+                            "Iltimos, dastur kodingizni toza matn, GitHub havolasi yoki skrinshot ko'rinishida yuboring."
+                        )
+                    await event.reply(sec_msg)
+                    return
+
+                # Telegram'da "yozmoqda..." ko'rsatish
+                try:
+                    await client.send_read_acknowledge(event.chat_id, message=event.message)
+                except Exception:
+                    pass
+
+                # Agar xotirada suhbat tarixi kam bo'lsa, Telegram'dagi oxirgi xabarlarni sinxronlash
+                if len(memory_service.get_history(task_key)) < 3:
+                    try:
+                        past_messages = await client.get_messages(event.chat_id, limit=8)
+                        for pm in reversed(past_messages[1:]):
+                            if pm.text and pm.text.strip():
+                                r = "model" if pm.out else "user"
+                                memory_service.add_message(
+                                    chat_id=task_key, role=r, content=pm.text.strip()
+                                )
+                    except Exception as hist_err:
+                        logger.debug("Telegram chat tarixini o'qishda ogohlantirish: %s", hist_err)
 
                     # Agar ovozli xabar bo'lsa, Whisper orqali matnga o'girish
                     input_text = message_text
@@ -315,6 +343,12 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         logger.info("Mentor so'nggi daqiqada yozdi, AI javobi yuborilmadi.")
                         return
 
+                    # Flood interval tekshiruvi (har bir chat uchun kamida 2 soniya)
+                    now_reply = time.time()
+                    if now_reply - LAST_REPLY_TIME.get(task_key, 0.0) < MIN_INTERVAL_SECONDS:
+                        return
+                    LAST_REPLY_TIME[task_key] = now_reply
+
                     # Javobni yuborish (reply tarzida)
                     await event.reply(answer)
                     logger.info("Chat %s ga AI javobi yuborildi.", task_key)
@@ -345,14 +379,17 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             f"📋 **AI Xulosasi:**\n{answer.escalation}"
                         )
 
-                        try:
-                            target = config.escalation_chat
-                            if target.isdigit() or (target.startswith("-") and target[1:].isdigit()):
-                                target = int(target)
-                            await client.send_message(target, alert_text)
-                            logger.info("Eskalyatsiya xabari '%s' ga yetkazildi.", config.escalation_chat)
-                        except Exception as exc:
-                            logger.error("Eskalyatsiya xabarini yetkazishda xatolik: %s", exc)
+                        if is_escalation_chat(event.chat_id):
+                            logger.info("Murojaat 'Vazifalar' guruhining o'zida bo'lgani uchun qayta ogohlantirish yuborilmadi.")
+                        else:
+                            try:
+                                target = config.escalation_chat
+                                if target.isdigit() or (target.startswith("-") and target[1:].isdigit()):
+                                    target = int(target)
+                                await client.send_message(target, alert_text)
+                                logger.info("Eskalyatsiya xabari '%s' ga yetkazildi.", config.escalation_chat)
+                            except Exception as exc:
+                                logger.error("Eskalyatsiya xabarini yetkazishda xatolik: %s", exc)
 
             except asyncio.CancelledError:
                 logger.info("AI kutish vazifasi bekor qilindi (Mentor yozdi) [%s].", task_key)

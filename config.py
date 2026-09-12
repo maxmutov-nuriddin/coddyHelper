@@ -37,7 +37,7 @@ class Config:
     groq_model: str = "openai/gpt-oss-120b"
     groq_vision_model: str = "qwen/qwen3.8-27b"
     auto_reply_enabled: bool = True
-    group_reply_enabled: bool = False
+    group_reply_enabled: bool = True
     command_prefix: str = "."
     memory_limit: int = 10
     escalation_chat: str = "me"
@@ -69,7 +69,7 @@ class Config:
         groq_vision_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
 
         auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
-        group_reply_enabled = str_to_bool(os.getenv("GROUP_REPLY_ENABLED", "false"), default=False)
+        group_reply_enabled = str_to_bool(os.getenv("GROUP_REPLY_ENABLED", "true"), default=True)
         command_prefix = os.getenv("COMMAND_PREFIX", ".").strip()
         escalation_chat = os.getenv("ESCALATION_CHAT", "me").strip()
         string_session = os.getenv("TELEGRAM_STRING_SESSION", "").strip()
