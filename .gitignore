@@ -1,0 +1,37 @@
+# Muhit va maxfiy kalitlar (.env faylini hech qachon Gitga yuklamang!)
+.env
+*.env
+.env.*
+!.env.example
+
+# Telegram sessiya fayllari (Akkaunt maxfiyligi uchun muhim!)
+*.session
+*.session-journal
+
+# Ma'lumotlar bazasi (Doimiy SQLite xotirasi)
+*.db
+*.sqlite3
+
+# Python virtual muhit
+.venv/
+venv/
+env/
+ENV/
+
+# Python kompilyatsiya va kesh fayllari
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Operatsion tizim va IDE fayllari
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+Thumbs.db
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
