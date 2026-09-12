@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>coddyHelper Admin Panel</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg-color: var(--tg-theme-bg-color, #0e1621);
+      --secondary-bg: var(--tg-theme-secondary-bg-color, #17212b);
+      --card-bg: #1f2b38;
+      --card-hover: #273748;
+      --text-color: var(--tg-theme-text-color, #f5f5f5);
+      --hint-color: var(--tg-theme-hint-color, #7e8e9f);
+      --accent: #2ea6ff;
+      --accent-hover: #1c92e3;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --border-color: rgba(255, 255, 255, 0.08);
+      --radius: 14px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      overflow-x: hidden;
+      padding-bottom: 75px;
+    }
+
+    /* HEADER */
+    .header {
+      background-color: var(--secondary-bg);
+      border-bottom: 1px solid var(--border-color);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .profile-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2ea6ff, #0072c6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: bold;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(46, 166, 255, 0.4);
+    }
+
+    .user-details h1 {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .user-details p {
+      font-size: 12px;
+      color: var(--hint-color);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .status-pill.offline {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: currentColor;
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    /* MAIN CONTAINER */
+    .container {
+      padding: 14px;
+      max-width: 600px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* TAB CONTENT */
+    .tab-pane {
+      display: none;
+      animation: fadeIn 0.2s ease-in-out;
+    }
+
+    .tab-pane.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* CARDS */
+    .card {
+      background-color: var(--secondary-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--hint-color);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* SWITCH TOGGLE */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .toggle-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .toggle-info h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .toggle-info p {
+      font-size: 12px;
+      color: var(--hint-color);
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #3b4b5c;
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 34px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    input:checked + .slider {
+      background-color: var(--accent);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+
+    /* METRICS GRID */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .metric-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      text-align: center;
+    }
+
+    .metric-value {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--accent);
+      margin-bottom: 2px;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--hint-color);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    /* BUTTONS */
+    .btn {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:active {
+      background: var(--accent-hover);
+      transform: scale(0.98);
+    }
+
+    .btn-secondary {
+      background: var(--card-bg);
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:active {
+      background: var(--card-hover);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-danger:active {
+      background: rgba(239, 68, 68, 0.35);
+    }
+
+    /* ACTIVITY LOGS */
+    .log-list {
+      max-height: 180px;
+      overflow-y: auto;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-right: 4px;
+    }
+
+    .log-item {
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: var(--card-bg);
+      border-left: 3px solid var(--accent);
+      word-break: break-word;
+      font-family: monospace;
+    }
+
+    /* REMINDERS LIST */
+    .reminder-item {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .reminder-info {
+      flex: 1;
+    }
+
+    .reminder-text {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .reminder-time {
+      font-size: 11px;
+      color: var(--hint-color);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* INPUTS & FORM */
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 12px;
+      color: var(--hint-color);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      color: var(--text-color);
+      font-size: 14px;
+      outline: none;
+    }
+
+    .form-input:focus {
+      border-color: var(--accent);
+    }
+
+    /* AI CHAT */
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 200px);
+      min-height: 400px;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .chat-bubble {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .bubble-user {
+      align-self: flex-end;
+      background: var(--accent);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble-ai {
+      align-self: flex-start;
+      background: var(--card-bg);
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      border-bottom-left-radius: 4px;
+      white-space: pre-wrap;
+    }
+
+    .chat-input-bar {
+      display: flex;
+      gap: 8px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .chat-chips {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      white-space: nowrap;
+    }
+
+    .chip {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 4px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      color: var(--hint-color);
+      flex-shrink: 0;
+    }
+
+    .chip:active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* BOTTOM NAV */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background-color: var(--secondary-bg);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-around;
+      padding: 8px 0;
+      z-index: 100;
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      background: none;
+      border: none;
+      color: var(--hint-color);
+      font-size: 11px;
+      cursor: pointer;
+      padding: 4px 8px;
+      transition: color 0.2s ease;
+      flex: 1;
+    }
+
+    .nav-item.active {
+      color: var(--accent);
+    }
+
+    .nav-icon {
+      font-size: 20px;
+    }
+
+    /* TOAST */
+    .toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-100px);
+      background: #242f3d;
+      border: 1px solid var(--border-color);
+      color: white;
+      padding: 10px 18px;
+      border-radius: 24px;
+      font-size: 13px;
+      box-shadow: var(--shadow);
+      z-index: 1000;
+      transition: transform 0.3s ease;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ACCESS DENIED SCREEN */
+    #lock-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg-color);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+      z-index: 9999;
+    }
+
+    #lock-screen .lock-icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ACCESS DENIED FULLSCREEN OVERLAY -->
+  <div id="lock-screen">
+    <div class="lock-icon">🔒</div>
+    <h2 style="font-size: 20px; margin-bottom: 8px;">Kirish Cheklangan</h2>
+    <p style="font-size: 14px; color: var(--hint-color); line-height: 1.5; max-width: 320px;" id="lock-message">
+      Ushbu Telegram Mini App faqat mentor (<b>@mentor_cc</b>) shaxsiy hisobi uchun himoyalangan.
+    </p>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="toast">Xabar saqlandi</div>
+
+  <!-- TOP HEADER -->
+  <header class="header">
+    <div class="profile-info">
+      <div class="avatar" id="header-avatar">TC</div>
+      <div class="user-details">
+        <h1 id="header-title">Teacher (@mentor_cc)</h1>
+        <p id="header-sub">ID: 8105823872 • Vazifalar Admin</p>
+      </div>
+    </div>
+    <div class="status-pill" id="global-status">
+      <span class="status-dot"></span>
+      <span id="global-status-text">Faol</span>
+    </div>
+  </header>
+
+  <!-- MAIN VIEW CONTAINER -->
+  <main class="container">
+
+    <!-- ==================== TAB 1: DASHBOARD ==================== -->
+    <div class="tab-pane active" id="tab-dashboard">
+      
+      <!-- QUICK TOGGLE SWITCHES -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">⚡ Asosiy Boshqaruv</span>
+        </div>
+
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <h3>Lichka Avto-Javobi</h3>
+            <p>O'quvchilar savollariga 5s dan so'ng aqlli yordam</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="switch-auto-reply" onchange="toggleFeature('auto_reply', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <h3>Guruhlar Avto-Javobi</h3>
+            <p>Guruhdagi savollar va dars topshiriqlariga javob</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="switch-group-reply" onchange="toggleFeature('group_reply', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- METRICS GRID -->
+      <div class="grid">
+        <div class="metric-box">
+          <div class="metric-value" id="metric-chats">0</div>
+          <div class="metric-label">Faol Chatlar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-reminders">0</div>
+          <div class="metric-label">Eslatmalar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-ignored">0</div>
+          <div class="metric-label">Bloklanganlar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-wait" style="font-size: 18px; line-height: 28px;">5s</div>
+          <div class="metric-label">Mentor Kutish</div>
+        </div>
+      </div>
+
+      <!-- ACTIONS & BACKUP -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">💾 Ma'lumotlar & Zaxira</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-primary" onclick="downloadBackup()" style="flex: 2;">
+            📥 Bazani Yuklab Olish (.db)
+          </button>
+          <button class="btn btn-secondary" onclick="loadStatus()" style="flex: 1;">
+            🔄 Yangilash
+          </button>
+        </div>
+      </div>
+
+      <!-- LIVE ACTIVITY FEED -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📋 Jonli Faoliyat Jurnali</span>
+          <span style="font-size: 11px; color: var(--hint-color);" id="log-count">Oxirgi 15 ta</span>
+        </div>
+        <div class="log-list" id="log-list">
+          <div class="log-item">Jurnal yuklanmoqda...</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================== TAB 2: REMINDERS ==================== -->
+    <div class="tab-pane" id="tab-reminders">
+      
+      <!-- ADD REMINDER CARD -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">⏰ Yangi Eslatma Qo'shish</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Vazifa Matni</label>
+          <input type="text" id="rem-text" class="form-input" placeholder="Masalan: Ali vazifasini tekshirish" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Eslatish Vaqti (YYYY-MM-DD HH:MM:SS)</label>
+          <input type="text" id="rem-time" class="form-input" placeholder="Masalan: 2026-09-13 10:00:00" />
+        </div>
+        <button class="btn btn-primary" onclick="addReminder()">+ Eslatmani Saqlash</button>
+      </div>
+
+      <!-- ACTIVE REMINDERS LIST -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📌 Faol Eslatmalar</span>
+        </div>
+        <div id="reminders-list">
+          <p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Yuklanmoqda...</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================== TAB 3: AI CO-PILOT ==================== -->
+    <div class="tab-pane" id="tab-chat">
+      <div class="card" style="margin-bottom: 0;">
+        <div class="card-header">
+          <span class="card-title">🤖 Tech Lead AI Co-Pilot</span>
+          <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="clearAiChat()">Tozalash</button>
+        </div>
+
+        <div class="chat-container">
+          <div class="chat-chips">
+            <span class="chip" onclick="quickAiPrompt('Haftalik mentorlik hisoboti tuzib ber')">📊 Hisobot</span>
+            <span class="chip" onclick="quickAiPrompt('O\'quvchilar eng ko\'p yo\'l qo\'ygan xatolar bo\'yicha maslahat ber')">💡 Xatolar tahlili</span>
+            <span class="chip" onclick="quickAiPrompt('Python bo\'yicha qiziqarli amaliy topshiriq tayyorla')">📝 Topshiriq</span>
+          </div>
+
+          <div class="chat-messages" id="chat-messages">
+            <div class="chat-bubble bubble-ai">
+              Assalomu alaykum, Ustoz! Men sizning shaxsiy AI yordamchingizman. Vazifalar guruhidagi topshiriqlar, kodlar yoki ta'lim jarayoni bo'yicha qanday yordam bera olaman?
+            </div>
+          </div>
+
+          <div class="chat-input-bar">
+            <input type="text" id="chat-input" class="form-input" placeholder="Savol yoki topshiriq yozing..." onkeydown="if(event.key==='Enter') sendAiMessage()" />
+            <button class="btn btn-primary" style="width: auto; padding: 10px 16px;" onclick="sendAiMessage()">Yuborish</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 4: IGNORED / SECURITY ==================== -->
+    <div class="tab-pane" id="tab-security">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🛡 Bloklangan Spam O'quvchilar</span>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 12px;">
+          Flood yoki spam qilgani sababli bot tomonidan avtomatik ignore qilingan chatlar ro'yxati.
+        </p>
+        <div id="ignored-list">
+          <p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Yuklanmoqda...</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- BOTTOM NAVIGATION BAR -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" onclick="switchTab('dashboard', this)">
+      <span class="nav-icon">🎛</span>
+      <span>Boshqaruv</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('reminders', this)">
+      <span class="nav-icon">⏰</span>
+      <span>Eslatmalar</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('chat', this)">
+      <span class="nav-icon">🤖</span>
+      <span>AI Chat</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('security', this)">
+      <span class="nav-icon">🛡</span>
+      <span>Xavfsizlik</span>
+    </button>
+  </nav>
+
+  <script>
+    // Telegram WebApp SDK
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      try {
+        tg.enableClosingConfirmation();
+      } catch (e) {}
+    }
+
+    let authToken = localStorage.getItem("coddy_admin_token") || "";
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get("token");
+    if (tokenFromUrl) {
+      authToken = tokenFromUrl;
+      localStorage.setItem("coddy_admin_token", authToken);
+    }
+
+    function haptic() {
+      try {
+        tg?.HapticFeedback?.impactOccurred("light");
+      } catch (e) {}
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.innerText = msg;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2500);
+    }
+
+    function switchTab(tabId, el) {
+      haptic();
+      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+      document.querySelectorAll(".nav-item").forEach(i => i.classList.remove("active"));
+      document.getElementById("tab-" + tabId).classList.add("active");
+      if (el) el.classList.add("active");
+
+      if (tabId === "reminders") loadReminders();
+      if (tabId === "security") loadIgnored();
+      if (tabId === "dashboard") loadStatus();
+    }
+
+    async function apiRequest(path, method = "GET", body = null) {
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + authToken
+      };
+      const options = { method, headers };
+      if (body) options.body = JSON.stringify(body);
+
+      try {
+        const res = await fetch(path, options);
+        if (res.status === 403) {
+          showLockScreen();
+          return null;
+        }
+        return await res.json();
+      } catch (err) {
+        console.error("API Error:", err);
+        return null;
+      }
+    }
+
+    function showLockScreen() {
+      document.getElementById("lock-screen").style.display = "flex";
+    }
+
+    // 1. Initial Authentication
+    async function initAuth() {
+      const user = tg?.initDataUnsafe?.user;
+      const payload = {
+        token: authToken,
+        user_id: user?.id,
+        user: user || null,
+        initData: tg?.initData || ""
+      };
+
+      try {
+        const res = await fetch("/api/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.status === 403) {
+          showLockScreen();
+          return;
+        }
+
+        const data = await res.json();
+        if (data.ok && data.token) {
+          authToken = data.token;
+          localStorage.setItem("coddy_admin_token", authToken);
+          loadStatus();
+        } else {
+          showLockScreen();
+        }
+      } catch (e) {
+        if (!authToken) showLockScreen();
+        else loadStatus();
+      }
+    }
+
+    // 2. Load Status & Dashboard
+    async function loadStatus() {
+      const data = await apiRequest("/api/status");
+      if (!data || !data.ok) return;
+
+      // Update toggles
+      document.getElementById("switch-auto-reply").checked = data.auto_reply_enabled;
+      document.getElementById("switch-group-reply").checked = data.group_reply_enabled;
+
+      // Global status pill
+      const pill = document.getElementById("global-status");
+      const pillText = document.getElementById("global-status-text");
+      if (data.auto_reply_enabled) {
+        pill.classList.remove("offline");
+        pillText.innerText = "Online (Faol)";
+      } else {
+        pill.classList.add("offline");
+        pillText.innerText = "To'xtatilgan";
+      }
+
+      // Metrics
+      document.getElementById("metric-chats").innerText = data.active_chats_count;
+      document.getElementById("metric-reminders").innerText = data.active_reminders_count;
+      document.getElementById("metric-ignored").innerText = data.ignored_users_count;
+      document.getElementById("metric-wait").innerText = data.mentor_wait_seconds + "s";
+
+      // Logs
+      const logList = document.getElementById("log-list");
+      if (data.recent_activity_logs && data.recent_activity_logs.length > 0) {
+        logList.innerHTML = data.recent_activity_logs
+          .map(l => `<div class="log-item">${escapeHtml(l)}</div>`)
+          .join("");
+      } else {
+        logList.innerHTML = '<div class="log-item">Hozircha yangi faoliyat qayd etilmadi.</div>';
+      }
+    }
+
+    // 3. Toggle Feature
+    async function toggleFeature(feature, enabled) {
+      haptic();
+      const res = await apiRequest("/api/toggle", "POST", { feature, enabled });
+      if (res && res.ok) {
+        const name = feature === "auto_reply" ? "Lichka avto-javobi" : "Guruhlar avto-javobi";
+        showToast(name + " " + (enabled ? "yoqildi ✅" : "to'xtatildi ⏸"));
+        loadStatus();
+      } else {
+        showToast("Xatolik yuz berdi!");
+      }
+    }
+
+    // 4. Download Backup
+    function downloadBackup() {
+      haptic();
+      window.location.href = "/api/backup?token=" + encodeURIComponent(authToken);
+      showToast("Zaxira nusxasi yuklab olinmoqda...");
+    }
+
+    // 5. Reminders
+    async function loadReminders() {
+      const data = await apiRequest("/api/reminders");
+      const container = document.getElementById("reminders-list");
+      if (!data || !data.ok || !data.reminders || data.reminders.length === 0) {
+        container.innerHTML = '<p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Faol eslatmalar yo\'q.</p>';
+        return;
+      }
+
+      container.innerHTML = data.reminders.map(r => `
+        <div class="reminder-item">
+          <div class="reminder-info">
+            <div class="reminder-text">📌 ${escapeHtml(r.text)}</div>
+            <div class="reminder-time">⏰ ${r.remind_at} • ID: ${r.id}</div>
+          </div>
+          <button class="btn btn-danger" style="width: auto; padding: 6px 12px; font-size: 12px;" onclick="deleteReminder(${r.id})">
+            🗑 Bekor qilish
+          </button>
+        </div>
+      `).join("");
+    }
+
+    async function addReminder() {
+      haptic();
+      const text = document.getElementById("rem-text").value.trim();
+      const remind_at = document.getElementById("rem-time").value.trim();
+      if (!text || !remind_at) {
+        showToast("Iltimos, matn va vaqtni to'ldiring!");
+        return;
+      }
+
+      const res = await apiRequest("/api/reminders/add", "POST", { text, remind_at });
+      if (res && res.ok) {
+        showToast("Eslatma saqlandi! ID: " + res.id);
+        document.getElementById("rem-text").value = "";
+        document.getElementById("rem-time").value = "";
+        loadReminders();
+      } else {
+        showToast("Xatolik: " + (res?.error || "Saqlanmadi"));
+      }
+    }
+
+    async function deleteReminder(id) {
+      haptic();
+      if (!confirm("Haqiqatan ham bu eslatmani o'chirmoqchimisiz?")) return;
+      const res = await apiRequest("/api/reminders/delete", "POST", { id });
+      if (res && res.ok) {
+        showToast("Eslatma bekor qilindi!");
+        loadReminders();
+      }
+    }
+
+    // 6. Ignored Users
+    async function loadIgnored() {
+      const data = await apiRequest("/api/ignored");
+      const container = document.getElementById("ignored-list");
+      if (!data || !data.ok || !data.ignored_users || data.ignored_users.length === 0) {
+        container.innerHTML = '<p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Bloklanganlar ro\'yxati bo\'sh.</p>';
+        return;
+      }
+
+      container.innerHTML = data.ignored_users.map(u => `
+        <div class="reminder-item">
+          <div class="reminder-info">
+            <div class="reminder-text">👤 ID: <code>${u.user_id}</code> ${u.username ? '(@' + escapeHtml(u.username) + ')' : ''}</div>
+            <div class="reminder-time">⏰ ${u.created_at}</div>
+          </div>
+          <button class="btn btn-secondary" style="width: auto; padding: 6px 12px; font-size: 12px;" onclick="unignoreUser(${u.user_id})">
+            Blokdan chiqarish
+          </button>
+        </div>
+      `).join("");
+    }
+
+    async function unignoreUser(userId) {
+      haptic();
+      const res = await apiRequest("/api/ignored/remove", "POST", { user_id: userId });
+      if (res && res.ok) {
+        showToast("Foydalanuvchi blokdan chiqarildi!");
+        loadIgnored();
+      }
+    }
+
+    // 7. AI Chat
+    function quickAiPrompt(promptText) {
+      document.getElementById("chat-input").value = promptText;
+      sendAiMessage();
+    }
+
+    function clearAiChat() {
+      document.getElementById("chat-messages").innerHTML = `
+        <div class="chat-bubble bubble-ai">
+          Suhbat tozalandi. Yangi savolingizni yozishingiz mumkin!
+        </div>
+      `;
+    }
+
+    async function sendAiMessage() {
+      const input = document.getElementById("chat-input");
+      const msg = input.value.trim();
+      if (!msg) return;
+
+      haptic();
+      input.value = "";
+      const container = document.getElementById("chat-messages");
+
+      // Append user bubble
+      const userBubble = document.createElement("div");
+      userBubble.className = "chat-bubble bubble-user";
+      userBubble.innerText = msg;
+      container.appendChild(userBubble);
+
+      // Append thinking bubble
+      const aiBubble = document.createElement("div");
+      aiBubble.className = "chat-bubble bubble-ai";
+      aiBubble.innerText = "⏳ O'ylanmoqda...";
+      container.appendChild(aiBubble);
+      container.scrollTop = container.scrollHeight;
+
+      const res = await apiRequest("/api/ai_chat", "POST", { message: msg });
+      if (res && res.ok && res.reply) {
+        aiBubble.innerText = res.reply;
+      } else {
+        aiBubble.innerText = "❌ Xatolik yuz berdi: Javob olib bo'lmadi.";
+      }
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+      if (!text) return "";
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Start authentication on page load
+    initAuth();
+  </script>
+</body>
+</html>

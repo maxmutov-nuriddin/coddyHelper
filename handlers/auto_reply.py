@@ -262,6 +262,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         message_text = event.raw_text or event.message.message or ""
+        clean_msg = message_text.strip().lower()
+        if clean_msg in ("panel", "app", "admin", "webapp", ".panel", ".app", ".admin", "/panel", "/app", "/admin"):
+            return
         has_photo = bool(
             event.message.photo
             or (

@@ -50,6 +50,8 @@ class Config:
     secret_group_stop_word: str = "guruh stop"
     secret_group_start_word: str = "guruh start"
     mentor_wait_seconds: float = 5.0
+    web_app_url: str = "https://coddyhelper.onrender.com"
+    mentor_user_id: int = 8105823872
 
     @classmethod
     def load(cls) -> "Config":
@@ -88,6 +90,10 @@ class Config:
         raw_memory_limit = os.getenv("MEMORY_LIMIT", "10").strip()
         memory_limit = int(raw_memory_limit) if raw_memory_limit.isdigit() else 10
 
+        web_app_url = os.getenv("RENDER_EXTERNAL_URL", os.getenv("WEB_APP_URL", "https://coddyhelper.onrender.com")).strip().rstrip("/")
+        raw_mentor_id = os.getenv("MENTOR_USER_ID", "8105823872").strip()
+        mentor_user_id = int(raw_mentor_id) if raw_mentor_id.isdigit() else 8105823872
+
         return cls(
             api_id=api_id,
             api_hash=api_hash,
@@ -111,6 +117,8 @@ class Config:
             secret_group_stop_word=secret_group_stop_word,
             secret_group_start_word=secret_group_start_word,
             mentor_wait_seconds=mentor_wait_seconds,
+            web_app_url=web_app_url,
+            mentor_user_id=mentor_user_id,
         )
 
     def validate(self) -> list[str]:

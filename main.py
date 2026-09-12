@@ -150,6 +150,10 @@ async def start_render_web_server(port: int):
     app.router.add_get("/health", handle_ping)
     app.router.add_get("/status", handle_ping)
 
+    # Telegram Mini App (Admin Panel) routerlarini ulash
+    from web_app import setup_web_app_routes
+    setup_web_app_routes(app, lambda: CURRENT_CLIENT)
+
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)

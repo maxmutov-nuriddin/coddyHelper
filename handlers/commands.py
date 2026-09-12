@@ -82,6 +82,53 @@ def register_command_handlers(client: TelegramClient) -> None:
             f"{prefix}status",
             f"{prefix}holat",
         }
+        panel_triggers = {
+            "panel",
+            "app",
+            "admin",
+            "webapp",
+            f"{prefix}panel",
+            f"{prefix}app",
+            f"{prefix}admin",
+            f"{prefix}webapp",
+            "/panel",
+            "/app",
+            "/admin",
+        }
+
+        # Telegram Mini App Admin Panel ochish
+        if lower_text in panel_triggers:
+            from web_app import generate_admin_token
+            sender_id = event.sender_id or config.mentor_user_id
+            token = generate_admin_token(user_id=sender_id)
+            app_url = f"{config.web_app_url}/app?token={token}"
+
+            if event.is_private:
+                await event.edit(
+                    "🎛 **coddyHelper — Telegram Mini App (Admin Panel)**\n\n"
+                    "Boshqaruv panelingiz muvaffaqiyatli ochildi!\n\n"
+                    f"👉 **[Admin Panelni Ochish (Mini App)]({app_url})**\n\n"
+                    "🛡 *Xavfsizlik: Ushbu havola faqat siz (@mentor_cc) uchun shaxsiy token bilan himoyalangan.*"
+                )
+            else:
+                try:
+                    await client.send_message(
+                        "me",
+                        "🎛 **coddyHelper — Admin Panel Xavfsiz Havolasi**\n\n"
+                        f"Guruhdan ({event.chat_id}) chaqirilgan boshqaruv paneli:\n"
+                        f"👉 **[Admin Panelni Ochish (Mini App)]({app_url})**\n\n"
+                        "🛡 *Ushbu havola faqat siz uchun faol.*"
+                    )
+                except Exception as me_err:
+                    logger.warning("Saved messages ga yuborib bo'lmadi: %s", me_err)
+
+                await event.edit(
+                    "🔐 **coddyHelper Admin Panel**\n\n"
+                    "Boshqaruv paneli havolasi shaxsiy xabarlaringizga ([Saved Messages](tg://user?id=8105823872)) yuborildi!\n"
+                    f"👉 To'g'ridan-to'g'ri ochish: [Boshqaruv Paneli]({app_url})\n\n"
+                    "⚠️ *Xavfsizlik: Begona foydalanuvchilar kira olmaydi (Faqat @mentor_cc ruxsat etilgan).* "
+                )
+            return
 
         # Guruhlar avto-javobini boshqarish
         if lower_text in group_stop_triggers:
@@ -578,7 +625,8 @@ def register_command_handlers(client: TelegramClient) -> None:
         if cmd == "help":
             help_text = (
                 "🤖 **coddyHelper AI Yordamchi — Buyruqlar:**\n\n"
-                "**Boshqaruv (Maxfiy buyruqlar):**\n"
+                "**Boshqaruv (Admin & Mini App):**\n"
+                "- `panel` / `app` — Telegram Mini App (Admin Panel) ochish\n"
                 "- `ai stop` / `ai start` — AI avto-javobini to'liq to'xtatish / yoqish\n"
                 "- `guruh start` / `guruh stop` — Guruhlarga javob berishni yoqish / to'xtatish\n\n"
                 "**Aqlli Eslatmalar:**\n"
@@ -597,3 +645,40 @@ def register_command_handlers(client: TelegramClient) -> None:
             )
             await event.edit(help_text)
             return
+
+    # -----------------------------------------------------------
+    # 5. Guruhdan (Vazifalar) kelgan panel/app buyruqlari
+    # -----------------------------------------------------------
+    @client.on(events.NewMessage(incoming=True, pattern=r"(?i)^([./])?(panel|app|admin|webapp)($|\s)"))
+    async def handle_incoming_panel_command(event: events.NewMessage.Event):
+        from config import is_escalation_chat
+        if not (is_escalation_chat(event.chat_id) or event.is_private):
+            return
+
+        sender_id = event.sender_id or 0
+        if sender_id != config.mentor_user_id and sender_id != 8105823872:
+            await event.reply("🚫 **Kechirasiz, ushbu buyruq va Admin Panel faqat mentor (@mentor_cc) uchun ochiq.**")
+            return
+
+        from web_app import generate_admin_token
+        token = generate_admin_token(user_id=sender_id)
+        app_url = f"{config.web_app_url}/app?token={token}"
+
+        try:
+            await client.send_message(
+                "me",
+                "🎛 **coddyHelper — Admin Panel Xavfsiz Havolasi**\n\n"
+                f"Guruhdan ({event.chat_id}) chaqirilgan boshqaruv paneli:\n"
+                f"👉 **[Admin Panelni Ochish (Mini App)]({app_url})**\n\n"
+                "🛡 *Faqat siz (@mentor_cc) uchun xavfsiz token.*"
+            )
+        except Exception:
+            pass
+
+        await event.reply(
+            "🔐 **coddyHelper Admin Panel**\n\n"
+            "Boshqaruv paneli havolasi shaxsiy xabarlaringizga ([Saved Messages](tg://user?id=8105823872)) yuborildi!\n"
+            f"👉 To'g'ridan-to'g'ri ochish: [Boshqaruv Paneli]({app_url})\n\n"
+            "⚠️ *Eslatma: Faqat @mentor_cc boshqarishi mumkin.*"
+        )
+
