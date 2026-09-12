@@ -16,7 +16,49 @@ def register_command_handlers(client: TelegramClient) -> None:
 
     @client.on(events.NewMessage(outgoing=True))
     async def handle_user_command(event: events.NewMessage.Event):
-        raw_text = event.raw_text or ""
+        raw_text = (event.raw_text or "").strip()
+        lower_text = raw_text.lower()
+
+        # -----------------------------------------------------------
+        # 0. Xavfsizlik: Sirli so'zlar orqali to'liq to'xtatish va yoqish
+        # Masalan: "ai stop", "ai start", yoki .env dagi maxsus so'zlar
+        # -----------------------------------------------------------
+        stop_triggers = {
+            config.secret_stop_word,
+            "ai stop",
+            "coddy stop",
+            f"{prefix}ai stop",
+            f"{prefix}ai off",
+            f"{prefix}stop",
+        }
+        start_triggers = {
+            config.secret_start_word,
+            "ai start",
+            "coddy start",
+            f"{prefix}ai start",
+            f"{prefix}ai on",
+            f"{prefix}start",
+        }
+
+        if lower_text in stop_triggers:
+            config.auto_reply_enabled = False
+            await event.edit(
+                "🔒 **XAVFSIZLIK: AI Agent to'liq to'xtatildi!**\n"
+                "• Avto-javob: O'chirilgan\n"
+                "• Barcha xabarlar faqat siz tomondan qo'lda boshqariladi.\n\n"
+                "Qayta faollashtirish uchun: `ai start` deb yozing."
+            )
+            return
+
+        if lower_text in start_triggers:
+            config.auto_reply_enabled = True
+            await event.edit(
+                "🔓 **XAVFSIZLIK: AI Agent qayta faollashtirildi!**\n"
+                "• Avto-javob: Yoqilgan\n"
+                "• O'quvchilar xabarlariga 120B AI yordam berishni boshladi."
+            )
+            return
+
         if not raw_text.startswith(prefix):
             return
 

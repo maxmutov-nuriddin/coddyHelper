@@ -44,6 +44,8 @@ class Config:
     session_name: str = "coddy_helper_session"
     string_session: str = ""
     port: int = 10000
+    secret_stop_word: str = "ai stop"
+    secret_start_word: str = "ai start"
 
     @classmethod
     def load(cls) -> "Config":
@@ -70,6 +72,9 @@ class Config:
         raw_port = os.getenv("PORT", "10000").strip()
         port = int(raw_port) if raw_port.isdigit() else 10000
 
+        secret_stop_word = os.getenv("SECRET_STOP_WORD", "ai stop").strip().lower()
+        secret_start_word = os.getenv("SECRET_START_WORD", "ai start").strip().lower()
+
         raw_memory_limit = os.getenv("MEMORY_LIMIT", "10").strip()
         memory_limit = int(raw_memory_limit) if raw_memory_limit.isdigit() else 10
 
@@ -90,6 +95,8 @@ class Config:
             escalation_chat=escalation_chat,
             string_session=string_session,
             port=port,
+            secret_stop_word=secret_stop_word,
+            secret_start_word=secret_start_word,
         )
 
     def validate(self) -> list[str]:
