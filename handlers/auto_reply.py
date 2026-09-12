@@ -30,8 +30,10 @@ def is_escalation_chat(chat_id: int) -> bool:
     return c_norm == t_norm
 
 
-def is_relevant_group_message(message_text: str, has_photo: bool, reply_to_me: bool) -> bool:
-    if has_photo or reply_to_me:
+def is_relevant_group_message(
+    message_text: str, has_photo: bool, has_voice: bool, reply_to_me: bool
+) -> bool:
+    if has_photo or has_voice or reply_to_me:
         return True
 
     text = message_text.lower().strip()
@@ -137,6 +139,13 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if sender and getattr(sender, "bot", False):
             return
 
+        sender_id = event.sender_id or event.chat_id
+
+        # Bloklangan (ignore) foydalanuvchini tekshirish
+        if memory_service.is_user_ignored(sender_id):
+            logger.info("Foydalanuvchi %s bloklanganlar (ignored) ro'yxatida. AI javob bermaydi.", sender_id)
+            return
+
         message_text = event.raw_text or event.message.message or ""
         has_photo = bool(
             event.message.photo
@@ -146,8 +155,16 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 and getattr(event.message.file, "mime_type", "").startswith("image/")
             )
         )
+        has_voice = bool(
+            getattr(event.message, "voice", False)
+            or (
+                event.message.document
+                and event.message.file
+                and getattr(event.message.file, "mime_type", "").startswith("audio/")
+            )
+        )
 
-        if not message_text.strip() and not has_photo:
+        if not message_text.strip() and not has_photo and not has_voice:
             return
 
         # Agar xabar reply qilingan bo'lsa
@@ -163,7 +180,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     reply_to_me = True
 
         # Guruhlarda faqat aniq savol yoki yordam so'rovlariga javob berish
-        if is_group and not is_relevant_group_message(message_text, has_photo, reply_to_me):
+        if is_group and not is_relevant_group_message(message_text, has_photo, has_voice, reply_to_me):
             return
 
         task_key = event.chat_id
@@ -219,6 +236,22 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         except Exception as hist_err:
                             logger.debug("Telegram chat tarixini o'qishda ogohlantirish: %s", hist_err)
 
+                    # Agar ovozli xabar bo'lsa, Whisper orqali matnga o'girish
+                    input_text = message_text
+                    if has_voice and not input_text.strip():
+                        try:
+                            audio_bytes = await event.message.download_media(bytes)
+                            if audio_bytes:
+                                transcribed = await ai_service.transcribe_audio(audio_bytes)
+                                if transcribed:
+                                    input_text = f"[Ovozli xabar]: {transcribed}"
+                                    logger.info("Ovozli xabar matnga o'girildi [%s]: %s", task_key, transcribed[:80])
+                        except Exception as v_err:
+                            logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
+
+                    if not input_text.strip() and not has_photo:
+                        return
+
                     # Agar rasm bo'lsa, yuklab olish
                     image_bytes = None
                     if has_photo:
@@ -227,7 +260,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     # AI javobini olish
                     answer = await ai_service.generate_reply(
                         chat_id=task_key,
-                        user_message=message_text,
+                        user_message=input_text,
                         reply_to_context=reply_context,
                         image_bytes=image_bytes,
                     )
@@ -263,7 +296,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             f"📍 **Manba:** {chat_source}\n"
                             f"👤 **O'quvchi:** {sender_name} ({sender_user})\n"
                             f"🆔 **ID:** `{sender_id}`\n\n"
-                            f"❓ **O'quvchi yozgan xabar:**\n\"{message_text}\"\n\n"
+                            f"❓ **O'quvchi xabari:**\n\"{input_text}\"\n\n"
                             f"📋 **AI Xulosasi:**\n{answer.escalation}"
                         )
 

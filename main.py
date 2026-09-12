@@ -42,6 +42,22 @@ async def start_render_web_server(port: int):
     logger.info("Render Web Service serveri 0.0.0.0:%d portida ishga tushdi.", port)
 
 
+async def start_keep_alive_worker(port: int):
+    """Render Web Service uxlab qolmasligi uchun fon rejimida har 10 daqiqada ping yuboradi."""
+    await asyncio.sleep(45)
+    import aiohttp
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                url = f"http://127.0.0.1:{port}/health"
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 200:
+                        logger.debug("Keep-alive ping muvaffaqiyatli yuborildi.")
+            except Exception as e:
+                logger.debug("Keep-alive ogohlantirish: %s", e)
+            await asyncio.sleep(600)  # Har 10 daqiqada
+
+
 async def main():
     print("=" * 60)
     print("🚀 coddyHelper — Shaxsiy Telegram AI Yordamchisi ishga tushmoqda...")
@@ -59,6 +75,7 @@ async def main():
     # Render.com uchun HTTP serverni fonda yurgizish
     try:
         await start_render_web_server(config.port)
+        asyncio.create_task(start_keep_alive_worker(config.port))
     except Exception as e:
         logger.warning("Web serverni ishga tushirishda ogohlantirish: %s", e)
 

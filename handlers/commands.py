@@ -138,12 +138,17 @@ def register_command_handlers(client: TelegramClient) -> None:
                 "• `ai start` — AI'ni qayta ishga tushirish\n"
                 "• `guruh start` — Guruhlardagi savollarga javob berishni yoqish\n"
                 "• `guruh stop` — Guruhlarga javob berishni to'xtatish (faqat lichkada ishlaydi)\n\n"
-                "📊 **Tizim va Holat:**\n"
+                "📊 **Tizim va Mentor Analitikasi:**\n"
+                "• `report` yoki `ai report` — O'quvchilar xatoliklari bo'yicha haftalik tahliliy hisobot\n"
                 "• `status` yoki `.status` — Tizim holati (Lichka va Guruhlar holati, xotiradagi o'quvchilar soni)\n"
                 "• `help` yoki `.help` — Ushbu buyruqlar ro'yxatini ko'rsatish\n\n"
+                "🚫 **Spam / Hazilkashlardan Himoya (Ignore):**\n"
+                "• `ai ignore @username` — O'quvchini bloklash (AI javob bermaydi)\n"
+                "• `ai unignore @username` — Blokdan chiqarish\n"
+                "• `ai ignored` — Bloklanganlar ro'yxati\n\n"
                 "🛠 **Qo'lda Tezkor Ishlatish:**\n"
                 f"• `{prefix}ai <savol>` — Tezkor AI javobini olish\n"
-                f"• Biror xabar yoki rasmga reply qilib `{prefix}ai` deb yozish — O'sha xabarni yoki LMS vazifasini AI orqali tahlil qilish\n"
+                f"• Biror xabar, rasm yoki audioga reply qilib `{prefix}ai` deb yozish — O'sha xabarni AI orqali tahlil qilish\n"
                 f"• `{prefix}clear` — Joriy chatdagi o'quvchi suhbat tarixini tozalash"
             )
             await event.edit(help_text)
@@ -165,6 +170,105 @@ def register_command_handlers(client: TelegramClient) -> None:
                 f"- **Xotira chegarasi:** {config.memory_limit} ta xabar"
             )
             await event.edit(status_text)
+            return
+
+        # -----------------------------------------------------------
+        # Analitika (Mentor Hisoboti)
+        # -----------------------------------------------------------
+        if lower_text in ("report", "ai report", ".report", f"{prefix}report", "hisobot", ".hisobot"):
+            await event.edit("📊 **Oxirgi haftalik o'quvchilar xatoliklari tahlil qilinmoqda...**")
+            questions = memory_service.get_recent_user_questions(limit=50)
+            report_text = await ai_service.generate_mentor_report(questions)
+            await event.edit(report_text)
+            return
+
+        # -----------------------------------------------------------
+        # Ignore / Bloklash buyruqlari
+        # -----------------------------------------------------------
+        if lower_text in ("ai ignored", "ignored", ".ignored", f"{prefix}ignored"):
+            ignored_list = memory_service.get_ignored_users()
+            if not ignored_list:
+                await event.edit("ℹ️ Hozirda hech qanday foydalanuvchi bloklanmagan.")
+            else:
+                lines = [f"• `{u['user_id']}` ({u['username'] or 'Noma\'lum'})" for u in ignored_list]
+                await event.edit("🚫 **Bloklangan (AI javob bermaydigan) foydalanuvchilar:**\n\n" + "\n".join(lines))
+            return
+
+        is_ignore = False
+        is_unignore = False
+        target_arg = ""
+
+        for kw in ["ai ignore", "ignore", f"{prefix}ignore"]:
+            if lower_text.startswith(kw):
+                is_ignore = True
+                target_arg = raw_text[len(kw):].strip()
+                break
+
+        if not is_ignore:
+            for kw in ["ai unignore", "unignore", f"{prefix}unignore"]:
+                if lower_text.startswith(kw):
+                    is_unignore = True
+                    target_arg = raw_text[len(kw):].strip()
+                    break
+
+        if is_ignore:
+            target_id = None
+            target_uname = ""
+            if event.is_reply:
+                reply_msg = await event.get_reply_message()
+                if reply_msg:
+                    target_id = reply_msg.sender_id
+                    sender_ent = await reply_msg.get_sender()
+                    if sender_ent and getattr(sender_ent, "username", None):
+                        target_uname = f"@{sender_ent.username}"
+            elif target_arg:
+                try:
+                    entity = await client.get_entity(target_arg)
+                    target_id = entity.id
+                    target_uname = f"@{entity.username}" if getattr(entity, "username", None) else ""
+                except Exception:
+                    if target_arg.isdigit():
+                        target_id = int(target_arg)
+                    elif target_arg.startswith("@"):
+                        target_uname = target_arg
+            else:
+                target_id = event.chat_id
+
+            if target_id:
+                memory_service.ignore_user(target_id, target_uname)
+                await event.edit(
+                    f"🚫 **Foydalanuvchi `{target_id}` {target_uname} bloklandi!**\n"
+                    "• AI endi bu foydalanuvchiga javob bermaydi.\n\n"
+                    f"Qayta ochish uchun: `ai unignore {target_id}`"
+                )
+            else:
+                await event.edit("ℹ️ **Foydalanish:** `ai ignore @username` yoki xabarga reply qilib `ai ignore` deb yozing.")
+            return
+
+        if is_unignore:
+            target_id = None
+            if event.is_reply:
+                reply_msg = await event.get_reply_message()
+                if reply_msg and reply_msg.sender_id:
+                    target_id = reply_msg.sender_id
+            elif target_arg:
+                try:
+                    entity = await client.get_entity(target_arg)
+                    target_id = entity.id
+                except Exception:
+                    if target_arg.isdigit():
+                        target_id = int(target_arg)
+            else:
+                target_id = event.chat_id
+
+            if target_id:
+                res = memory_service.unignore_user(target_id)
+                if res:
+                    await event.edit(f"✅ **Foydalanuvchi `{target_id}` blokdan chiqarildi!**\n• AI yana uning savollariga javob beradi.")
+                else:
+                    await event.edit(f"ℹ️ Foydalanuvchi `{target_id}` bloklanganlar ro'yxatida topilmadi.")
+            else:
+                await event.edit("ℹ️ **Foydalanish:** `ai unignore @username`")
             return
 
         if not raw_text.startswith(prefix):

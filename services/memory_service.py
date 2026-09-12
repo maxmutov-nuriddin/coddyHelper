@@ -56,6 +56,15 @@ class SQLiteMemoryService:
                     )
                     """
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS ignored_users (
+                        user_id INTEGER PRIMARY KEY,
+                        username TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -143,6 +152,68 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Chatlar sonini olishda xatolik: %s", e)
             return 0
+
+    def ignore_user(self, user_id: int, username: str = "") -> None:
+        """Foydalanuvchini bloklanganlar (ignore) ro'yxatiga qo'shadi."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO ignored_users (user_id, username) VALUES (?, ?)",
+                    (user_id, username),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error("Foydalanuvchini ignore ro'yxatiga qo'shishda xatolik: %s", e)
+
+    def unignore_user(self, user_id: int) -> bool:
+        """Foydalanuvchini ignore ro'yxatidan chiqaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM ignored_users WHERE user_id = ?", (user_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Foydalanuvchini ignore ro'yxatidan o'chirishda xatolik: %s", e)
+            return False
+
+    def is_user_ignored(self, user_id: int) -> bool:
+        """Foydalanuvchi bloklanganligini tekshiradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1 FROM ignored_users WHERE user_id = ?", (user_id,))
+                return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error("Ignore holatini tekshirishda xatolik: %s", e)
+            return False
+
+    def get_ignored_users(self) -> list[dict]:
+        """Bloklangan barcha foydalanuvchilar ro'yxati."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT user_id, username, created_at FROM ignored_users ORDER BY created_at DESC")
+                rows = cursor.fetchall()
+                return [{"user_id": r[0], "username": r[1], "created_at": r[2]} for r in rows]
+        except Exception as e:
+            logger.error("Ignore ro'yxatini olishda xatolik: %s", e)
+            return []
+
+    def get_recent_user_questions(self, limit: int = 50) -> list[str]:
+        """Tahlil uchun o'quvchilar tomonidan yozilgan so'nggi savollarni oladi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT content FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [r[0] for r in rows if r[0] and len(r[0].strip()) > 3]
+        except Exception as e:
+            logger.error("O'quvchilar savollarini olishda xatolik: %s", e)
+            return []
 
 
 # Global xotira instansiyasi

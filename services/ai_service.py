@@ -191,6 +191,75 @@ class AIService:
             logger.exception("AI so'rovida xatolik yuz berdi: %s", e)
             return AIResult(f"⚠️ **AI xizmatida xatolik yuz berdi:** {str(e)}")
 
+    async def transcribe_audio(self, audio_bytes: bytes) -> str:
+        """
+        Groq Whisper (whisper-large-v3) orqali ovozli xabarni o'zbek/rus tilida matnga o'giradi.
+        """
+        if not self._groq_clients:
+            self._setup_clients()
+            if not self._groq_clients:
+                raise RuntimeError("Ovozni tahlil qilish uchun Groq klasteri mavjud emas.")
+
+        last_error = None
+        for _ in range(len(self._groq_clients)):
+            client = self._groq_clients[self._groq_idx]
+            self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+            try:
+                transcription = await client.audio.transcriptions.create(
+                    file=("voice.ogg", audio_bytes),
+                    model="whisper-large-v3",
+                    response_format="text",
+                )
+                text = str(transcription).strip()
+                logger.info("Ovozli xabar matnga aylantirildi: %s", text[:80])
+                return text
+            except Exception as e:
+                logger.warning("Groq Whisper'da xatolik, zaxira kalitga o'tilmoqda: %s", e)
+                last_error = e
+
+        if last_error:
+            raise last_error
+        return ""
+
+    async def generate_mentor_report(self, questions: list[str]) -> str:
+        """
+        O'quvchilarning so'nggi savollari va xatolarini tahlil qilib, mentor uchun hisobot tayyorlaydi.
+        """
+        if not questions:
+            return "ℹ️ Hozircha tahlil qilish uchun o'quvchilar savollari tarixi yetarli emas."
+
+        questions_text = "\n".join([f"- {q}" for q in questions[:50]])
+        prompt = (
+            "Quyida CoddyCamp o'quvchilari tomonidan dasturlash bo'yicha berilgan so'nggi savollar va xatoliklar ro'yxati keltirilgan:\n\n"
+            f"{questions_text}\n\n"
+            "Siz CoddyCamp IT akademiyasi Katta Metodisti va Bosh Mentori sifatida ushbu savollarni chuqur tahlil qilib, dars beruvchi mentor (Nuriddin aka) uchun qisqa, lo'nda va nihoyatda foydali ANALITIK HISOBOT tayyorlang.\n\n"
+            "Hisobot formati quyidagicha bo'lsin:\n"
+            "📊 **CoddyCamp Mentor Analitikasi (O'quvchilar xatoliklari hisoboti)**\n\n"
+            "1. 📌 **Eng ko'p qiynalgan mavzular (Top 3):** (qaysi mavzularda eng ko'p savol tushgan)\n"
+            "2. ⚠️ **Asosiy xatoliklar (Common Bugs):** (o'quvchilar kodida eng ko'p uchragan xatolar)\n"
+            "3. 💡 **Keyingi dars uchun tavsiya:** (mentor darsda aynan qaysi tushunchani chuqurroq tushuntirib, qanday amaliy mashq berishi kerak)\n\n"
+            "Javobni professional, ixcham va tushunarli formatda bering."
+        )
+
+        if not self._groq_clients:
+            self._setup_clients()
+
+        for _ in range(len(self._groq_clients)):
+            client = self._groq_clients[self._groq_idx]
+            self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+            try:
+                response = await client.chat.completions.create(
+                    model=config.groq_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                    max_tokens=1500,
+                )
+                return response.choices[0].message.content.strip()
+            except Exception as e:
+                logger.warning("Mentor hisobotini tuzishda xatolik: %s", e)
+
+        return "⚠️ Hisobotni shakllantirishda xatolik yuz berdi."
+
 
 # Global AI xizmati instansiyasi
 ai_service = AIService()
