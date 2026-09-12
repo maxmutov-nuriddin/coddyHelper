@@ -16,9 +16,10 @@ from services.memory_service import memory_service
 logger = logging.getLogger(__name__)
 
 # Kutilayotgan AI vazifalari va mentorning oxirgi faollik vaqti
-PENDING_TASKS: dict[int, asyncio.Task] = {}
+PENDING_TASKS: dict[object, asyncio.Task] = {}
 LAST_MENTOR_ACTIVITY: dict[int, float] = {}
 LAST_REPLY_TIME: dict[int, float] = {}
+BOT_SENT_MESSAGE_IDS: set[int] = set()
 MIN_INTERVAL_SECONDS = 2.0
 
 # Xavfsizlik: Spamerlar uchun limit va fayl hajmi
@@ -179,13 +180,21 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
     # -----------------------------------------------------------
     @client.on(events.NewMessage(outgoing=True))
     async def on_mentor_message(event: events.NewMessage.Event):
+        # Agar bu botning o'zi yuborgan AI javobi bo'lsa, mentor yozdi deb hisoblamaymiz
+        if event.message.id in BOT_SENT_MESSAGE_IDS:
+            BOT_SENT_MESSAGE_IDS.discard(event.message.id)
+            return
+
         chat_id = event.chat_id
         LAST_MENTOR_ACTIVITY[chat_id] = time.time()
 
-        # Agar ushbu chat uchun AI javob kutayotgan bo'lsa, darhol bekor qilish
-        if chat_id in PENDING_TASKS and not PENDING_TASKS[chat_id].done():
-            PENDING_TASKS[chat_id].cancel()
-            logger.info("Mentor o'zi xabar yozdi [%s], AI kutish vazifasi bekor qilindi.", chat_id)
+        # Ushbu chatdagi barcha kutilayotgan AI vazifalarini bekor qilish
+        for k in list(PENDING_TASKS.keys()):
+            if k == chat_id or (isinstance(k, tuple) and k[0] == chat_id):
+                task = PENDING_TASKS.pop(k, None)
+                if task and not task.done():
+                    task.cancel()
+        logger.info("Mentor o'zi xabar yozdi [%s], AI kutish vazifalari bekor qilindi.", chat_id)
 
     # -----------------------------------------------------------
     # 2. Mentor yozishni boshlaganini (typing) kuzatish
@@ -198,9 +207,12 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 if event.user_id == self_id:
                     chat_id = event.chat_id
                     LAST_MENTOR_ACTIVITY[chat_id] = time.time()
-                    if chat_id in PENDING_TASKS and not PENDING_TASKS[chat_id].done():
-                        PENDING_TASKS[chat_id].cancel()
-                        logger.info("Mentor yozmoqda (typing) [%s], AI bekor qilindi.", chat_id)
+                    for k in list(PENDING_TASKS.keys()):
+                        if k == chat_id or (isinstance(k, tuple) and k[0] == chat_id):
+                            task = PENDING_TASKS.pop(k, None)
+                            if task and not task.done():
+                                task.cancel()
+                    logger.info("Mentor yozmoqda (typing) [%s], AI kutish vazifalari bekor qilindi.", chat_id)
         except Exception:
             pass
 
@@ -343,29 +355,30 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         ):
             return
 
-        task_key = event.chat_id
         sender_id = event.sender_id or event.chat_id
+        chat_id = event.chat_id
         message_received_time = time.time()
+        debounce_key = (chat_id, sender_id) if is_group else chat_id
 
-        # Agar oldinroq ushbu chat uchun kutilayotgan vazifa bo'lsa, bekor qilamiz (debounce)
-        if task_key in PENDING_TASKS and not PENDING_TASKS[task_key].done():
-            PENDING_TASKS[task_key].cancel()
+        # Agar oldinroq ushbu o'quvchi/chat uchun kutilayotgan vazifa bo'lsa, bekor qilamiz (debounce)
+        if debounce_key in PENDING_TASKS and not PENDING_TASKS[debounce_key].done():
+            PENDING_TASKS[debounce_key].cancel()
 
         async def process_delayed_reply():
             try:
-                is_admin_chat = is_escalation_chat(task_key)
+                is_admin_chat = is_escalation_chat(chat_id)
                 wait_sec = 0 if is_admin_chat else (config.mentor_wait_seconds or 5.0)
                 if wait_sec > 0:
                     logger.info(
                         "Yangi xabar [%s]. Mentor yozishini %s soniya kutamiz...",
-                        task_key,
+                        chat_id,
                         wait_sec,
                     )
                     await asyncio.sleep(wait_sec)
 
                     # 5 soniya o'tdi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi?
-                    if LAST_MENTOR_ACTIVITY.get(task_key, 0.0) >= message_received_time:
-                        logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", task_key)
+                    if LAST_MENTOR_ACTIVITY.get(chat_id, 0.0) >= message_received_time:
+                        logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", chat_id)
                         return
 
                 if not config.auto_reply_enabled and not is_admin_chat:
@@ -373,11 +386,11 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 if is_group and not config.group_reply_enabled and not is_admin_chat:
                     return
 
-                logger.info("AI ishga kirishmoqda [%s]", task_key)
+                logger.info("AI ishga kirishmoqda [%s]", chat_id)
 
                 # Xavfsizlik: agar .apk yoki xavfli fayl bo'lsa, yuklamasdan ogohlantirish beramiz
                 if is_dangerous:
-                    logger.warning("Xavfsizlik: Xavfli fayl (%s) yuklanmadi [%s].", doc_name, task_key)
+                    logger.warning("Xavfsizlik: Xavfli fayl (%s) yuklanmadi [%s].", doc_name, chat_id)
                     if is_apk:
                         sec_msg = (
                             "🛡 **Xavfsizlik Ogohlantirishi:**\n"
@@ -400,161 +413,164 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     pass
 
                 # Agar xotirada suhbat tarixi kam bo'lsa, Telegram'dagi oxirgi xabarlarni sinxronlash
-                if len(memory_service.get_history(task_key)) < 3:
+                if len(memory_service.get_history(chat_id)) < 3:
                     try:
                         past_messages = await client.get_messages(event.chat_id, limit=8)
                         for pm in reversed(past_messages[1:]):
                             if pm.text and pm.text.strip():
                                 r = "model" if pm.out else "user"
                                 memory_service.add_message(
-                                    chat_id=task_key, role=r, content=pm.text.strip()
+                                    chat_id=chat_id, role=r, content=pm.text.strip()
                                 )
                     except Exception as hist_err:
                         logger.debug("Telegram chat tarixini o'qishda ogohlantirish: %s", hist_err)
 
-                    # Agar ovozli xabar bo'lsa, Whisper orqali matnga o'girish
-                    input_text = message_text
-                    if has_voice and not input_text.strip():
-                        try:
-                            audio_bytes = await event.message.download_media(bytes)
-                            if audio_bytes:
-                                transcribed = await ai_service.transcribe_audio(audio_bytes)
-                                if transcribed:
-                                    input_text = f"[Ovozli xabar]: {transcribed}"
-                                    logger.info("Ovozli xabar matnga o'girildi [%s]: %s", task_key, transcribed[:80])
-                        except Exception as v_err:
-                            logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
+                # Agar ovozli xabar bo'lsa, Whisper orqali matnga o'girish
+                input_text = message_text
+                if has_voice and not input_text.strip():
+                    try:
+                        audio_bytes = await event.message.download_media(bytes)
+                        if audio_bytes:
+                            transcribed = await ai_service.transcribe_audio(audio_bytes)
+                            if transcribed:
+                                input_text = f"[Ovozli xabar]: {transcribed}"
+                                logger.info("Ovozli xabar matnga o'girildi [%s]: %s", chat_id, transcribed[:80])
+                    except Exception as v_err:
+                        logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
 
-                    # Agar kod yoki hujjat fayli bo'lsa (.py, .pdf, .txt, .zip va h.k.)
-                    file_name = None
-                    file_text = None
-                    if has_doc_file:
-                        try:
-                            file_bytes = await event.message.download_media(bytes)
-                            if file_bytes:
-                                if is_zip:
-                                    z_name, z_text, z_err = extract_safe_zip_content(file_bytes, doc_name or "project.zip")
-                                    if z_err:
-                                        await event.reply(z_err)
-                                        return
-                                    file_name = z_name
-                                    file_text = z_text
-                                    logger.info("ZIP arxiv muvaffaqiyatli tahlil qilindi [%s]: %s", task_key, file_name)
-                                elif doc_ext == ".pdf":
-                                    import io
-                                    from pypdf import PdfReader
-                                    reader = PdfReader(io.BytesIO(file_bytes))
-                                    file_text = "\n".join([p.extract_text() or "" for p in reader.pages[:10]])
-                                    file_name = doc_name or "document.pdf"
-                                else:
-                                    file_text = file_bytes.decode("utf-8", errors="ignore")
-                                    file_name = doc_name or f"file{doc_ext}"
-                                logger.info("Fayl muvaffaqiyatli o'qildi [%s]: %s (%d bayt)", task_key, file_name, len(file_bytes))
-                        except Exception as f_err:
-                            logger.warning("Faylni o'qishda xatolik: %s", f_err)
+                # Agar kod yoki hujjat fayli bo'lsa (.py, .pdf, .txt, .zip va h.k.)
+                file_name = None
+                file_text = None
+                if has_doc_file:
+                    try:
+                        file_bytes = await event.message.download_media(bytes)
+                        if file_bytes:
+                            if is_zip:
+                                z_name, z_text, z_err = extract_safe_zip_content(file_bytes, doc_name or "project.zip")
+                                if z_err:
+                                    await event.reply(z_err)
+                                    return
+                                file_name = z_name
+                                file_text = z_text
+                                logger.info("ZIP arxiv muvaffaqiyatli tahlil qilindi [%s]: %s", chat_id, file_name)
+                            elif doc_ext == ".pdf":
+                                import io
+                                from pypdf import PdfReader
+                                reader = PdfReader(io.BytesIO(file_bytes))
+                                file_text = "\n".join([p.extract_text() or "" for p in reader.pages[:10]])
+                                file_name = doc_name or "document.pdf"
+                            else:
+                                file_text = file_bytes.decode("utf-8", errors="ignore")
+                                file_name = doc_name or f"file{doc_ext}"
+                            logger.info("Fayl muvaffaqiyatli o'qildi [%s]: %s (%d bayt)", chat_id, file_name, len(file_bytes))
+                    except Exception as f_err:
+                        logger.warning("Faylni o'qishda xatolik: %s", f_err)
 
-                    if not input_text.strip() and not has_photo and not file_text:
-                        return
+                if not input_text.strip() and not has_photo and not file_text:
+                    return
 
-                    # Agar rasm bo'lsa, yuklab olish
-                    image_bytes = None
-                    if has_photo:
-                        image_bytes = await event.message.download_media(bytes)
+                # Agar rasm bo'lsa, yuklab olish
+                image_bytes = None
+                if has_photo:
+                    image_bytes = await event.message.download_media(bytes)
 
-                    # Agar mavzu tushuntirish so'ralgan bo'lsa (tushuntir <mavzu>)
-                    lower_input = input_text.strip().lower()
-                    if (
-                        (lower_input.startswith("tushuntir ") or lower_input.startswith(".tushuntir "))
-                        and not file_text
-                        and not has_photo
-                    ):
-                        raw_topic = input_text.strip().split(maxsplit=1)[1] if len(input_text.strip().split()) > 1 else ""
-                        if raw_topic:
-                            answer = await ai_service.explain_topic(raw_topic)
-                        else:
-                            answer = await ai_service.generate_reply(
-                                chat_id=task_key,
-                                user_message=input_text,
-                                reply_to_context=reply_context,
-                                image_bytes=image_bytes,
-                                file_name=file_name,
-                                file_text=file_text,
-                            )
-                    # Agar GitHub linki bo'lsa va alohida savol bo'lmasa, Auto-Review qilish
-                    elif github_match and not file_text and not has_photo and len(input_text.strip()) < 100:
-                        answer = await ai_service.analyze_github_link(github_match.group(0))
+                # Agar mavzu tushuntirish so'ralgan bo'lsa (tushuntir <mavzu>)
+                lower_input = input_text.strip().lower()
+                if (
+                    (lower_input.startswith("tushuntir ") or lower_input.startswith(".tushuntir "))
+                    and not file_text
+                    and not has_photo
+                ):
+                    raw_topic = input_text.strip().split(maxsplit=1)[1] if len(input_text.strip().split()) > 1 else ""
+                    if raw_topic:
+                        answer = await ai_service.explain_topic(raw_topic)
                     else:
-                        # AI javobini olish
                         answer = await ai_service.generate_reply(
-                            chat_id=task_key,
+                            chat_id=chat_id,
                             user_message=input_text,
                             reply_to_context=reply_context,
                             image_bytes=image_bytes,
                             file_name=file_name,
                             file_text=file_text,
                         )
+                # Agar GitHub linki bo'lsa va alohida savol bo'lmasa, Auto-Review qilish
+                elif github_match and not file_text and not has_photo and len(input_text.strip()) < 100:
+                    answer = await ai_service.analyze_github_link(github_match.group(0))
+                else:
+                    # AI javobini olish
+                    answer = await ai_service.generate_reply(
+                        chat_id=chat_id,
+                        user_message=input_text,
+                        reply_to_context=reply_context,
+                        image_bytes=image_bytes,
+                        file_name=file_name,
+                        file_text=file_text,
+                    )
 
-                    # Yakuniy tekshiruv: agar shu daqiqada mentor yozib qolgan bo'lsa, yubormaslik
-                    if time.time() - LAST_MENTOR_ACTIVITY.get(task_key, 0.0) < 2.0:
-                        logger.info("Mentor so'nggi daqiqada yozdi, AI javobi yuborilmadi.")
-                        return
+                # Yakuniy tekshiruv: agar shu daqiqada mentor yozib qolgan bo'lsa, yubormaslik
+                if time.time() - LAST_MENTOR_ACTIVITY.get(chat_id, 0.0) < 2.0:
+                    logger.info("Mentor so'nggi daqiqada yozdi, AI javobi yuborilmadi.")
+                    return
 
-                    # Flood interval tekshiruvi (har bir chat uchun kamida 2 soniya)
-                    now_reply = time.time()
-                    if now_reply - LAST_REPLY_TIME.get(task_key, 0.0) < MIN_INTERVAL_SECONDS:
-                        return
-                    LAST_REPLY_TIME[task_key] = now_reply
+                # Flood interval tekshiruvi (har bir chat uchun kamida 2 soniya)
+                now_reply = time.time()
+                if now_reply - LAST_REPLY_TIME.get(chat_id, 0.0) < MIN_INTERVAL_SECONDS:
+                    await asyncio.sleep(MIN_INTERVAL_SECONDS)
+                LAST_REPLY_TIME[chat_id] = time.time()
 
-                    # Javobni yuborish (reply tarzida)
-                    await event.reply(answer)
-                    logger.info("Chat %s ga AI javobi yuborildi.", task_key)
+                # Javobni yuborish (reply tarzida)
+                sent_reply = await event.reply(answer)
+                if sent_reply:
+                    BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
+                logger.info("Chat %s ga AI javobi yuborildi.", chat_id)
 
-                    # Mentorga yo'naltirish (Eskalyatsiya)
-                    if getattr(answer, "escalation", None):
-                        sender_name = getattr(sender, "first_name", "") or "Noma'lum"
-                        if getattr(sender, "last_name", None):
-                            sender_name += f" {sender.last_name}"
-                        sender_user = (
-                            f"@{sender.username}" if getattr(sender, "username", None) else "Mavjud emas"
-                        )
+                # Mentorga yo'naltirish (Eskalyatsiya)
+                if getattr(answer, "escalation", None):
+                    sender_name = getattr(sender, "first_name", "") or "Noma'lum"
+                    if getattr(sender, "last_name", None):
+                        sender_name += f" {sender.last_name}"
+                    sender_user = (
+                        f"@{sender.username}" if getattr(sender, "username", None) else "Mavjud emas"
+                    )
 
-                        chat_source = "Shaxsiy xabar (Lichka)"
-                        if is_group:
-                            try:
-                                chat_entity = await event.get_chat()
-                                chat_source = f"Guruh: {getattr(chat_entity, 'title', 'Guruh')}"
-                            except Exception:
-                                chat_source = f"Guruh ID: `{event.chat_id}`"
+                    chat_source = "Shaxsiy xabar (Lichka)"
+                    if is_group:
+                        try:
+                            chat_entity = await event.get_chat()
+                            chat_source = f"Guruh: {getattr(chat_entity, 'title', 'Guruh')}"
+                        except Exception:
+                            chat_source = f"Guruh ID: `{event.chat_id}`"
 
-                        alert_text = (
-                            "🚨 **O'quvchi murojaati (Mentor aralashuvi kerak):**\n\n"
-                            f"📍 **Manba:** {chat_source}\n"
-                            f"👤 **O'quvchi:** {sender_name} ({sender_user})\n"
-                            f"🆔 **ID:** `{sender_id}`\n\n"
-                            f"❓ **O'quvchi xabari:**\n\"{input_text}\"\n\n"
-                            f"📋 **AI Xulosasi:**\n{answer.escalation}"
-                        )
+                    alert_text = (
+                        "🚨 **O'quvchi murojaati (Mentor aralashuvi kerak):**\n\n"
+                        f"📍 **Manba:** {chat_source}\n"
+                        f"👤 **O'quvchi:** {sender_name} ({sender_user})\n"
+                        f"🆔 **ID:** `{sender_id}`\n\n"
+                        f"❓ **O'quvchi xabari:**\n\"{input_text}\"\n\n"
+                        f"📋 **AI Xulosasi:**\n{answer.escalation}"
+                    )
 
-                        if is_escalation_chat(event.chat_id):
-                            logger.info("Murojaat 'Vazifalar' guruhining o'zida bo'lgani uchun qayta ogohlantirish yuborilmadi.")
-                        else:
-                            try:
-                                target = config.escalation_chat
-                                if target.isdigit() or (target.startswith("-") and target[1:].isdigit()):
-                                    target = int(target)
-                                await client.send_message(target, alert_text)
-                                logger.info("Eskalyatsiya xabari '%s' ga yetkazildi.", config.escalation_chat)
-                            except Exception as exc:
-                                logger.error("Eskalyatsiya xabarini yetkazishda xatolik: %s", exc)
+                    if is_escalation_chat(event.chat_id):
+                        logger.info("Murojaat 'Vazifalar' guruhining o'zida bo'lgani uchun qayta ogohlantirish yuborilmadi.")
+                    else:
+                        try:
+                            target = config.escalation_chat
+                            if target.isdigit() or (target.startswith("-") and target[1:].isdigit()):
+                                target = int(target)
+                            await client.send_message(target, alert_text)
+                            logger.info("Eskalyatsiya xabari '%s' ga yetkazildi.", config.escalation_chat)
+                        except Exception as exc:
+                            logger.error("Eskalyatsiya xabarini yetkazishda xatolik: %s", exc)
 
             except asyncio.CancelledError:
-                logger.info("AI kutish vazifasi bekor qilindi (Mentor yozdi) [%s].", task_key)
+                logger.info("AI kutish vazifasi bekor qilindi (Mentor yozdi) [%s].", chat_id)
             except Exception as e:
                 logger.exception("Avto-javob berishda xatolik yuz berdi: %s", e)
             finally:
-                if PENDING_TASKS.get(task_key) is asyncio.current_task():
-                    PENDING_TASKS.pop(task_key, None)
+                if PENDING_TASKS.get(debounce_key) is asyncio.current_task():
+                    PENDING_TASKS.pop(debounce_key, None)
 
         # 5 soniyalik vazifani boshlash
         task = asyncio.create_task(process_delayed_reply())
-        PENDING_TASKS[task_key] = task
+        PENDING_TASKS[debounce_key] = task
+
