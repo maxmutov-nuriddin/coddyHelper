@@ -46,6 +46,7 @@ class Config:
     port: int = 10000
     secret_stop_word: str = "ai stop"
     secret_start_word: str = "ai start"
+    mentor_wait_seconds: float = 5.0
 
     @classmethod
     def load(cls) -> "Config":
@@ -75,6 +76,9 @@ class Config:
         secret_stop_word = os.getenv("SECRET_STOP_WORD", "ai stop").strip().lower()
         secret_start_word = os.getenv("SECRET_START_WORD", "ai start").strip().lower()
 
+        raw_wait = os.getenv("MENTOR_WAIT_SECONDS", "5").strip()
+        mentor_wait_seconds = float(raw_wait) if raw_wait.replace(".", "", 1).isdigit() else 5.0
+
         raw_memory_limit = os.getenv("MEMORY_LIMIT", "10").strip()
         memory_limit = int(raw_memory_limit) if raw_memory_limit.isdigit() else 10
 
@@ -97,6 +101,7 @@ class Config:
             port=port,
             secret_stop_word=secret_stop_word,
             secret_start_word=secret_start_word,
+            mentor_wait_seconds=mentor_wait_seconds,
         )
 
     def validate(self) -> list[str]:
