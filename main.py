@@ -110,18 +110,43 @@ async def start_backup_worker(client: TelegramClient):
 
 
 
+CURRENT_CLIENT: TelegramClient | None = None
+
+
 async def start_render_web_server(port: int):
-    """Render.com Web Service uchun HTTP healthcheck serveri."""
+    """Render.com Web Service uchun HTTP healthcheck va diagnostika serveri."""
     async def handle_ping(request):
+        global CURRENT_CLIENT
+        is_auth = False
+        me_info = "Kutilmoqda..."
+        if CURRENT_CLIENT:
+            try:
+                is_auth = await CURRENT_CLIENT.is_user_authorized()
+                if is_auth:
+                    me = await CURRENT_CLIENT.get_me()
+                    me_info = f"{getattr(me, 'first_name', '')} (@{getattr(me, 'username', '')}) ID:{getattr(me, 'id', '')}"
+                else:
+                    me_info = "Avtorizatsiyadan o'tilmagan (Session kerak)"
+            except Exception as e:
+                me_info = f"Xatolik: {e}"
+
         return web.json_response({
             "status": "online",
+            "version": "v2.6.2",
             "service": "coddyHelper AI Mentor Agent",
             "active_ai": "Groq Multi-Key Cluster",
+            "telegram_authorized": is_auth,
+            "telegram_me": me_info,
+            "auto_reply_enabled": config.auto_reply_enabled,
+            "group_reply_enabled": config.group_reply_enabled,
+            "escalation_chat": str(config.escalation_chat),
+            "has_string_session": bool(config.string_session),
         })
 
     app = web.Application()
     app.router.add_get("/", handle_ping)
     app.router.add_get("/health", handle_ping)
+    app.router.add_get("/status", handle_ping)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -179,6 +204,8 @@ async def main():
         api_id=config.api_id,
         api_hash=config.api_hash,
     )
+    global CURRENT_CLIENT
+    CURRENT_CLIENT = client
 
     # Doimiy SQLite sozlamalarini yuklash (restart bo'lganda ham to'xtagan holatda qolishi uchun)
     from services.memory_service import memory_service
