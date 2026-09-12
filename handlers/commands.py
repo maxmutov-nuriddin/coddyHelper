@@ -145,8 +145,10 @@ def register_command_handlers(client: TelegramClient) -> None:
                 "• `ai eslatma <vaqt va vazifa>` — Eslatma o'rnatish (masalan: `ai eslatma ertaga 10:00 da dars`)\n"
                 "• `eslatmalar` — Barcha faol eslatmalar ro'yxati\n"
                 "• `ai eslatma bekor <ID>` — Eslatmani bekor qilish\n\n"
-                "🔍 **GitHub Code Review:**\n"
-                "• `review <github_link>` yoki reply qilib `review` — Repozitoriy kodini tahlil qilish va 10 ballik baho olish\n\n"
+                "📚 **Ta'lim va Kod Tahlili:**\n"
+                "• `tushuntir <mavzu>` — Mavzuni analogiya, kod va mini-mashq bilan tushuntirish\n"
+                "• `review <github_link>` yoki reply qilib `review` — GitHub repozitoriy tahlili (Code Review)\n"
+                "• `backup` — SQLite xotira bazasini Telegram fayl ko'rinishida yuklab olish\n\n"
                 "📊 **Tizim va Mentor Analitikasi:**\n"
                 "• `report` yoki `ai report` — O'quvchilar xatoliklari bo'yicha haftalik tahliliy hisobot\n"
                 "• `status` yoki `.status` — Tizim holati (Lichka va Guruhlar holati, xotiradagi o'quvchilar soni)\n"
@@ -402,32 +404,87 @@ def register_command_handlers(client: TelegramClient) -> None:
             await event.edit(review_result)
             return
 
-        if not raw_text.startswith(prefix):
+        # -----------------------------------------------------------
+        # SQLite Database Backup
+        # -----------------------------------------------------------
+        if lower_text in ("backup", ".backup", "ai backup", f"{prefix}backup"):
+            from pathlib import Path
+            db_path = Path("coddy_memory.db")
+            if not db_path.exists():
+                await event.edit("⚠️ `coddy_memory.db` fayli topilmadi.")
+                return
+
+            await event.edit("⏳ **Baza nusxasi (Backup) tayyorlanmoqda...**")
+            now_t = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
+            cap = (
+                "💾 **coddy_memory.db Zaxira Nusxasi (Backup)**\n\n"
+                f"⏰ **Vaqt:** `{now_t}` (Toshkent vaqti)\n"
+                f"📦 **Hajm:** {db_path.stat().st_size / 1024:.1f} KB\n"
+                "ℹ️ Xotira, eslatmalar, bloklanganlar va sozlamalar bazasi."
+            )
+            try:
+                await client.send_file(event.chat_id, str(db_path), caption=cap)
+                await event.delete()
+            except Exception as e:
+                logger.error("Backup faylni yuborishda xatolik: %s", e)
+                await event.edit(f"⚠️ Backup faylni yuborishda xatolik: {e}")
             return
 
-        command_body = raw_text[len(prefix) :].strip()
-        parts = command_body.split(maxsplit=1)
-        if not parts:
+        # -----------------------------------------------------------
+        # Mavzu Tushuntirish (Topic Explainer)
+        # -----------------------------------------------------------
+        is_explain = False
+        topic_arg = ""
+        for kw in ["ai tushuntir", "tushuntir", f"{prefix}tushuntir"]:
+            if lower_text.startswith(kw):
+                is_explain = True
+                topic_arg = raw_text[len(kw):].strip()
+                break
+
+        if is_explain:
+            if not topic_arg:
+                await event.edit(
+                    "ℹ️ **Mavzu tushuntirish qo'llanmasi:**\n"
+                    "Foydalanish: `tushuntir <mavzu_nomi>`\n\n"
+                    "Misollar:\n"
+                    "• `tushuntir python oop vorislik`\n"
+                    "• `tushuntir recursion nima`\n"
+                    "• `tushuntir decorators`\n"
+                    "• `tushuntir fastAPI routers`"
+                )
+                return
+
+            await event.edit(f"📚 **\"{topic_arg}\" mavzusi bo'yicha dars tayyorlanmoqda...**\n_Hayotiy analogiya, kod va amaliy mashq tuzilmoqda..._")
+            explanation = await ai_service.explain_topic(topic_arg)
+            await event.edit(explanation)
             return
 
-        cmd = parts[0].lower()
-        arg = parts[1].strip() if len(parts) > 1 else ""
+        # -----------------------------------------------------------
+        # AI Suhbat / Chat Co-Pilot (ai <savol>, coddy <savol>, .ai <savol>)
+        # -----------------------------------------------------------
+        is_ai_cmd = False
+        ai_prompt = ""
+        for trigger in (f"{prefix}ai", "ai", "coddy"):
+            if lower_text == trigger:
+                is_ai_cmd = True
+                ai_prompt = ""
+                break
+            elif lower_text.startswith(f"{trigger} "):
+                is_ai_cmd = True
+                ai_prompt = raw_text[len(trigger) :].strip()
+                break
 
-        # -----------------------------------------------------------
-        # 1. .ai on / .ai off / .ai <prompt>
-        # -----------------------------------------------------------
-        if cmd == "ai":
-            if arg.lower() in ("on", "1", "start", "enable"):
+        if is_ai_cmd:
+            if ai_prompt.lower() in ("on", "1", "start", "enable"):
                 config.auto_reply_enabled = True
                 await event.edit("🤖 **Avto-javob rejimi faollashtirildi!**\nKelgan shaxsiy xabarlarga AI avtomatik javob beradi.")
                 return
 
-            if arg.lower() in ("off", "0", "stop", "disable"):
+            if ai_prompt.lower() in ("off", "0", "stop", "disable"):
                 config.auto_reply_enabled = False
                 await event.edit("⏸ **Avto-javob rejimi to'xtatildi.**\nXabarlar faqat qo'lda boshqariladi.")
                 return
 
-            # Agar biror xabarga reply qilingan bo'lsa
             reply_text = None
             image_bytes = None
 
@@ -445,16 +502,14 @@ def register_command_handlers(client: TelegramClient) -> None:
             elif event.message.photo:
                 image_bytes = await event.message.download_media(bytes)
 
-            prompt = arg
+            prompt = ai_prompt
             if not prompt and not reply_text and not image_bytes:
-                await event.edit(f"ℹ️ **Foydalanish:** `{prefix}ai <savolingiz>` yoki biror rasm/xabarga reply qilib `{prefix}ai` deb yozing.")
+                await event.edit(f"ℹ️ **Foydalanish:** `ai <savolingiz>` yoki biror rasm/xabarga reply qilib `ai` deb yozing.")
                 return
 
-            # Xabarni "Javob tayyorlanmoqda..." ga o'zgartirish
-            await event.edit("⏳ **AI vazifa/skrinshotni tahlil qilmoqda...**")
+            await event.edit("⏳ **AI javob tayyorlamoqda...**")
 
-            # AI dan javob olish
-            user_input = prompt if prompt else "Ushbu rasm/skrinshotdagi LMS vazifasi yoki xatolikni tahlil qilib, o'quvchiga to'g'ri yo'nalish va yechim ber."
+            user_input = prompt if prompt else "Ushbu rasm/skrinshotdagi vazifa yoki xatolikni tahlil qilib, to'liq va aniq yechim ber."
             answer = await ai_service.generate_reply(
                 chat_id=event.chat_id,
                 user_message=user_input,
@@ -462,13 +517,28 @@ def register_command_handlers(client: TelegramClient) -> None:
                 image_bytes=image_bytes,
             )
 
-            # Yakuniy javobni chiqarish
+            # Telegram xabar uzunligi chegarasi (4096 belgi)
             try:
-                await event.edit(answer)
+                if len(answer) > 4000:
+                    await event.edit(answer[:4000])
+                    await client.send_message(event.chat_id, answer[4000:])
+                else:
+                    await event.edit(answer)
             except Exception as e:
-                logger.error("Xabarni tahrirlashda xatolik: %s", e)
+                logger.error("Xabarni chiqarishda xatolik: %s", e)
                 await event.reply(answer)
             return
+
+        if not raw_text.startswith(prefix):
+            return
+
+        command_body = raw_text[len(prefix) :].strip()
+        parts = command_body.split(maxsplit=1)
+        if not parts:
+            return
+
+        cmd = parts[0].lower()
+        arg = parts[1].strip() if len(parts) > 1 else ""
 
         # -----------------------------------------------------------
         # 2. .status - Bot va tizim holati

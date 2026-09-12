@@ -68,6 +68,48 @@ async def start_reminder_worker(client: TelegramClient):
         await asyncio.sleep(25)
 
 
+async def start_backup_worker(client: TelegramClient):
+    """
+    SQLite ma'lumotlar bazasini har 24 soatda avtomatik Telegram guruhiga
+    (Vazifalar / Escalation chat) yoki Saved Messages ga backup qilib yuboradi.
+    """
+    logger.info("SQLite avto-backup fon xizmati faollashdi.")
+    await asyncio.sleep(60)  # Telethon to'liq ulanishi uchun 1 daqiqa kutish
+    from pathlib import Path
+
+    tashkent_tz = ZoneInfo("Asia/Tashkent")
+    while True:
+        try:
+            db_path = Path("coddy_memory.db")
+            if db_path.exists():
+                now_str = datetime.now(tashkent_tz).strftime("%Y-%m-%d %H:%M:%S")
+                target = config.escalation_chat or "me"
+                s = str(target).strip()
+                if s.isdigit() or (s.startswith("-") and s[1:].isdigit()):
+                    target = int(s)
+
+                caption = (
+                    "💾 **coddy_memory.db Avtomatik Zaxira Nusxasi (Auto-Backup)**\n\n"
+                    f"⏰ **Vaqt:** `{now_str}` (Toshkent vaqti)\n"
+                    f"📦 **Hajm:** {db_path.stat().st_size / 1024:.1f} KB\n"
+                    "ℹ️ Xotira bazasi har 24 soatda avtomatik zaxiralanadi."
+                )
+                try:
+                    await client.send_file(target, str(db_path), caption=caption)
+                    logger.info("SQLite avto-backup yuborildi: %s", target)
+                except Exception as send_err:
+                    logger.warning("Backupni %s ga yuborishda xatolik, 'me' ga urinilmoqda: %s", target, send_err)
+                    try:
+                        await client.send_file("me", str(db_path), caption=caption)
+                    except Exception as me_err:
+                        logger.error("Backupni 'me' ga ham yuborib bo'lmadi: %s", me_err)
+        except Exception as e:
+            logger.error("Auto-backup workerda kutilmagan xatolik: %s", e)
+
+        await asyncio.sleep(86400)  # Har 24 soatda bir marta
+
+
+
 async def start_render_web_server(port: int):
     """Render.com Web Service uchun HTTP healthcheck serveri."""
     async def handle_ping(request):
@@ -158,8 +200,9 @@ async def main():
     phone = config.phone if config.phone else None
     await client.start(phone=phone)
 
-    # Doimiy eslatmalar xizmatini fonda ishga tushirish
+    # Doimiy eslatmalar va avto-backup xizmatlarini fonda ishga tushirish
     asyncio.create_task(start_reminder_worker(client))
+    asyncio.create_task(start_backup_worker(client))
 
     me = await client.get_me()
     first_name = getattr(me, "first_name", "Foydalanuvchi")

@@ -127,3 +127,15 @@ class Config:
 
 # Global konfiguratsiya obyekti
 config = Config.load()
+
+
+def is_escalation_chat(chat_id: int | str) -> bool:
+    """Chat ID 'Vazifalar' (Admin/Eskalyatsiya) guruhi ekanini tekshiradi."""
+    target = str(config.escalation_chat).strip()
+    c_id = str(chat_id).strip()
+    if c_id == target:
+        return True
+    c_norm = c_id.replace("-100", "-")
+    t_norm = target.replace("-100", "-")
+    return c_norm == t_norm
+

@@ -9,7 +9,7 @@ import re
 import time
 from pathlib import Path
 from telethon import TelegramClient, events
-from config import config
+from config import config, is_escalation_chat
 from services.ai_service import ai_service
 from services.memory_service import memory_service
 
@@ -220,7 +220,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
         # Agar guruh bo'lsa, maxsus tekshiruvlar:
         if is_group:
-            if not config.group_reply_enabled:
+            if not config.group_reply_enabled and not is_escalation_chat(event.chat_id):
                 return
 
         # Mentorning o'z xabari bo'lsa o'tkazib yuborish
@@ -330,8 +330,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if "ustoz" in message_text.lower() or "mentor" in message_text.lower():
             is_mentioned = True
 
-        # Guruhlarda xabarning o'rinliligini tekshirish
-        if is_group and not is_relevant_group_message(
+        # Guruhlarda xabarning o'rinliligini tekshirish (Vazifalar admin guruhi bundan mustasno)
+        if is_group and not is_escalation_chat(event.chat_id) and not is_relevant_group_message(
             message_text=message_text,
             has_photo=has_photo,
             has_voice=has_voice,
@@ -353,25 +353,27 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
         async def process_delayed_reply():
             try:
-                wait_sec = config.mentor_wait_seconds or 5.0
-                logger.info(
-                    "Yangi xabar [%s]. Mentor yozishini %s soniya kutamiz...",
-                    task_key,
-                    wait_sec,
-                )
-                await asyncio.sleep(wait_sec)
+                is_admin_chat = is_escalation_chat(task_key)
+                wait_sec = 0 if is_admin_chat else (config.mentor_wait_seconds or 5.0)
+                if wait_sec > 0:
+                    logger.info(
+                        "Yangi xabar [%s]. Mentor yozishini %s soniya kutamiz...",
+                        task_key,
+                        wait_sec,
+                    )
+                    await asyncio.sleep(wait_sec)
 
-                # 5 soniya o'tdi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi?
-                if LAST_MENTOR_ACTIVITY.get(task_key, 0.0) >= message_received_time:
-                    logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", task_key)
+                    # 5 soniya o'tdi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi?
+                    if LAST_MENTOR_ACTIVITY.get(task_key, 0.0) >= message_received_time:
+                        logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", task_key)
+                        return
+
+                if not config.auto_reply_enabled and not is_admin_chat:
+                    return
+                if is_group and not config.group_reply_enabled and not is_admin_chat:
                     return
 
-                if not config.auto_reply_enabled:
-                    return
-                if is_group and not config.group_reply_enabled:
-                    return
-
-                logger.info("5 soniya ichida mentor yozmadi. AI ishga kirishmoqda [%s]", task_key)
+                logger.info("AI ishga kirishmoqda [%s]", task_key)
 
                 # Xavfsizlik: agar .apk yoki xavfli fayl bo'lsa, yuklamasdan ogohlantirish beramiz
                 if is_dangerous:
@@ -459,9 +461,27 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     if has_photo:
                         image_bytes = await event.message.download_media(bytes)
 
+                    # Agar mavzu tushuntirish so'ralgan bo'lsa (tushuntir <mavzu>)
+                    lower_input = input_text.strip().lower()
+                    if (
+                        (lower_input.startswith("tushuntir ") or lower_input.startswith(".tushuntir "))
+                        and not file_text
+                        and not has_photo
+                    ):
+                        raw_topic = input_text.strip().split(maxsplit=1)[1] if len(input_text.strip().split()) > 1 else ""
+                        if raw_topic:
+                            answer = await ai_service.explain_topic(raw_topic)
+                        else:
+                            answer = await ai_service.generate_reply(
+                                chat_id=task_key,
+                                user_message=input_text,
+                                reply_to_context=reply_context,
+                                image_bytes=image_bytes,
+                                file_name=file_name,
+                                file_text=file_text,
+                            )
                     # Agar GitHub linki bo'lsa va alohida savol bo'lmasa, Auto-Review qilish
-                    github_match = re.search(r"https?://github\.com/[^\s]+", input_text)
-                    if github_match and not file_text and not has_photo and len(input_text.strip()) < 100:
+                    elif github_match and not file_text and not has_photo and len(input_text.strip()) < 100:
                         answer = await ai_service.analyze_github_link(github_match.group(0))
                     else:
                         # AI javobini olish

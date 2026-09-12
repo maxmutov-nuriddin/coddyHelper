@@ -9,13 +9,92 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
-from config import config
-from prompts import SYSTEM_PROMPT
+from config import config, is_escalation_chat
+from prompts import SYSTEM_PROMPT, ADMIN_SYSTEM_PROMPT
 from services.memory_service import memory_service
 
 logger = logging.getLogger(__name__)
 
 ESCALATE_PATTERN = re.compile(r"<<<ESCALATE>>>(.*?)<<<END_ESCALATE>>>", re.DOTALL)
+
+
+def check_fast_faq(text: str) -> str | None:
+    """Eng ko'p uchraydigan standart dasturlash xatolariga 0.5 soniyada tayyor yechim beradi."""
+    t = text.strip()
+    if not t:
+        return None
+
+    # 1. ModuleNotFoundError
+    mod_match = re.search(r"ModuleNotFoundError:\s*No module named\s*['\"]([^'\"]+)['\"]", t, re.IGNORECASE)
+    if mod_match:
+        pkg = mod_match.group(1)
+        pip_pkg = pkg
+        if pkg.lower() == "telebot":
+            pip_pkg = "pyTelegramBotAPI"
+        elif pkg.lower() == "cv2":
+            pip_pkg = "opencv-python"
+        elif pkg.lower() == "bs4":
+            pip_pkg = "beautifulsoup4"
+        elif pkg.lower() == "dotenv":
+            pip_pkg = "python-dotenv"
+        elif pkg.lower() == "pil":
+            pip_pkg = "pillow"
+
+        return (
+            f"🔍 **Aniqlangan xatolik:** `{pkg}` kutubxonasi o'rnatilmagan.\n\n"
+            f"🛠 **Yechim:** Terminalga quyidagi buyruqni yozing:\n"
+            f"```bash\npip install {pip_pkg}\n```\n"
+            f"_Agar virtual muhit (venv) ishlatayotgan bo'lsangiz, avval venv ni faollashtiring._"
+        )
+
+    # 2. 'pip' is not recognized
+    if ("'pip' is not recognized" in t.lower()) or ("pip topilmadi" in t.lower()) or ("pip: command not found" in t.lower()):
+        return (
+            "🔍 **Aniqlangan xatolik:** Tizim `pip` buyrug'ini taniy olmayapti (Python PATH muhitiga qo'shilmagan).\n\n"
+            "🛠 **Yechim (2 xil usul):**\n"
+            "1. **Tezkor usul:** Terminalda quyidagicha yozing:\n"
+            "```bash\npython -m pip install <kutubxona_nomi>\n```\n"
+            "2. **Asosiy yechim:** Python ni qayta o'rnatayotganda pastdagi **'Add Python to PATH'** katagiga belgi qo'ying."
+        )
+
+    # 3. IndentationError
+    if "indentationerror" in t.lower():
+        return (
+            "🔍 **Aniqlangan xatolik:** `IndentationError` — Qator boshidagi bo'shliqlar (probellar) xato ketgan.\n\n"
+            "🛠 **Yechim:**\n"
+            "• Python'da `if`, `for`, `def`, `while` dan keyingi qatorlar aniq **4 ta probel (yoki 1 ta Tab)** bilan ichkariga surilishi shart.\n"
+            "• Barcha qatorlardagi bo'shliqlarni bir xil qilib to'g'rilab chiqing."
+        )
+
+    # 4. Telegram Conflict (terminated by other getUpdates)
+    if "conflict: terminated by other getupdates request" in t.lower():
+        return (
+            "🔍 **Aniqlangan xatolik:** Telegram Bot Token Conflict — Bot bir vaqtning o'zida ikkita joyda ishlab turibdi!\n\n"
+            "🛠 **Yechim:**\n"
+            "1. Bot ochilgan boshqa barcha terminallar yoki VS Code oynalarini to'xtating (Ctrl + C).\n"
+            "2. Faqat bitta joyda botni qayta ishga tushiring. Shunda ziddiyat yo'qoladi."
+        )
+
+    # 5. IndexError: list index out of range
+    if "indexerror: list index out of range" in t.lower():
+        return (
+            "🔍 **Aniqlangan xatolik:** `IndexError: list index out of range` — Ro'yxatda mavjud bo'lmagan indeksga murojaat qilingan.\n\n"
+            "🛠 **Yechim:**\n"
+            "• Masalan, ro'yxatda 3 ta element bo'lsa, uning indekslari: `0, 1, 2`. Siz `3` yoki undan katta indeksni chaqiryapsiz.\n"
+            "• Element chaqirishdan oldin ro'yxat uzunligini tekshiring: `if len(royxat) > index:`"
+        )
+
+    # 6. KeyError
+    key_match = re.search(r"KeyError:\s*['\"]?([^'\"]+)['\"]?", t, re.IGNORECASE)
+    if key_match:
+        k_name = key_match.group(1)
+        return (
+            f"🔍 **Aniqlangan xatolik:** `KeyError: '{k_name}'` — Lug'atda (dictionary) `{k_name}` nomli kalit mavjud emas.\n\n"
+            f"🛠 **Yechim:** Xavfsiz usuldan foydalaning:\n"
+            f"```python\nqiymat = lugat.get('{k_name}', None)\n```"
+        )
+
+    return None
 
 
 def redact_sensitive_data(text: str) -> str:
@@ -85,10 +164,12 @@ class AIService:
         chat_id: int,
         effective_prompt: str,
         image_bytes: bytes | None = None,
+        is_admin_mode: bool = False,
     ) -> str:
         """Groq orqali javob generatsiya qilish (avtomatik kalit almashtirish va model tanlash)."""
         history = memory_service.get_history(chat_id)
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
+        messages = [{"role": "system", "content": sys_prompt}]
 
         for msg in history:
             role = "user" if msg.role == "user" else "assistant"
@@ -99,7 +180,7 @@ class AIService:
             prompt_text = (
                 effective_prompt
                 if effective_prompt
-                else "Ushbu rasm/skrinshotdagi LMS vazifasi yoki xatolikni tahlil qilib, o'quvchiga to'g'ri yechim va yo'nalish ber."
+                else "Ushbu rasm/skrinshotdagi LMS vazifasi yoki xatolikni tahlil qilib, to'g'ri yechim va yo'nalish ber."
             )
             user_content = [
                 {"type": "text", "text": prompt_text},
@@ -123,8 +204,8 @@ class AIService:
                 response = await client.chat.completions.create(
                     model=model_to_use,
                     messages=messages,
-                    temperature=0.6,
-                    max_tokens=2048,
+                    temperature=0.6 if is_admin_mode else 0.4,
+                    max_tokens=3000 if is_admin_mode else 2048,
                 )
                 return response.choices[0].message.content.strip()
             except Exception as e:
@@ -135,7 +216,7 @@ class AIService:
             raise last_error
         return "Javob olinmadi."
 
-    def _generate_with_genai(self, prompt: str, history_context: str) -> str:
+    def _generate_with_genai(self, prompt: str, history_context: str, is_admin_mode: bool = False) -> str:
         """Google GenAI orqali javob generatsiya qilish (fallback)."""
         from google.genai import types
 
@@ -143,11 +224,12 @@ class AIService:
         if history_context:
             full_content = f"Avvalgi suhbat konteksti:\n{history_context}\n\nFoydalanuvchining yangi xabari:\n{prompt}"
 
+        sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
         response = self._gemini_client.models.generate_content(
             model=config.gemini_model,
             contents=full_content,
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=sys_prompt,
                 temperature=0.6,
             ),
         )
@@ -170,6 +252,18 @@ class AIService:
             if not self._groq_clients and not self._gemini_client:
                 return AIResult("⚠️ **Xatolik:** Hech qanday AI provayderi sozlanmagan. Iltimos `.env` faylini tekshiring.")
 
+        # Vazifalar (Admin) guruhi ekanini aniqlash
+        is_admin_mode = is_escalation_chat(chat_id)
+
+        # Standart xatoliklarga (FAQ) 0.01 soniyada tezkor javob berish
+        if not is_admin_mode and not file_text and not image_bytes:
+            fast_faq = check_fast_faq(user_message)
+            if fast_faq:
+                logger.info("Fast FAQ mos keldi [%s], tezkor javob berildi.", chat_id)
+                memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
+                memory_service.add_message(chat_id=chat_id, role="model", content=fast_faq)
+                return AIResult(fast_faq)
+
         # Javob berilayotgan kontekst
         effective_prompt = user_message
         if file_name and file_text:
@@ -181,7 +275,9 @@ class AIService:
         try:
             # 1-ustuvorlik: Groq (Multi-key)
             if self._groq_clients:
-                answer = await self._generate_with_groq(chat_id, effective_prompt, image_bytes=image_bytes)
+                answer = await self._generate_with_groq(
+                    chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode
+                )
             else:
                 # 2-ustuvorlik: Gemini
                 history = memory_service.get_history(chat_id)
@@ -190,7 +286,7 @@ class AIService:
 
                 loop = asyncio.get_running_loop()
                 answer = await loop.run_in_executor(
-                    None, self._generate_with_genai, effective_prompt, history_context
+                    None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode
                 )
 
             if not answer:
@@ -217,6 +313,42 @@ class AIService:
         except Exception as e:
             logger.exception("AI so'rovida xatolik yuz berdi: %s", e)
             return AIResult(f"⚠️ **AI xizmatida xatolik yuz berdi:** {str(e)}")
+
+    async def explain_topic(self, topic: str) -> str:
+        """
+        Dars mavzusini hayotiy misol (analogiya), kod va mini-mashq bilan tushuntirib beradi.
+        """
+        prompt = (
+            f"Siz CoddyCamp dasturlash akademiyasi Katta Mentorisiz.\n"
+            f"O'quvchiga quyidagi dasturlash mavzusini eng qiziqarli va tushunarli uslubda tushuntiring:\n"
+            f"Mavzu: \"{topic}\"\n\n"
+            "Javob formati aynan quyidagicha bo'lsin:\n"
+            f"📚 **Mavzu: {topic.title()}**\n\n"
+            "💡 **Hayotiy o'xshatish (Analogiya):** (Oddiy, o'quvchi tushunadigan qiziqarli hayotiy o'xshatish, 2-3 jumla)\n\n"
+            "💻 **Kod namunasi:**\n```python\n# 4-6 qatorli toza, izohli sodda kod\n```\n\n"
+            "🎯 **O'quvchi uchun mini-mashq (Challenge):** (O'quvchi darhol mustaqil yozib ko'rishi uchun 1 ta amaliy topshiriq)\n\n"
+            "Javobni ortiqcha cho'zmasdan, chiroyli va lo'nda formatda yozing."
+        )
+
+        if not self._groq_clients:
+            self._setup_clients()
+
+        for _ in range(len(self._groq_clients)):
+            client = self._groq_clients[self._groq_idx]
+            self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+            try:
+                response = await client.chat.completions.create(
+                    model=config.groq_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.4,
+                    max_tokens=1200,
+                )
+                ans = response.choices[0].message.content.strip()
+                return redact_sensitive_data(ans)
+            except Exception as e:
+                logger.warning("Mavzu tushuntirishda xatolik: %s", e)
+
+        return "⚠️ Mavzuni tushuntirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring."
 
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
         """
