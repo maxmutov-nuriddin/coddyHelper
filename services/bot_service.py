@@ -8,6 +8,9 @@ Faqat tizim administratori (@mentor_cc / ID: 8105823872) uchun:
 
 import asyncio
 import logging
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import (
@@ -15,6 +18,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     WebAppInfo,
     MenuButtonWebApp,
+    FSInputFile,
 )
 from config import config, is_escalation_chat
 from web_app import generate_admin_token
@@ -47,8 +51,8 @@ def get_private_keyboard(user_id: int) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="📌 Vazifalar Guruhiga Tugma Qo'yish",
-                    callback_data="post_group_button",
+                    text="💾 Baza Zaxirasini Yangilash (Backup)",
+                    callback_data="refresh_backup",
                 )
             ],
         ]
@@ -56,22 +60,15 @@ def get_private_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 
 def get_group_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Guruh uchun tugmalar to'plami."""
+    """Guruh uchun tugmalar to'plami (Faqat Mini App ochish tugmasi)."""
     token = generate_admin_token(user_id=user_id)
     app_url = f"{config.web_app_url}/app?token={token}"
-    bot_link = f"https://t.me/{config.bot_username}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="📱 Admin Panelni Ochish (Mini App)",
                     url=app_url,
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🤖 Shaxsiy Botga O'tish",
-                    url=bot_link,
                 )
             ],
         ]
@@ -180,6 +177,97 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
             )
         else:
             await call.answer(f"❌ Xatolik: {err}", show_alert=True)
+
+    # 6. Callback Query: "💾 Baza Zaxirasini Yangilash (Backup)"
+    @d.callback_query(F.data == "refresh_backup")
+    async def on_refresh_backup(call: types.CallbackQuery):
+        await call.answer("⏳ Zaxira yangilanmoqda...")
+        ok, err = await send_or_update_database_backup()
+        if ok:
+            await call.answer("✅ Baza botga yuborildi va eski xabar tozalandi!", show_alert=True)
+        else:
+            await call.answer(f"❌ Xatolik: {err}", show_alert=True)
+
+    # 7. Lichka: /backup buyrug'i
+    @d.message(F.chat.type == "private", Command(commands=["backup", "db", "baza"]))
+    async def cmd_backup_private(message: types.Message):
+        await message.answer("⏳ **Baza zaxiralanmoqda va yangilanmoqda...**")
+        ok, err = await send_or_update_database_backup()
+        if not ok:
+            await message.answer(f"❌ Xatolik yuz berdi: {err}")
+
+
+async def send_or_update_database_backup() -> tuple[bool, str]:
+    """
+    coddy_memory.db faylini bot (@coddyassistanstbot) orqali adminga yuboradi.
+    Muhim: Izbrannoe (Saved Messages) ga tashlamaydi.
+    Eski xabarni o'chirib, yangi ma'lumotlar qo'shilgan yangi faylni tashlaydi.
+    Shunday qilib, bot chatida faqat bitta, eng so'nggi va to'liq baza saqlanadi.
+    """
+    global bot
+    if not bot:
+        if config.bot_token:
+            bot = Bot(token=config.bot_token)
+        else:
+            return False, "BOT_TOKEN mavjud emas"
+
+    db_path = Path("coddy_memory.db")
+    if not db_path.exists():
+        return False, "coddy_memory.db fayli topilmadi"
+
+    try:
+        from services.memory_service import memory_service
+        # SQLite xotirasini diskka to'liq flush/checkpoint qilish
+        try:
+            with memory_service._get_connection() as conn:
+                conn.commit()
+                conn.execute("PRAGMA wal_checkpoint(FULL)")
+        except Exception:
+            pass
+
+        tashkent_tz = ZoneInfo("Asia/Tashkent")
+        now_str = datetime.now(tashkent_tz).strftime("%Y-%m-%d %H:%M:%S")
+        size_kb = db_path.stat().st_size / 1024.0
+
+        # Statistikani hisoblash
+        total_chats = memory_service.total_active_chats()
+        active_reminders = len(memory_service.get_active_reminders(100))
+
+        caption = (
+            "💾 **coddy_memory.db Zaxira Nusxasi (Eng so'nggi)**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏰ **Vaqt:** `{now_str}` (Toshkent vaqti)\n"
+            f"📦 **Hajm:** `{size_kb:.1f} KB`\n"
+            f"📊 **Baza ko'rsatkichlari:**\n"
+            f"  • Saqlangan chatlar: {total_chats} ta\n"
+            f"  • Faol eslatmalar: {active_reminders} ta\n\n"
+            "ℹ️ *Ushbu fayl barcha avvalgi va yangi ma'lumotlarni o'zida to'liq saqlaydi. "
+            "Yangi zaxira kelganda ushbu xabar o'rniga yangisi kelib, eskisi avtomatik o'chiriladi.*"
+        )
+
+        doc_file = FSInputFile(str(db_path), filename="coddy_memory.db")
+        new_msg = await bot.send_document(
+            chat_id=config.mentor_user_id,
+            document=doc_file,
+            caption=caption,
+        )
+
+        # 2. Eskisini o'chirish (agar oldingi backup xabari mavjud bo'lsa)
+        old_msg_id = memory_service.get_setting("last_backup_bot_msg_id")
+        if old_msg_id and str(old_msg_id).isdigit():
+            try:
+                await bot.delete_message(chat_id=config.mentor_user_id, message_id=int(old_msg_id))
+                logger.info("Avvalgi backup xabari muvaffaqiyatli o'chirildi (ID: %s)", old_msg_id)
+            except Exception as del_err:
+                logger.warning("Avvalgi backup xabarini o'chirishda ogohlantirish: %s", del_err)
+
+        # 3. Yangi xabar ID sini saqlash
+        memory_service.set_setting("last_backup_bot_msg_id", str(new_msg.message_id))
+        logger.info("Yangi backup bot orqali yuborildi (Yangi MsgID: %d)", new_msg.message_id)
+        return True, "OK"
+    except Exception as e:
+        logger.error("Database backup botga yuborishda xatolik: %s", e)
+        return False, str(e)
 
 
 async def post_group_panel_button(chat_id: int | str) -> tuple[bool, str]:

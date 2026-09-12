@@ -70,39 +70,21 @@ async def start_reminder_worker(client: TelegramClient):
 
 async def start_backup_worker(client: TelegramClient):
     """
-    SQLite ma'lumotlar bazasini har 24 soatda avtomatik Telegram guruhiga
-    (Vazifalar / Escalation chat) yoki Saved Messages ga backup qilib yuboradi.
+    SQLite ma'lumotlar bazasini har 24 soatda avtomatik Telegram Botiga (@coddyassistanstbot)
+    yuboradi. Eskisini o'chirib, barcha yangi va eski ma'lumotlarni o'z ichiga olgan
+    yangi faylni qoldiradi. Izbrannoe (Saved Messages) ga tashlamaydi.
     """
     logger.info("SQLite avto-backup fon xizmati faollashdi.")
-    await asyncio.sleep(60)  # Telethon to'liq ulanishi uchun 1 daqiqa kutish
-    from pathlib import Path
+    await asyncio.sleep(60)  # Tizim to'liq ulanishi uchun 1 daqiqa kutish
+    from services.bot_service import send_or_update_database_backup
 
-    tashkent_tz = ZoneInfo("Asia/Tashkent")
     while True:
         try:
-            db_path = Path("coddy_memory.db")
-            if db_path.exists():
-                now_str = datetime.now(tashkent_tz).strftime("%Y-%m-%d %H:%M:%S")
-                target = config.escalation_chat or "me"
-                s = str(target).strip()
-                if s.isdigit() or (s.startswith("-") and s[1:].isdigit()):
-                    target = int(s)
-
-                caption = (
-                    "💾 **coddy_memory.db Avtomatik Zaxira Nusxasi (Auto-Backup)**\n\n"
-                    f"⏰ **Vaqt:** `{now_str}` (Toshkent vaqti)\n"
-                    f"📦 **Hajm:** {db_path.stat().st_size / 1024:.1f} KB\n"
-                    "ℹ️ Xotira bazasi har 24 soatda avtomatik zaxiralanadi."
-                )
-                try:
-                    await client.send_file(target, str(db_path), caption=caption)
-                    logger.info("SQLite avto-backup yuborildi: %s", target)
-                except Exception as send_err:
-                    logger.warning("Backupni %s ga yuborishda xatolik, 'me' ga urinilmoqda: %s", target, send_err)
-                    try:
-                        await client.send_file("me", str(db_path), caption=caption)
-                    except Exception as me_err:
-                        logger.error("Backupni 'me' ga ham yuborib bo'lmadi: %s", me_err)
+            ok, err = await send_or_update_database_backup()
+            if ok:
+                logger.info("SQLite avto-backup botga muvaffaqiyatli yuborildi va avvalgisi tozalandi.")
+            else:
+                logger.warning("Auto-backup botga yuborishda ogohlantirish: %s", err)
         except Exception as e:
             logger.error("Auto-backup workerda kutilmagan xatolik: %s", e)
 
