@@ -472,25 +472,19 @@ def register_command_handlers(client: TelegramClient) -> None:
         # SQLite Database Backup
         # -----------------------------------------------------------
         if lower_text in ("backup", ".backup", "ai backup", f"{prefix}backup"):
-            from pathlib import Path
-            db_path = Path("coddy_memory.db")
-            if not db_path.exists():
-                await event.edit("⚠️ `coddy_memory.db` fayli topilmadi.")
-                return
-
-            await event.edit("⏳ **Baza nusxasi (Backup) tayyorlanmoqda...**")
-            now_t = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
-            cap = (
-                "💾 **coddy_memory.db Zaxira Nusxasi (Backup)**\n\n"
-                f"⏰ **Vaqt:** `{now_t}` (Toshkent vaqti)\n"
-                f"📦 **Hajm:** {db_path.stat().st_size / 1024:.1f} KB\n"
-                "ℹ️ Xotira, eslatmalar, bloklanganlar va sozlamalar bazasi."
-            )
+            await event.edit("⏳ **Baza zaxiralanmoqda va botga yuborilmoqda...**")
             try:
-                await client.send_file(event.chat_id, str(db_path), caption=cap)
-                await event.delete()
+                from services.bot_service import send_or_update_database_backup
+                ok, err = await send_or_update_database_backup()
+                if ok:
+                    await event.edit(
+                        "✅ **coddy_memory.db zaxira nusxasi botingizga (@coddyassistanstbot) yuborildi!**\n\n"
+                        "Oldingi barcha eski nusxalar o'chirilib, faqat eng yangi to'liq baza saqlandi."
+                    )
+                else:
+                    await event.edit(f"⚠️ Zaxira yuborishda xatolik: {err}")
             except Exception as e:
-                logger.error("Backup faylni yuborishda xatolik: %s", e)
+                logger.error("Backup yuborishda xatolik: %s", e)
                 await event.edit(f"⚠️ Backup faylni yuborishda xatolik: {e}")
             return
 
