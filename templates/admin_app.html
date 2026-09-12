@@ -137,7 +137,7 @@
       overflow-x: hidden;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior-y: contain !important;
-      padding: 14px 14px calc(75px + max(15px, env(safe-area-inset-bottom))) 14px;
+      padding: 14px 14px calc(120px + max(15px, env(safe-area-inset-bottom))) 14px;
       max-width: 600px;
       margin: 0 auto;
       width: 100%;
@@ -417,7 +417,7 @@
     .chat-container {
       display: flex;
       flex-direction: column;
-      height: calc(100vh - 200px);
+      height: calc(100vh - 245px);
       min-height: 400px;
     }
 
@@ -497,7 +497,7 @@
       display: flex;
       justify-content: space-around;
       padding: 8px 0;
-      padding-bottom: max(8px, env(safe-area-inset-bottom));
+      padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 38px);
       z-index: 100;
       touch-action: none;
       user-select: none;
