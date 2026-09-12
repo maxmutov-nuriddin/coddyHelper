@@ -18,6 +18,21 @@ logger = logging.getLogger(__name__)
 ESCALATE_PATTERN = re.compile(r"<<<ESCALATE>>>(.*?)<<<END_ESCALATE>>>", re.DOTALL)
 
 
+def redact_sensitive_data(text: str) -> str:
+    """API kalitlari, tokenlar va maxfiy ma'lumotlarni chatga chiqib ketishidan tozalaydi."""
+    if not text:
+        return ""
+    # Groq API kalitlari
+    text = re.sub(r"gsk_[A-Za-z0-9_]{20,}", "[MAXFIY_KALIT]", text)
+    # Gemini API kalitlari
+    text = re.sub(r"AIzaSy[A-Za-z0-9_\-]{30,}", "[MAXFIY_KALIT]", text)
+    # Telegram Bot tokenlari
+    text = re.sub(r"\b\d{8,11}:[A-Za-z0-9_-]{32,}\b", "[MAXFIY_TOKEN]", text)
+    # Maxfiy sessiya qatorlari
+    text = re.sub(r"1[A-Za-z0-9+/=]{100,}", "[MAXFIY_SESSIYA]", text)
+    return text
+
+
 class AIResult(str):
     """Matn sifatida ishlaydi, shuningdek qo'shimcha .escalation ma'lumotiga ega."""
     escalation: str | None
@@ -188,6 +203,11 @@ class AIService:
                 escalation_info = match.group(1).strip()
                 answer = ESCALATE_PATTERN.sub("", answer).strip()
 
+            # Maxfiy ma'lumotlarni tozalash (Data Leak Prevention)
+            answer = redact_sensitive_data(answer)
+            if escalation_info:
+                escalation_info = redact_sensitive_data(escalation_info)
+
             # Xotiraga tozalangan javobni saqlash
             memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
             memory_service.add_message(chat_id=chat_id, role="model", content=answer)
@@ -261,7 +281,7 @@ class AIService:
                     temperature=0.5,
                     max_tokens=1500,
                 )
-                return response.choices[0].message.content.strip()
+                return redact_sensitive_data(response.choices[0].message.content.strip())
             except Exception as e:
                 logger.warning("Mentor hisobotini tuzishda xatolik: %s", e)
 
@@ -415,7 +435,7 @@ class AIService:
                     temperature=0.4,
                     max_tokens=1500,
                 )
-                return response.choices[0].message.content.strip()
+                return redact_sensitive_data(response.choices[0].message.content.strip())
             except Exception as e:
                 logger.warning("GitHub tahlilida xatolik: %s", e)
 

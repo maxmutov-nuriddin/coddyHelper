@@ -21,6 +21,108 @@ LAST_MENTOR_ACTIVITY: dict[int, float] = {}
 LAST_REPLY_TIME: dict[int, float] = {}
 MIN_INTERVAL_SECONDS = 2.0
 
+# Xavfsizlik: Spamerlar uchun limit va fayl hajmi
+USER_REQUEST_TIMESTAMPS: dict[int, list[float]] = {}
+MAX_USER_REQUESTS_PER_MINUTE = 6
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+DANGEROUS_EXTS = {
+    ".apk", ".xapk", ".apkm", ".exe", ".msi", ".bat",
+    ".cmd", ".scr", ".com", ".vbs", ".jar", ".bin",
+    ".dmg", ".iso", ".deb", ".rpm"
+}
+
+
+def extract_safe_zip_content(file_bytes: bytes, zip_name: str) -> tuple[str | None, str | None, str | None]:
+    """
+    ZIP arxivini faqat RAM xotirasida xavfsiz tekshiradi va kod fayllarini ajratib oladi.
+    Qaytaradi: (file_name, file_text, error_message)
+    """
+    import io
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+            namelist = zf.namelist()
+            if not namelist:
+                return None, None, "⚠️ ZIP arxiv bo'sh."
+
+            # 1. Xavfli fayllar (.apk, .exe, .bat ...) skaneri
+            for fn in namelist:
+                fn_lower = fn.lower()
+                fn_ext = Path(fn_lower).suffix
+                if fn_ext in DANGEROUS_EXTS or fn_lower.endswith(
+                    (".apk", ".xapk", ".apkm", ".exe", ".msi", ".bat", ".cmd", ".scr", ".com", ".vbs", ".jar", ".bin")
+                ):
+                    return None, None, (
+                        f"🛡 **Xavfsizlik Ogohlantirishi:**\n"
+                        f"Ushbu `.zip` arxiv ichida xavfli yoki ruxsat etilmagan fayl (`{fn}`) aniqlandi!\n"
+                        "Xavfsizlik talablariga muvofiq bunday arxivlar ochilmaydi va tahlil qilinmaydi.\n\n"
+                        "Iltimos, faqat toza kod fayllarini (`.py`, `.js`, `.html`) yoki GitHub havolasini yuboring."
+                    )
+
+            # 2. Zip bomb va umumiy hajm himoyasi
+            total_uncompressed = sum(info.file_size for info in zf.infolist())
+            if total_uncompressed > 25 * 1024 * 1024 or len(namelist) > 200:
+                return None, None, (
+                    "⚠️ **Arxiv hajmi juda katta:** Arxiv ichidagi fayllar hajmi (25 MB dan ortiq) yoki soni me'yordan oshdi. "
+                    "Iltimos, keraksiz papkalarsiz (`venv` va hokazolarsiz) faqat asosiy kodni yuboring."
+                )
+
+            # 3. Kod fayllarini ajratib olish
+            safe_code_extensions = {
+                ".py", ".txt", ".html", ".css", ".js", ".ts",
+                ".json", ".sql", ".java", ".c", ".cpp", ".md"
+            }
+            ignored_dirs = {
+                "venv", ".venv", "__pycache__", "node_modules", ".git",
+                ".idea", ".vscode", "dist", "build", "env"
+            }
+
+            extracted_parts = []
+            files_count = 0
+            max_files = 5
+
+            def priority_key(name: str):
+                base = Path(name).name.lower()
+                if base in ("main.py", "app.py", "bot.py", "manage.py", "index.js", "server.py"):
+                    return 0
+                return 1
+
+            sorted_names = sorted(namelist, key=priority_key)
+
+            for fn in sorted_names:
+                parts = Path(fn).parts
+                if any(p.lower() in ignored_dirs for p in parts):
+                    continue
+                ext = Path(fn).suffix.lower()
+                if ext in safe_code_extensions and not fn.endswith("/"):
+                    try:
+                        with zf.open(fn) as cf:
+                            content_bytes = cf.read(3500)
+                            content_str = content_bytes.decode("utf-8", errors="ignore")
+                            if content_str.strip():
+                                extracted_parts.append(f"--- Fayl: {fn} ---\n{content_str}")
+                                files_count += 1
+                                if files_count >= max_files:
+                                    break
+                    except Exception:
+                        continue
+
+            if not extracted_parts:
+                return None, None, (
+                    "ℹ️ Ushbu `.zip` arxiv ichida tahlil qilish uchun dasturlash kod fayllari (`.py`, `.html`, `.js`, ...) topilmadi."
+                )
+
+            summary = f"--- ZIP Arxiv: {zip_name} ---\n" + "\n\n".join(extracted_parts)
+            return zip_name, summary, None
+
+    except zipfile.BadZipFile:
+        return None, None, "⚠️ ZIP arxiv buzilgan yoki noto'g'ri formatda."
+    except Exception as e:
+        logger.error("ZIP faylni ochishda xatolik: %s", e)
+        return None, None, "⚠️ ZIP arxivni o'qishda xatolik yuz berdi."
+
 
 def is_escalation_chat(chat_id: int) -> bool:
     target = str(config.escalation_chat).strip()
@@ -173,12 +275,23 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         )
         is_dangerous = is_apk or (doc_ext in DANGEROUS_EXTS)
 
-        # Kod yoki hujjat fayllarini aniqlash (.py, .txt, .html, .sql, .pdf, ...)
+        # Fayl hajmi tekshiruvi (Maksimal 10 MB)
+        file_size = getattr(event.message.file, "size", 0) or 0
+        if file_size > MAX_FILE_SIZE:
+            logger.warning("Fayl hajmi juda katta (%d bayt) [%s], yuklanmadi.", file_size, event.chat_id)
+            await event.reply(
+                "⚠️ **Fayl hajmi juda katta (maksimal 10 MB):**\n"
+                "Server me'yorida ishlashi uchun iltimos faqat kerakli kod fayllarini yoki GitHub havolasini yuboring."
+            )
+            return
+
+        # Kod yoki hujjat fayllarini aniqlash (.py, .txt, .html, .sql, .pdf, .zip, ...)
         supported_code_exts = {
             ".py", ".txt", ".html", ".css", ".js", ".ts",
             ".json", ".sql", ".java", ".c", ".cpp", ".md",
-            ".xml", ".sh", ".yml", ".yaml", ".pdf",
+            ".xml", ".sh", ".yml", ".yaml", ".pdf", ".zip",
         }
+        is_zip = (doc_ext == ".zip")
         has_doc_file = bool(
             event.message.document and not has_photo and not has_voice and doc_ext in supported_code_exts
         )
@@ -186,6 +299,20 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
         if not message_text.strip() and not has_photo and not has_voice and not has_doc_file and not is_dangerous:
             return
+
+        # Spamerlardan himoya (Rate limiting: 1 daqiqada ko'pi bilan 6 ta so'rov)
+        now_ts = time.time()
+        user_times = USER_REQUEST_TIMESTAMPS.setdefault(sender_id, [])
+        user_times = [t for t in user_times if now_ts - t < 60.0]
+        USER_REQUEST_TIMESTAMPS[sender_id] = user_times
+        if len(user_times) >= MAX_USER_REQUESTS_PER_MINUTE:
+            logger.info("Foydalanuvchi %s uchun so'rovlar limiti oshdi (Rate Limit).", sender_id)
+            await event.reply(
+                "⏳ **Iltimos, biroz kuting!**\n"
+                "Siz 1 daqiqa ichida juda ko'p savol yubordingiz. Tizim me'yorida ishlashi uchun 1 daqiqadan so'ng qayta yozing."
+            )
+            return
+        user_times.append(now_ts)
 
         # Agar xabar reply qilingan bo'lsa
         reply_context = None
@@ -296,21 +423,30 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         except Exception as v_err:
                             logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
 
-                    # Agar kod yoki hujjat fayli bo'lsa (.py, .pdf, .txt va h.k.)
+                    # Agar kod yoki hujjat fayli bo'lsa (.py, .pdf, .txt, .zip va h.k.)
                     file_name = None
                     file_text = None
                     if has_doc_file:
                         try:
                             file_bytes = await event.message.download_media(bytes)
                             if file_bytes:
-                                file_name = doc_name or f"file{doc_ext}"
-                                if doc_ext == ".pdf":
+                                if is_zip:
+                                    z_name, z_text, z_err = extract_safe_zip_content(file_bytes, doc_name or "project.zip")
+                                    if z_err:
+                                        await event.reply(z_err)
+                                        return
+                                    file_name = z_name
+                                    file_text = z_text
+                                    logger.info("ZIP arxiv muvaffaqiyatli tahlil qilindi [%s]: %s", task_key, file_name)
+                                elif doc_ext == ".pdf":
                                     import io
                                     from pypdf import PdfReader
                                     reader = PdfReader(io.BytesIO(file_bytes))
                                     file_text = "\n".join([p.extract_text() or "" for p in reader.pages[:10]])
+                                    file_name = doc_name or "document.pdf"
                                 else:
                                     file_text = file_bytes.decode("utf-8", errors="ignore")
+                                    file_name = doc_name or f"file{doc_ext}"
                                 logger.info("Fayl muvaffaqiyatli o'qildi [%s]: %s (%d bayt)", task_key, file_name, len(file_bytes))
                         except Exception as f_err:
                             logger.warning("Faylni o'qishda xatolik: %s", f_err)
