@@ -144,14 +144,14 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         kb = get_group_keyboard(user_id)
 
         group_text = (
-            "🎛 **coddyHelper — Boshqaruv Paneli (Mini App)**\n"
+            "🎛 <b>coddyHelper — Boshqaruv Paneli (Mini App)</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "Assalomu alaykum, Ustoz (@mentor_cc)!\n\n"
-            "Guruhdan turib tizimni boshqarish uchun pastdagi tugmani bosing:\n\n"
-            "🛡 *Xavfsizlik: Faqat sizning akkauntingiz uchun kirish ochiq.*"
+            "Assalomu alaykum, Ustoz (<b>@mentor_cc</b>)!\n\n"
+            "Guruhdan turib botni boshqarish uchun pastdagi tugmani bosing:\n\n"
+            "🛡 <i>Xavfsizlik: Faqat mentor (<b>@mentor_cc</b>) uchun ruxsat etilgan.</i>"
         )
 
-        sent = await message.answer(group_text, reply_markup=kb)
+        sent = await message.answer(group_text, reply_markup=kb, parse_mode="HTML")
         try:
             await message.bot.pin_chat_message(
                 chat_id=message.chat.id,
@@ -281,14 +281,14 @@ async def post_group_panel_button(chat_id: int | str) -> tuple[bool, str]:
 
         kb = get_group_keyboard(config.mentor_user_id)
         group_text = (
-            "🎛 **coddyHelper — Boshqaruv Paneli (Mini App)**\n"
+            "🎛 <b>coddyHelper — Boshqaruv Paneli (Mini App)</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "Assalomu alaykum, Ustoz (@mentor_cc)!\n\n"
+            "Assalomu alaykum, Ustoz (<b>@mentor_cc</b>)!\n\n"
             "Guruhdan turib botni boshqarish uchun pastdagi tugmani bosing:\n\n"
-            "🛡 *Xavfsizlik: Faqat mentor (@mentor_cc) uchun ruxsat etilgan.*"
+            "🛡 <i>Xavfsizlik: Faqat mentor (<b>@mentor_cc</b>) uchun ruxsat etilgan.</i>"
         )
 
-        sent = await bot.send_message(chat_id=cid, text=group_text, reply_markup=kb)
+        sent = await bot.send_message(chat_id=cid, text=group_text, reply_markup=kb, parse_mode="HTML")
         try:
             await bot.pin_chat_message(chat_id=cid, message_id=sent.message_id, disable_notification=True)
         except Exception as pin_err:
