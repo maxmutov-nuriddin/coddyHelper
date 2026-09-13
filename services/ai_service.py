@@ -473,19 +473,32 @@ class AIService:
 
         # 2. Reviewer
         try:
-            rev_prompt = (
-                f"Siz CoddyCamp IT akademiyasining Senior Code Reviewer mutaxassisisiz.\n"
-                f"Foydalanuvchi so'rovi: «{effective_prompt[:800]}»\n\n"
-                f"Dasturchi taklif qilgan dastlabki yechim:\n```\n{draft[:2000]}\n```\n\n"
-                f"Vazifangiz: Ushbu yechimni sinchiklab tekshiring:\n"
-                f"1. Kodda sintaksis, mantiqiy xatolar yoki cheksiz sikllar (infinite loops) bormi?\n"
-                f"2. Savolga to'liq, to'g'ri va eng maqbul yo'l bilan javob berilganmi?\n"
-                f"3. Nimalarni to'g'rilash yoki yaxshilash kerak? Qisqa punktlarda ayting (agar hammasi mukammal bo'lsa, 'KOD TO'G'RI' deb yozing)."
-            )
+            if is_admin_mode:
+                rev_prompt = (
+                    f"Siz CoddyCamp IT akademiyasining Katta Texnik Maslahatchisi va Senior Co-Pilot tahlilchisisiz.\n"
+                    f"Mentor (Nuriddin aka) so'rovi: «{effective_prompt[:800]}»\n\n"
+                    f"Taklif qilingan dastlabki yechim:\n```\n{draft[:2000]}\n```\n\n"
+                    f"Vazifangiz: Ushbu yechimni sinchiklab tekshiring:\n"
+                    f"1. Mentor savoliga to'laqonli, eng to'g'ri, chuqur va amaliy foydali javob berilganmi?\n"
+                    f"2. Agar dasturlash kodi bo'lsa, sintaksis yoki mantiqiy xatolar bormi?\n"
+                    f"3. Yechimni qanday qilib yanada mukammal qilish mumkin? Qisqa punktlarda ayting (hammasi a'lo bo'lsa, 'HAMMASI TO'G'RI' deb yozing)."
+                )
+                rev_sys = "Siz Senior Co-Pilot va Katta Texnik Maslahatchisiz. Mentorga berilayotgan tahlil sifatini oshirasiz."
+            else:
+                rev_prompt = (
+                    f"Siz CoddyCamp IT akademiyasining Senior Code Reviewer mutaxassisisiz.\n"
+                    f"Foydalanuvchi so'rovi: «{effective_prompt[:800]}»\n\n"
+                    f"Dasturchi taklif qilgan dastlabki yechim:\n```\n{draft[:2000]}\n```\n\n"
+                    f"Vazifangiz: Ushbu yechimni sinchiklab tekshiring:\n"
+                    f"1. Kodda sintaksis, mantiqiy xatolar yoki cheksiz sikllar (infinite loops) bormi?\n"
+                    f"2. Savolga to'liq, to'g'ri va eng maqbul yo'l bilan javob berilganmi?\n"
+                    f"3. Nimalarni to'g'rilash yoki yaxshilash kerak? Qisqa punktlarda ayting (agar hammasi mukammal bo'lsa, 'KOD TO'G'RI' deb yozing)."
+                )
+                rev_sys = "Siz Senior Code Reviewer mutaxassisisiz. Kod xatolarini tekshirasiz."
             res_rev = await c_rev.chat.completions.create(
                 model=config.groq_model,
                 messages=[
-                    {"role": "system", "content": "Siz Senior Code Reviewer mutaxassisisiz. Kod xatolarini tekshirasiz."},
+                    {"role": "system", "content": rev_sys},
                     {"role": "user", "content": rev_prompt},
                 ],
                 temperature=0.2,

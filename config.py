@@ -75,7 +75,7 @@ class Config:
         auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
         group_reply_enabled = str_to_bool(os.getenv("GROUP_REPLY_ENABLED", "true"), default=True)
         command_prefix = os.getenv("COMMAND_PREFIX", ".").strip()
-        escalation_chat = os.getenv("ESCALATION_CHAT", "me").strip()
+        escalation_chat = os.getenv("ESCALATION_CHAT", "-5388159517").strip()
         string_session = os.getenv("TELEGRAM_STRING_SESSION", "").strip()
 
         raw_port = os.getenv("PORT", "10000").strip()

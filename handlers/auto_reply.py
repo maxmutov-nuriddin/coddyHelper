@@ -139,8 +139,11 @@ def extract_safe_zip_content(file_bytes: bytes, zip_name: str) -> tuple[str | No
 
 
 def is_escalation_chat(chat_id: int) -> bool:
-    target = str(config.escalation_chat).strip()
     c_id = str(chat_id).strip()
+    # Vazifalar / Boshqaruv markazi guruhining ma'lum ID lari
+    if c_id in ("-5388159517", "-1005388159517", "5388159517"):
+        return True
+    target = str(config.escalation_chat).strip()
     if c_id == target:
         return True
     c_norm = c_id.replace("-100", "-")
@@ -180,19 +183,22 @@ def is_relevant_group_message(
 
 async def check_is_vazifalar_chat(event) -> bool:
     """Xabar 'Vazifalar' (Mentorning Shaxsiy Boshqaruv Markazi) guruhida ekanini aniqlaydi."""
-    if is_escalation_chat(event.chat_id):
+    chat_id = event.chat_id
+    if is_escalation_chat(chat_id):
+        return True
+    if str(chat_id).strip() in ("-5388159517", "-1005388159517", "5388159517"):
         return True
     try:
         if getattr(event, "client", None):
             me = await event.client.get_me()
-            if event.chat_id == me.id:
+            if chat_id == me.id:
                 return True
     except Exception:
         pass
     try:
         chat = await event.get_chat()
-        title = getattr(chat, "title", "") or ""
-        if "vazifalar" in title.lower():
+        title = (getattr(chat, "title", "") or "").lower()
+        if any(w in title for w in ("vazifalar", "vazifa", "markaz", "boshqaruv", "admin", "co-pilot", "copilot")):
             return True
     except Exception:
         pass
@@ -508,18 +514,21 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         # Spamerlardan himoya (Rate limiting: 1 daqiqada ko'pi bilan 6 ta so'rov)
-        now_ts = time.time()
-        user_times = USER_REQUEST_TIMESTAMPS.setdefault(sender_id, [])
-        user_times = [t for t in user_times if now_ts - t < 60.0]
-        USER_REQUEST_TIMESTAMPS[sender_id] = user_times
-        if len(user_times) >= MAX_USER_REQUESTS_PER_MINUTE:
-            logger.info("Foydalanuvchi %s uchun so'rovlar limiti oshdi (Rate Limit).", sender_id)
-            await event.reply(
-                "⏳ **Iltimos, biroz kuting!**\n"
-                "Siz 1 daqiqa ichida juda ko'p savol yubordingiz. Tizim me'yorida ishlashi uchun 1 daqiqadan so'ng qayta yozing."
-            )
-            return
-        user_times.append(now_ts)
+        # Mentor va Vazifalar guruhiga HECH QANDAY rate limit yoki cheklov qo'llanilmaydi!
+        is_mentor_user = (sender_id == config.mentor_user_id) or (sender_id in (8105823872, config.mentor_user_id))
+        if not is_mentor_user and not is_vazifalar and not is_escalation_chat(event.chat_id):
+            now_ts = time.time()
+            user_times = USER_REQUEST_TIMESTAMPS.setdefault(sender_id, [])
+            user_times = [t for t in user_times if now_ts - t < 60.0]
+            USER_REQUEST_TIMESTAMPS[sender_id] = user_times
+            if len(user_times) >= MAX_USER_REQUESTS_PER_MINUTE:
+                logger.info("Foydalanuvchi %s uchun so'rovlar limiti oshdi (Rate Limit).", sender_id)
+                await event.reply(
+                    "⏳ **Iltimos, biroz kuting!**\n"
+                    "Siz 1 daqiqa ichida juda ko'p savol yubordingiz. Tizim me'yorida ishlashi uchun 1 daqiqadan so'ng qayta yozing."
+                )
+                return
+            user_times.append(now_ts)
 
         # Agar xabar reply qilingan bo'lsa
         reply_context = None
