@@ -309,6 +309,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "auto_reply_enabled": config.auto_reply_enabled,
                 "group_reply_enabled": config.group_reply_enabled,
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
+                "private_quiet_window": memory_service.get_private_quiet_window(),
                 "students_count": len(memory_service.get_students(limit=1000)),
                 "active_ai": active_ai,
                 "escalation_chat": str(config.escalation_chat),
@@ -328,7 +329,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         )
 
     # -----------------------------------------------------------
-    # 4. Avto-javoblarni yoqish / o'chirish (Toggle)
+    # 4. Avto-javoblarni yoqish / o'chirish (Toggle & Settings)
     # -----------------------------------------------------------
     async def handle_api_toggle(request: web.Request):
         if not is_authenticated(request):
@@ -353,6 +354,14 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         elif feature == "voice_reply":
             memory_service.set_setting("voice_reply_enabled", "true" if enabled else "false")
             logger.info("Admin Panel orqali voice_reply_enabled o'zgartirildi: %s", enabled)
+        elif feature == "private_quiet_window":
+            try:
+                val = int(data.get("value", 180))
+            except Exception:
+                val = 180
+            memory_service.set_private_quiet_window(val)
+            logger.info("Admin Panel orqali private_quiet_window o'zgartirildi: %s soniya", val)
+            return web.json_response({"ok": True, "private_quiet_window": val})
         else:
             return web.json_response({"ok": False, "error": "Noma'lum funksiya"}, status=400)
 

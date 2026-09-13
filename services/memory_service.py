@@ -146,6 +146,21 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Sozlamani saqlashda xatolik: %s", e)
 
+    def get_private_quiet_window(self) -> int:
+        """
+        Mentor shaxsiy chatda yozib bo'lgandan so'ng, yangi kelgan xabarlarga
+        AI darhol aralashmasdan mentor javobini kutib turadigan vaqt (soniyalarda). Default: 180 (3 daqiqa).
+        """
+        val = self.get_setting("private_quiet_window", "180")
+        try:
+            return int(val)
+        except Exception:
+            return 180
+
+    def set_private_quiet_window(self, seconds: int) -> None:
+        """Lichka sokinlik/kutish vaqtini yangilaydi."""
+        self.set_setting("private_quiet_window", str(max(0, int(seconds))))
+
     def add_message(self, chat_id: int, role: Literal["user", "model"], content: str) -> None:
         """Yangi xabarni doimiy bazaga qo'shadi."""
         if not content or not content.strip():

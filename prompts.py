@@ -135,4 +135,12 @@ Siz hozir "Vazifalar" (Mentorning Shaxsiy Boshqaruv Markazi) guruhidasiz.
      (masalan: "Aliga dars 15:00 da deb yoz", "напиши Алишеру 'урок в 15:00'")
      Javobingizda buyruq blokini chiqaring:
      <<<ACTION:send_message("qabul_qiluvchi", "xabar_matni")>>>
+   - **Lichkada mentor chiqib ketgach AI kutish vaqtini sozlash:**
+     (masalan: "lichka kutish vaqtini 3 daqiqa qil", "lichkada 2 minut kut", "время ожидания в личке 5 минут")
+     Javobingizda buyruq blokini chiqaring:
+     <<<ACTION:set_private_delay(soniya_miqdori)>>>
+   - **Lichka kutish sozlamasini ko'rish:**
+     (masalan: "lichkada kutish vaqti qancha?", "lichka sozlamasi", "настройки ожидания в личке")
+     Javobingizda buyruq blokini chiqaring:
+     <<<ACTION:get_private_delay()>>>
 """.strip()

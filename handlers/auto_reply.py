@@ -574,17 +574,6 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             logger.info("Chat [%s]: Qisqa tasdiq so'zi ('%s'), AI jim turadi.", event.chat_id, clean_text)
             return
 
-        # Agar bu shaxsiy xabar (lichka) bo'lsa va mentor so'nggi 20 daqiqada (1200 soniya) ushbu chatda o'zi yozgan bo'lsa:
-        # Mentor suhbatni o'zi olib bormoqda, AI mentorning suhbatiga MUTLAQO ARALASHMAYDI!
-        if is_private:
-            last_m_time = LAST_MENTOR_ACTIVITY.get(event.chat_id, 0.0)
-            if time.time() - last_m_time < 1200:
-                logger.info(
-                    "Chat [%s]: Mentor o'zi faol suhbatda (so'nggi 20 daqiqada yozgan). AI aralashmadi.",
-                    event.chat_id,
-                )
-                return
-
         # Guruhlarda xabarning o'rinliligini tekshirish (Vazifalar admin guruhi bundan mustasno)
         if is_group and not is_escalation_chat(event.chat_id) and not is_relevant_group_message(
             message_text=message_text,
@@ -612,17 +601,34 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             try:
                 is_admin_chat = is_escalation_chat(chat_id)
                 wait_sec = 0 if is_admin_chat else (config.mentor_wait_seconds or 5.0)
+
+                # Shaxsiy chatda (Lichkada) aqlli kutish:
+                # Agar mentor yaqinda xabar yozgan bo'lsa, AI darhol suhbatga aralashmaydi,
+                # balki mentor yana yozishi uchun belgilangan vaqt (quiet_window, masalan 3 daqiqa) kutadi.
+                # Agar mentor shu vaqt ichida boshqa yozmasa (chiqib ketgan bo'lsa), AI o'sha savolga o'zi avtomatik to'liq javob beradi!
+                if is_private and not is_admin_chat:
+                    last_m_time = LAST_MENTOR_ACTIVITY.get(chat_id, 0.0)
+                    time_since_mentor = time.time() - last_m_time
+                    quiet_window = float(memory_service.get_private_quiet_window())
+                    if time_since_mentor < quiet_window:
+                        remaining_wait = quiet_window - time_since_mentor
+                        wait_sec = max(wait_sec, remaining_wait)
+                        logger.info(
+                            "Chat [%s]: Mentor yaqinda yozgan (%ds oldin). AI mentor javobini %ds kutadi...",
+                            chat_id, int(time_since_mentor), int(wait_sec)
+                        )
+
                 if wait_sec > 0:
                     logger.info(
                         "Yangi xabar [%s]. Mentor yozishini %s soniya kutamiz...",
                         chat_id,
-                        wait_sec,
+                        int(wait_sec),
                     )
                     await asyncio.sleep(wait_sec)
 
-                    # 5 soniya o'tdi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi yoki lichkada faolmi?
+                    # Kutish vaqti tugadi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi?
                     last_m_time = LAST_MENTOR_ACTIVITY.get(chat_id, 0.0)
-                    if last_m_time >= message_received_time or (is_private and (time.time() - last_m_time < 1200)):
+                    if last_m_time >= message_received_time:
                         log_activity(f"Mentor o'zi javob yozgani uchun AI aralashmadi [{chat_id}]")
                         logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", chat_id)
                         return
@@ -753,9 +759,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         file_text=file_text,
                     )
 
-                # Yakuniy tekshiruv: agar shu orada mentor o'zi yozgan bo'lsa yoki lichkada faol bo'lsa, yubormaslik
+                # Yakuniy tekshiruv: agar shu orada mentor o'zi yozgan bo'lsa, yubormaslik
                 last_m_time = LAST_MENTOR_ACTIVITY.get(chat_id, 0.0)
-                if last_m_time >= message_received_time or (is_private and (time.time() - last_m_time < 1200)):
+                if last_m_time >= message_received_time:
                     log_activity(f"Mentor o'zi yozgani aniqlandi [{chat_id}], AI javobi bekor qilindi.")
                     logger.info("Mentor o'zi javob yozgan ekan [%s]. AI javobi yuborilmadi.", chat_id)
                     return

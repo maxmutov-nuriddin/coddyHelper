@@ -816,6 +816,22 @@
             <span class="slider"></span>
           </label>
         </div>
+
+        <div class="toggle-row" style="align-items: center; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
+          <div class="toggle-info">
+            <h3>⏱ Lichkada AI Kutish Vaqti</h3>
+            <p>Siz lichkada yozib chiqib ketgach, yangi savolga AI necha daqiqadan so'ng yordamga kelsin</p>
+          </div>
+          <select id="select-quiet-window" onchange="changeQuietWindow(this.value)" style="background: var(--card-bg, #242f3d); color: var(--text-color, #fff); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 10px; font-size: 13px; font-weight: 600; cursor: pointer;">
+            <option value="0">⚡ Darhol (5s)</option>
+            <option value="60">⏱ 1 daqiqa</option>
+            <option value="120">⏱ 2 daqiqa</option>
+            <option value="180">⏱ 3 daqiqa (Tavsiya)</option>
+            <option value="300">⏱ 5 daqiqa</option>
+            <option value="600">⏱ 10 daqiqa</option>
+            <option value="1200">⏱ 20 daqiqa</option>
+          </select>
+        </div>
       </div>
 
       <!-- METRICS GRID -->
@@ -1250,6 +1266,8 @@
       document.getElementById("switch-group-reply").checked = data.group_reply_enabled;
       const vSwitch = document.getElementById("switch-voice-reply");
       if (vSwitch) vSwitch.checked = data.voice_reply_enabled !== false;
+      const qSelect = document.getElementById("select-quiet-window");
+      if (qSelect) qSelect.value = String(data.private_quiet_window !== undefined ? data.private_quiet_window : 180);
 
       // Global status pill
       const pill = document.getElementById("global-status");
@@ -1280,7 +1298,7 @@
       }
     }
 
-    // 3. Toggle Feature
+    // 3. Toggle Feature & Quiet Window
     async function toggleFeature(feature, enabled) {
       haptic();
       const res = await apiRequest("/api/toggle", "POST", { feature, enabled });
@@ -1293,6 +1311,21 @@
         loadStatus();
       } else {
         showToast("Xatolik yuz berdi!");
+      }
+    }
+
+    async function changeQuietWindow(val) {
+      haptic();
+      const res = await apiRequest("/api/toggle", "POST", {
+        feature: "private_quiet_window",
+        value: parseInt(val, 10)
+      });
+      if (res && res.ok) {
+        const sec = parseInt(val, 10);
+        const txt = sec === 0 ? "Darhol (5 soniya)" : (sec >= 60 && sec % 60 === 0 ? `${sec / 60} daqiqa` : `${sec} soniya`);
+        showToast(`Lichka kutish vaqti ${txt} qilib saqlandi ✅`);
+      } else {
+        showToast("Sozlamani saqlashda xatolik yuz berdi!");
       }
     }
 

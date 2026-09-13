@@ -797,6 +797,8 @@ ACTION_RECENT_SENDERS = re.compile(r'<<<ACTION:get_recent_senders\((.*?)\)>>>', 
 ACTION_LEARN_FACT = re.compile(r'<<<ACTION:learn_fact\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
 ACTION_GET_LEARNED = re.compile(r'<<<ACTION:get_learned_facts\(\)>>>', re.IGNORECASE)
 ACTION_FORGET_FACT = re.compile(r'<<<ACTION:forget_fact\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
+ACTION_SET_PRIVATE_DELAY = re.compile(r'<<<ACTION:set_private_delay\((\d+)\)>>>', re.IGNORECASE)
+ACTION_GET_PRIVATE_DELAY = re.compile(r'<<<ACTION:get_private_delay\(\)>>>', re.IGNORECASE)
 
 
 
@@ -1192,6 +1194,64 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
             if is_ru:
                 return f"⚠️ **В памяти не найдено правил по теме '{target}'.**"
             return f"⚠️ **'{target}' bo'yicha xotirada qoida topilmadi.**"
+
+    # 9. Action: set_private_delay (Lichka kutish vaqtini sozlash / Настройка задержки в личке)
+    m_set_delay = ACTION_SET_PRIVATE_DELAY.search(reply_text)
+    delay_sec = None
+    if m_set_delay:
+        delay_sec = int(m_set_delay.group(1))
+    else:
+        fb_set_delay = (
+            re.search(r"lichka(?:da)?\s+(?:kutish\s+vaqtini|vaqtini|rejimini)\s+(\d+)\s*(daqiqa|minut|sekund|soniya)?", orig_msg, re.I) or
+            re.search(r"lichka(?:da)?\s+(\d+)\s*(daqiqa|minut|sekund|soniya)\s*(?:qil|kut|bo'lsin|sozla|qilib\s+qo'y)?", orig_msg, re.I) or
+            re.search(r"(?:время\s+ожидания\s+в\s+личке|в\s+личке\s+ждать|задержка\s+в\s+личке)\s+(\d+)\s*(минут|мин|сек|секунд)?", orig_msg, re.I) or
+            re.search(r"в\s+личке\s+(\d+)\s*(минут|мин|сек|секунд)", orig_msg, re.I)
+        )
+        if fb_set_delay:
+            num = int(fb_set_delay.group(1))
+            unit = (fb_set_delay.group(2) or "").lower()
+            if any(u in unit for u in ("daqiqa", "minut", "минут", "мин")):
+                delay_sec = num * 60
+            elif any(u in unit for u in ("sekund", "soniya", "сек", "секунд")):
+                delay_sec = num
+            else:
+                delay_sec = num * 60 if num <= 30 else num
+
+    if delay_sec is not None:
+        memory_service.set_private_quiet_window(delay_sec)
+        m_str = f"{delay_sec // 60} daqiqa" if delay_sec >= 60 and delay_sec % 60 == 0 else f"{delay_sec} soniya"
+        m_str_ru = f"{delay_sec // 60} мин." if delay_sec >= 60 and delay_sec % 60 == 0 else f"{delay_sec} сек."
+        if is_ru:
+            return (
+                f"⚙️ **Время ожидания в личке успешно обновлено:**\n\n"
+                f"• ⏱ **Новое значение:** `{m_str_ru}`\n\n"
+                f"💡 _Теперь после того, как вы напишете в личке и выйдете из чата, AI подождет **{m_str_ru}**. Если за это время вы не ответите, AI автоматически подключится и ответит ученику!_"
+            )
+        return (
+            f"⚙️ **Lichka kutish vaqti muvaffaqiyatli yangilandi:**\n\n"
+            f"• ⏱ **Yangi muddat:** `{m_str}`\n\n"
+            f"💡 _Endi siz shaxsiy chatda (lichkada) yozib chiqib ketganingizdan so'ng, o'quvchi savol bersa, AI sizni **{m_str}** kutadi. Agar shu vaqt ichida javob bermasangiz, AI o'quvchining savoliga o'zi avtomatik to'liq javob beradi!_"
+        )
+
+    # 10. Action: get_private_delay (Lichka sozlamasini ko'rish)
+    m_get_delay = (
+        ACTION_GET_PRIVATE_DELAY.search(reply_text) or
+        re.search(r"lichka(?:da|dagi)?\s+(?:kutish\s+vaqti|sozlamasi|rejimi|vaqti|vaqti\s+qancha|qancha)", orig_msg, re.I) or
+        re.search(r"(?:время\s+ожидания\s+в\s+личке|настройки\s+(?:ожидания\s+)?(?:в\s+)?лички?|сколько\s+ждать\s+в\s+личке)", orig_msg, re.I)
+    )
+    if m_get_delay:
+        cur_sec = memory_service.get_private_quiet_window()
+        m_str = f"{cur_sec // 60} daqiqa" if cur_sec >= 60 and cur_sec % 60 == 0 else f"{cur_sec} soniya"
+        m_str_ru = f"{cur_sec // 60} мин." if cur_sec >= 60 and cur_sec % 60 == 0 else f"{cur_sec} сек."
+        if is_ru:
+            return (
+                f"⚙️ **Текущая настройка ожидания в личке:** `{m_str_ru}`\n\n"
+                f"💡 Чтобы изменить, напишите: _'время ожидания в личке 2 минуты'_ или _'в личке 5 минут'_."
+            )
+        return (
+            f"⚙️ **Lichkada AI yordamga kelish kutish vaqti:** `{m_str}`\n\n"
+            f"💡 O'zgartirish uchun: _'lichka kutish vaqtini 2 daqiqa qil'_ deb yozishingiz mumkin."
+        )
 
     return reply_text
 
