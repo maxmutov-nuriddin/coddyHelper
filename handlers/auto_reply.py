@@ -172,7 +172,8 @@ def is_relevant_group_message(
     # Guruhda faqat bitta so'zdan iborat bildirishnomalarni o'tkazib yuborish (keraksiz xabar bo'lmasligi uchun)
     ignored_standalone = {
         "ok", "ha", "yoq", "yo'q", "rahmat", "raxmat", "tushunarli",
-        "bopti", "hop", "xop", "+", "++", "+++", "spasibo", "thanks", "thx", "zo'r", "zor"
+        "bopti", "hop", "xop", "+", "++", "+++", "spasibo", "thanks", "thx", "zo'r", "zor",
+        "хорошо", "ладно", "понял", "понятно", "ок", "да", "нет", "ясно", "спасибо"
     }
     if text in ignored_standalone:
         return False

@@ -115,11 +115,56 @@ CYRILLIC_TO_LATIN = {
 }
 
 
+TECH_ALIASES = {
+    "piton": "python",
+    "payton": "python",
+    "paytonchik": "python",
+    "dz": "js",
+    "djs": "js",
+    "djava": "java",
+    "skript": "script",
+    "frontend": "frontend",
+    "front": "frontend",
+    "backend": "backend",
+    "bekend": "backend",
+    "koddi": "coddy",
+    "kodi": "coddy",
+    "doker": "docker",
+    "gitxab": "github",
+}
+
+# O'zbek va Rus tillaridagi ismlar, so'zlar va guruhlar uchun kelishik hamda erkalash qo'shimchalari
+WORD_SUFFIXES = (
+    # O'zbekcha qo'shimchalar
+    "bek", "jon", "voy", "xon", "ning", "dan", "ga", "ni", "da", "chi", "lar", "lari", "lik",
+    # Ruscha kelishik va qo'shimchalar (-а, -я, -у, -ю, -ом, -ем, -ам, -ами, -ах, -ов, -ев, -ин, -чик...)
+    "chik", "ochka", "echka", "ushka", "yushka", "ova", "eva", "ina", "ov", "ev", "in",
+    "om", "em", "am", "ax", "yax", "ami", "yami", "ogo", "ego", "omu", "emu",
+    "a", "ya", "u", "yu", "e", "i", "y",
+)
+
+
+def is_russian_text(text: str) -> bool:
+    """Matn rus tilida yozilganini aniqlaydi (kirill harflari yoki ruscha asosiy so'zlar bo'yicha)."""
+    if not text:
+        return False
+    cyr_count = len(re.findall(r"[\u0400-\u04FF]", text))
+    if cyr_count >= 2:
+        return True
+    ru_markers = {
+        "кто", "где", "как", "сколько", "найди", "поиск", "сообщения", "учеников", "запомни",
+        "выучи", "привет", "здравствуйте", "спасибо", "ладно", "понятно", "ясно", "группа",
+        "группе", "чаты", "написал", "писал", "отправь", "напиши", "покажи", "база"
+    }
+    words = set(re.findall(r"[a-zA-Z\u0400-\u04FF]+", text.lower()))
+    return bool(words & ru_markers)
+
+
 def normalize_text(text: str) -> str:
     """
     Har qanday noodatiy shrift (Mathematical Bold, Italic, Script, Fraktur, Double-struck,
     Small-caps, Squared, Circled, Fullwidth, Emojilar va bezaklar) va Kirill yozuvidagi belgilarni
-    standart toza kichik lotin harflariga o'tkazadi.
+    standart toza kichik lotin harflariga o'tkazadi hamda texnik terminlarni standartlashtiradi.
     """
     if not text:
         return ""
@@ -152,18 +197,24 @@ def normalize_text(text: str) -> str:
     # Bo'shliqlarni birxillashtirish
     cleaned = re.sub(r"\s+", " ", cleaned).strip().lower()
 
+    # 5. Texnik terminlar va keng tarqalgan sinonimlarni birlashtirish (piton -> python, djs -> js...)
+    words = cleaned.split()
+    if words:
+        words = [TECH_ALIASES.get(w, w) for w in words]
+        cleaned = " ".join(words)
+
     return cleaned
 
 
 def match_text(query: str, target: str) -> bool:
     """
-    Shrift, bezaklar, orfoepik xatolar va turlanishlardan (qo'shimchalar) qat'iy nazar
+    Shrift, bezaklar, orfoepik xatolar, ruscha/o'zbekcha turlanishlardan (qo'shimchalar) qat'iy nazar
     maksimal kuchli qidiruv taqqoslashini amalga oshiradi:
     - Submatn va teskari submatn mosligi
     - Tutuq belgisisiz (otkir/o'tkir) moslik
     - 'x' va 'h' tovushlari mutanosibligi (shoxrux/shohruh)
     - So'zma-so'z token va 80%+ noaniq (fuzzy) o'xshashlik
-    - O'zbekcha qo'shimchalarni (-ni, -ga, -dan, -bek, -jon) hisobga olish
+    - O'zbekcha va ruscha qo'shimchalarni (-ni, -ga, -dan, -bek, -а, -у, -ом, -ов) hisobga olish
     """
     from difflib import SequenceMatcher
 
@@ -192,20 +243,17 @@ def match_text(query: str, target: str) -> bool:
     q_tokens = [w for w in q_xh.split() if len(w) >= 2]
     t_tokens = [w for w in t_xh.split() if len(w) >= 2]
 
-    # O'zbekcha ismlar uchun keng tarqalgan qo'shimchalar
-    uz_suffixes = ("bek", "jon", "voy", "xon", "ning", "dan", "ga", "ni", "da", "chi")
-
     def tokens_match(qt: str, tt: str) -> bool:
         if qt == tt or qt in tt or tt in qt:
             return True
-        # Qo'shimchalarsiz taqqoslash
+        # Qo'shimchalarsiz (stemming) taqqoslash
         qt_clean = qt
-        for suf in uz_suffixes:
+        for suf in sorted(WORD_SUFFIXES, key=len, reverse=True):
             if qt.endswith(suf) and len(qt) - len(suf) >= 3:
                 qt_clean = qt[:-len(suf)]
                 break
         tt_clean = tt
-        for suf in uz_suffixes:
+        for suf in sorted(WORD_SUFFIXES, key=len, reverse=True):
             if tt.endswith(suf) and len(tt) - len(suf) >= 3:
                 tt_clean = tt[:-len(suf)]
                 break
@@ -574,15 +622,22 @@ async def get_recent_incoming_senders(client, limit: int = 10, unread_only: bool
     return results[:limit]
 
 
-def format_recent_senders_report(results: list[dict[str, Any]]) -> str:
+def format_recent_senders_report(results: list[dict[str, Any]], is_ru: bool = False) -> str:
     if not results:
+        if is_ru:
+            return "📬 **Сообщения Telegram:**\nПока новых входящих сообщений не найдено."
         return "📬 **Telegram xabarlari:**\nHozircha sizga kelgan yangi xabarlar topilmadi."
     if len(results) == 1 and "error" in results[0]:
+        if is_ru:
+            return f"❌ **Ошибка получения сообщений Telegram:** {results[0]['error']}"
         return f"❌ **Telegram xabarlarini olishda xatolik:** {results[0]['error']}"
 
-    lines = ["📬 **Telegramda sizga oxirgi marta xabar yozganlar (Kelgan xabarlar):**\n"]
+    if is_ru:
+        lines = ["📬 **Последние написавшие вам (Входящие сообщения Telegram):**\n"]
+    else:
+        lines = ["📬 **Telegramda sizga oxirgi marta xabar yozganlar (Kelgan xabarlar):**\n"]
     for i, r in enumerate(results, 1):
-        s_name = r.get("sender_name", "Noma'lum")
+        s_name = r.get("sender_name", "Неизвестный" if is_ru else "Noma'lum")
         uname = r.get("sender_username")
         c_title = r.get("chat_title", "")
         c_type = r.get("chat_type", "lichka")
@@ -590,8 +645,12 @@ def format_recent_senders_report(results: list[dict[str, Any]]) -> str:
         time_str = r.get("time_str", "")
         text = r.get("text", "")
 
-        type_badge = "💬 Shaxsiy lichka" if c_type == "lichka" else f"👥 Guruh ({c_title})"
-        unread_badge = f" 🔴 **({unread} ta o'qilmagan)**" if unread > 0 else ""
+        if is_ru:
+            type_badge = "💬 Личка" if c_type == "lichka" else f"👥 Группа ({c_title})"
+            unread_badge = f" 🔴 **({unread} непрочитанных)**" if unread > 0 else ""
+        else:
+            type_badge = "💬 Shaxsiy lichka" if c_type == "lichka" else f"👥 Guruh ({c_title})"
+            unread_badge = f" 🔴 **({unread} ta o'qilmagan)**" if unread > 0 else ""
         uname_str = f" ({uname})" if uname else ""
 
         lines.append(f"{i}. 👤 **{s_name}**{uname_str} [{type_badge}]{unread_badge}")
@@ -601,7 +660,14 @@ def format_recent_senders_report(results: list[dict[str, Any]]) -> str:
     return "\n".join(lines).strip()
 
 
-def format_learning_report(topic: str, content: str) -> str:
+def format_learning_report(topic: str, content: str, is_ru: bool = False) -> str:
+    if is_ru:
+        return (
+            f"🧠 **Новое знание успешно сохранено в памяти!**\n\n"
+            f"• 📌 **Тема:** `{topic}`\n"
+            f"• 📝 **Правило / Указание:** {content}\n\n"
+            f"✅ _Это правило зафиксировано в памяти, и впредь я буду строго следовать ему!_"
+        )
     return (
         f"🧠 **Yangi bilim muvaffaqiyatli eslab qolindi!**\n\n"
         f"• 📌 **Mavzu:** `{topic}`\n"
@@ -610,13 +676,21 @@ def format_learning_report(topic: str, content: str) -> str:
     )
 
 
-def format_all_learned_report(facts: list[dict]) -> str:
+def format_all_learned_report(facts: list[dict], is_ru: bool = False) -> str:
     if not facts:
+        if is_ru:
+            return "🧠 **База знаний AI:**\nПока дополнительных правил не изучено. Напишите 'Запомни: ...', и я мгновенно усвою!"
         return "🧠 **AI Bilimlar Bazasi:**\nHozircha qo'shimcha o'rganilgan qoidalar yo'q. Menga xohlagan qoidangizni 'Eslab qol: ...' deb yozsangiz, darhol o'rganib olaman!"
-    lines = [f"🧠 **AI tomonidan o'rganilgan barcha bilim va qoidalar ({len(facts)} ta):**\n"]
+    if is_ru:
+        lines = [f"🧠 **Все изученные знания и правила ({len(facts)} шт.):**\n"]
+    else:
+        lines = [f"🧠 **AI tomonidan o'rganilgan barcha bilim va qoidalar ({len(facts)} ta):**\n"]
     for i, f in enumerate(facts, 1):
         lines.append(f"{i}. 📌 **[{f['topic'].upper()}]**: {f['content']}")
-    lines.append("\n💡 _Yangi qoida qo'shish uchun: 'Eslab qol: [Mavzu] - [Qoida]' deb yozing._")
+    if is_ru:
+        lines.append("\n💡 _Чтобы добавить новое правило, напишите: 'Запомни: [Тема] - [Правило]'._")
+    else:
+        lines.append("\n💡 _Yangi qoida qo'shish uchun: 'Eslab qol: [Mavzu] - [Qoida]' deb yozing._")
     return "\n".join(lines).strip()
 
 
@@ -628,8 +702,11 @@ async def get_group_info(client, group_query: str = "") -> dict[str, Any]:
         return {"error": "Telegram mijoz ulanmagan"}
 
     q = (group_query or "").strip().lower()
-    generic_words = ["", "guruh", "guruhda", "guruhimizda", "guruhlar", "barcha", "hamma", "darsda"]
-    is_generic = q in generic_words or any(q.startswith(w) for w in ["hamma", "barcha", "guruhlar"])
+    generic_words = [
+        "", "guruh", "guruhda", "guruhimizda", "guruhlar", "barcha", "hamma", "darsda",
+        "группа", "группы", "группе", "в группе", "в нашей группе", "все", "всех", "на уроке"
+    ]
+    is_generic = q in generic_words or any(q.startswith(w) for w in ["hamma", "barcha", "guruhlar", "все", "всех", "группы"])
 
     try:
         dialogs = await client.get_dialogs(limit=100)
@@ -726,9 +803,11 @@ ACTION_FORGET_FACT = re.compile(r'<<<ACTION:forget_fact\(["\'](.*?)["\']\)>>>', 
 async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
     """
     AI javobidagi maxsus harakat buyruqlarini (Action Tools) yoki
-    foydalanuvchining to'g'ridan-to'g'ri Telegram amallari talablarini bajaradi.
+    foydalanuvchining to'g'ridan-to'g'ri Telegram amallari talablarini (o'zbek va rus tillarida) bajaradi.
     """
-    # 0. Action: get_recent_senders (Oxirgi marta kim yozdi? Kelgan xabarlar)
+    is_ru = is_russian_text(orig_msg)
+
+    # 0. Action: get_recent_senders (Oxirgi marta kim yozdi? Kelgan xabarlar / Кто написал?)
     m_senders = ACTION_RECENT_SENDERS.search(reply_text)
     if not m_senders:
         senders_pat = (
@@ -737,16 +816,20 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
             r"o[hx]irgi\s+marta\s+kim|so[\'`]?nggi\s+marta\s+kim|"
             r"kim\s+o[hx]irgi\s+marta|"
             r"o[hx]irgi\s+xabarlar\s+kimdan|so[\'`]?nggi\s+xabarlar\s+kimdan|"
-            r"kelgan\s+xabarlar|yangi\s+xabarlar|lichka(?:m)?da\s+kim)"
+            r"kelgan\s+xabarlar|yangi\s+xabarlar|lichka(?:m)?da\s+kim|"
+            r"кто\s*(?:мне\s*)?(?:написал|писал|написали)|"
+            r"кто\s+последний(?:\s+писал|\s+написал)?|"
+            r"последние\s+сообщения|новые\s+сообщения|кто\s+в\s+личке|"
+            r"от\s+кого\s+сообщения)"
         )
         if re.search(senders_pat, orig_msg, re.I):
             m_senders = True
 
     if m_senders:
         senders_data = await get_recent_incoming_senders(client, limit=10)
-        return format_recent_senders_report(senders_data)
+        return format_recent_senders_report(senders_data, is_ru=is_ru)
 
-    # 1. Action: get_group_info (Guruh a'zolari/o'quvchilar soni)
+    # 1. Action: get_group_info (Guruh a'zolari/o'quvchilar soni / Сколько человек в группе)
     m_group = ACTION_GROUP_INFO.search(reply_text)
     is_group_query = False
     group_arg = ""
@@ -754,21 +837,35 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
         is_group_query = True
         group_arg = m_group.group(1).strip()
     else:
-        count_match = re.search(r"(?:guruh|dars).*?(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)", orig_msg, re.I) or \
-                      re.search(r"(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)\s+bor", orig_msg, re.I) or \
-                      re.search(r"guruhdagi\s+(?:barcha\s+)?(?:o'quvchilar|a'zolar)", orig_msg, re.I)
+        count_match = (
+            re.search(r"(?:guruh|dars).*?(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)", orig_msg, re.I) or
+            re.search(r"(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)\s+bor", orig_msg, re.I) or
+            re.search(r"guruhdagi\s+(?:barcha\s+)?(?:o'quvchilar|a'zolar)", orig_msg, re.I) or
+            re.search(r"(?:сколько|какое\s+количество)\s+(?:учеников|людей|человек|участников)", orig_msg, re.I) or
+            re.search(r"(?:участники|состав)\s+групп[ыеа]?", orig_msg, re.I) or
+            re.search(r"в\s+группе.*?(?:сколько|участник)", orig_msg, re.I)
+        )
         if count_match:
             is_group_query = True
-            nm = re.search(r"([A-Za-z0-9_]+(?:\s+[A-Za-z0-9_]+)?)\s+guruh", orig_msg, re.I)
+            nm = (
+                re.search(r"([A-Za-z0-9_\u0400-\u04FF]+(?:\s+[A-Za-z0-9_\u0400-\u04FF]+)?)\s+guruh", orig_msg, re.I) or
+                re.search(r"(?:в\s+группе|групп[еы])\s+([A-Za-z0-9_\u0400-\u04FF]+(?:\s+[A-Za-z0-9_\u0400-\u04FF]+)?)", orig_msg, re.I)
+            )
             group_arg = nm.group(1).strip() if nm else ""
 
     if is_group_query:
         data = await get_group_info(client, group_arg)
         groups = data.get("groups", [])
         if not groups:
+            if is_ru:
+                return "👥 **Информация о группах:**\nГруппы, в которых вы состоите, не найдены."
             return "👥 **Guruh ma'lumotlari:**\nSiz a'zo bo'lgan guruhlar topilmadi."
 
-        lines = ["👥 **Guruhdagi o'quvchilar va a'zolar soni:**\n"]
+        if is_ru:
+            lines = ["👥 **Количество учеников и участников в группах:**\n"]
+        else:
+            lines = ["👥 **Guruhdagi o'quvchilar va a'zolar soni:**\n"]
+
         for g in groups:
             g_name = g["group_name"]
             tot = g["total_members"]
@@ -776,50 +873,77 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
             bots = g["bots_count"]
             crm_c = g["crm_count"]
 
-            detail = f"Jami **{tot} nafar** a'zo"
-            if bots > 0:
-                detail += f" ({stu} ta o'quvchi, {bots} ta bot)"
-            if crm_c > 0:
-                detail += f" | CRM ro'yxatida: **{crm_c} nafar**"
-
-            lines.append(f"• 📍 **{g_name}**:\n  {detail}")
+            if is_ru:
+                detail = f"Всего **{tot}** участников"
+                if bots > 0:
+                    detail += f" ({stu} учеников, {bots} ботов)"
+                if crm_c > 0:
+                    detail += f" | В CRM: **{crm_c}**"
+                lines.append(f"• 📍 **{g_name}**:\n  {detail}")
+            else:
+                detail = f"Jami **{tot} nafar** a'zo"
+                if bots > 0:
+                    detail += f" ({stu} ta o'quvchi, {bots} ta bot)"
+                if crm_c > 0:
+                    detail += f" | CRM ro'yxatida: **{crm_c} nafar**"
+                lines.append(f"• 📍 **{g_name}**:\n  {detail}")
 
             sample = g.get("sample_participants", [])
             if sample:
                 sample_names = [f"{p['name']}" + (f" (@{p['username']})" if p.get('username') else "") for p in sample[:6]]
-                lines.append(f"  *A'zolardan namunalar:* {', '.join(sample_names)}" + (f" va yana {len(sample)-6} kishi..." if len(sample) > 6 else ""))
+                if is_ru:
+                    lines.append(f"  *Примеры участников:* {', '.join(sample_names)}" + (f" и еще {len(sample)-6} человек..." if len(sample) > 6 else ""))
+                else:
+                    lines.append(f"  *A'zolardan namunalar:* {', '.join(sample_names)}" + (f" va yana {len(sample)-6} kishi..." if len(sample) > 6 else ""))
             lines.append("")
 
         return "\n".join(lines).strip()
 
-    # 2. Action: get_students_summary (Jami o'quvchilar umumiy statistikasi)
+    # 2. Action: get_students_summary (Jami o'quvchilar statistikasi / Сколько всего учеников)
     m_sum = ACTION_STUDENTS_SUM.search(reply_text)
     if not m_sum:
-        if re.search(r"jami\s+.*?(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi)", orig_msg, re.I) or \
-           re.search(r"o'quvchilar(?:im)?\s+soni\s+qancha", orig_msg, re.I):
+        if (
+            re.search(r"jami\s+.*?(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi)", orig_msg, re.I) or
+            re.search(r"o'quvchilar(?:im)?\s+soni\s+qancha", orig_msg, re.I) or
+            re.search(r"сколько\s+всего\s+учеников|общее\s+(?:количество|число)\s+учеников|статистика\s+по\s+ученикам", orig_msg, re.I)
+        ):
             m_sum = True
 
     if m_sum:
         summary = get_students_summary()
         tot = summary["total_students"]
-        lines = [f"📊 **O'quvchilar umumiy statistikasi:**\n• Jami ro'yxatdan o'tgan o'quvchilar: **{tot} nafar**"]
-        if summary.get("by_group"):
-            lines.append("\n📁 **Guruhlar bo'yicha:**")
-            for g, count in summary["by_group"].items():
-                lines.append(f"  • {g}: **{count} nafar**")
-        if summary.get("by_status"):
-            lines.append("\n📈 **O'zlashtirish bo'yicha:**")
-            for st, count in summary["by_status"].items():
-                if count > 0:
-                    lines.append(f"  • {st.capitalize()}: {count} nafar")
+        if is_ru:
+            lines = [f"📊 **Общая статистика учеников:**\n• Всего зарегистрированных учеников: **{tot}**"]
+            if summary.get("by_group"):
+                lines.append("\n📁 **По группам:**")
+                for g, count in summary["by_group"].items():
+                    lines.append(f"  • {g}: **{count}**")
+            if summary.get("by_status"):
+                lines.append("\n📈 **По успеваемости:**")
+                for st, count in summary["by_status"].items():
+                    if count > 0:
+                        lines.append(f"  • {st.capitalize()}: {count}")
+        else:
+            lines = [f"📊 **O'quvchilar umumiy statistikasi:**\n• Jami ro'yxatdan o'tgan o'quvchilar: **{tot} nafar**"]
+            if summary.get("by_group"):
+                lines.append("\n📁 **Guruhlar bo'yicha:**")
+                for g, count in summary["by_group"].items():
+                    lines.append(f"  • {g}: **{count} nafar**")
+            if summary.get("by_status"):
+                lines.append("\n📈 **O'zlashtirish bo'yicha:**")
+                for st, count in summary["by_status"].items():
+                    if count > 0:
+                        lines.append(f"  • {st.capitalize()}: {count} nafar")
         return "\n".join(lines)
 
-    # 3. Action: search_telegram
+    # 3. Action: search_telegram (Telegram xabarlarini qidirish / Поиск в Telegram)
     m_search = ACTION_SEARCH.search(reply_text)
     if not m_search:
         fb = (
             re.search(r"(?:telegramdan|chatlardan|xabarlardan|xabarlarni)\s+(?:'|\")?([^'\"]+?)(?:'|\")?\s+(?:ni\s+)?(?:qidir|top|izla)", orig_msg, re.I) or
-            re.search(r"^(?:xabar\s+qidir|xabarlarni\s+qidir|telegramdan\s+qidir)\s*[:\-]?\s*(.+)$", orig_msg, re.I)
+            re.search(r"^(?:xabar\s+qidir|xabarlarni\s+qidir|telegramdan\s+qidir)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
+            re.search(r"(?:найди|поищи|поиск)\s+в\s+(?:телеграм[еа]?|тг|сообщениях|чатах)\s*[:\-]?\s*(.+)", orig_msg, re.I) or
+            re.search(r"^(?:поиск\s+в\s+тг|поиск\s+в\s+телеграм[еа]?|поиск\s+сообщений)\s*[:\-]?\s*(.+)$", orig_msg, re.I)
         )
         if fb:
             m_search = fb
@@ -827,98 +951,168 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
     if m_search:
         query = m_search.group(1).strip()
         # Agar qidiruv so'zi guruh a'zolari soniga tegishli bo'lsa, get_group_info ga yo'naltirish
-        if re.search(r"(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)", query, re.I) or \
-           re.search(r"(?:guruhda|guruhimizda)", query, re.I):
+        if (
+            re.search(r"(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)", query, re.I) or
+            re.search(r"(?:guruhda|guruhimizda)", query, re.I) or
+            re.search(r"(?:сколько|какое\s+количество)\s+(?:учеников|людей|человек)", query, re.I) or
+            re.search(r"(?:в\s+группе)", query, re.I)
+        ):
             data = await get_group_info(client, "")
             groups = data.get("groups", [])
             if groups:
-                lines = ["👥 **Guruhdagi o'quvchilar va a'zolar soni:**\n"]
-                for g in groups:
-                    lines.append(f"• 📍 **{g['group_name']}**: Jami **{g['total_members']} nafar** ({g['students_count']} ta o'quvchi)")
+                if is_ru:
+                    lines = ["👥 **Количество учеников и участников в группах:**\n"]
+                    for g in groups:
+                        lines.append(f"• 📍 **{g['group_name']}**: Всего **{g['total_members']}** ({g['students_count']} учеников)")
+                else:
+                    lines = ["👥 **Guruhdagi o'quvchilar va a'zolar soni:**\n"]
+                    for g in groups:
+                        lines.append(f"• 📍 **{g['group_name']}**: Jami **{g['total_members']} nafar** ({g['students_count']} ta o'quvchi)")
                 return "\n".join(lines)
 
         results = await search_telegram_messages(client, query, limit=6)
         if not results or (len(results) == 1 and "error" in results[0]):
+            if is_ru:
+                return f"🔍 **Результаты поиска в Telegram:**\nПо запросу '{query}' сообщений не найдено."
             return f"🔍 **Telegram qidiruv natijasi:**\n'{query}' bo'yicha hech qanday xabar topilmadi."
-        lines = [f"🔍 **'{query}' bo'yicha topilgan xabarlar:**\n"]
+
+        if is_ru:
+            lines = [f"🔍 **Найденные сообщения по запросу '{query}':**\n"]
+        else:
+            lines = [f"🔍 **'{query}' bo'yicha topilgan xabarlar:**\n"]
+
         for i, res in enumerate(results, 1):
-            chat_name = res.get("chat_name", "Noma'lum")
-            sender = res.get("sender_name", "Noma'lum")
+            chat_name = res.get("chat_name", "Неизвестный" if is_ru else "Noma'lum")
+            sender = res.get("sender_name", "Неизвестный" if is_ru else "Noma'lum")
             date = res.get("date", "")
             snippet = res.get("snippet", "")
             link = res.get("link")
-            link_md = f" [🔗 Ochish]({link})" if link else ""
+            open_txt = "Открыть" if is_ru else "Ochish"
+            link_md = f" [🔗 {open_txt}]({link})" if link else ""
             lines.append(f"{i}. 📍 **{chat_name}** | 👤 *{sender}* ({date}):\n   «{snippet}»{link_md}\n")
         return "\n".join(lines)
 
-    # 4. Action: find_contact (O'quvchi, odamlar, chatlar va guruh a'zolarini qidirish)
+    # 4. Action: find_contact (O'quvchi, kontakt yoki guruh a'zolarini qidirish / Поиск контакта)
     m_contact = ACTION_FIND_CONTACT.search(reply_text)
     if not m_contact:
         fb = (
             re.search(r"^(?:top|qidir|izla|aniqla)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
-            re.search(r"^(.+?)\s+(?:haqida|kim\b|qayerda\b)", orig_msg, re.I) or
+            re.search(r"^(?:найди|найти|поищи|поиск|где|кто\s+такой)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
+            re.search(r"^(.+?)\s+(?:haqida|kim\b|qayerda\b|где\s+находится|кто\s+такой)", orig_msg, re.I) or
             re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|odamni|bolani|uydagilarini|lichkasini|kontaktini|chatini)\s+\b(?:top|qidir|aniqla|izla)\b", orig_msg, re.I) or
+            re.search(r"(?:найди|поищи|пробей)\s+(?:ученика|контакт|личку|чат)\s*[:\-]?\s*(.+)", orig_msg, re.I) or
             re.search(r"(?:chatlar\s+ismi\s+bilan\s+)?(?:odamlarni|chatlarni|o'quvchilarni|kontaktlarni)\s+(?:ham\s+)?\b(?:top|qidir|aniqla|izla)\b\s*[:\-]?(?:\s+)?(.+)", orig_msg, re.I) or
-            re.search(r"^([A-Za-z0-9_'\`\s]{2,25}?)(?:ning|ni|i)?\s+\b(?:chatini\s+top|lichkasini\s+top|qaysi\s+guruhda|top|qidir|izla)\b", orig_msg, re.I)
+            re.search(r"^([A-Za-z0-9_'\`\s\u0400-\u04FF]{2,25}?)(?:ning|ni|i)?\s+\b(?:chatini\s+top|lichkasini\s+top|qaysi\s+guruhda|в\s+какой\s+группе|top|qidir|izla)\b", orig_msg, re.I)
         )
         if fb:
             m_contact = fb
 
     if m_contact:
         query = m_contact.group(1).strip()
-        query = re.sub(r"^(?:degan\s+|ismli\s+|chat\s+|guruh\s+)", "", query, flags=re.I).strip()
+        query = re.sub(
+            r"^(?:degan\s+|ismli\s+|chat\s+|guruh\s+|ученика\s+|контакт\s+|по\s+имени\s+|чат\s+|группу\s+)",
+            "",
+            query,
+            flags=re.I,
+        ).strip()
         data = await find_student_or_contact(client, query)
         crm_students = data.get("crm_students", [])
         tg_chats = data.get("telegram_chats", [])
         group_members = data.get("group_members", [])
 
-        lines = [f"👤 **'{query}' bo'yicha qidiruv natijalari:**\n"]
-        if crm_students:
-            lines.append("👨‍🎓 **O'quvchilar profili (CRM):**")
-            for s in crm_students:
-                fname = s.get("full_name", "")
-                uname = f"@{s.get('username')}" if s.get("username") else "Lichka: yo'q"
-                gname = s.get("group_name") or "Guruh belgilanmagan"
-                status = s.get("status", "yaxshi")
-                notes = s.get("mentor_notes") or ""
-                lines.append(f"• **{fname}** — Guruh: **{gname}** (Status: {status})\n  Telegram: {uname}" + (f"\n  Izoh: {notes}" if notes else ""))
-            lines.append("")
+        if is_ru:
+            lines = [f"👤 **Результаты поиска по запросу '{query}':**\n"]
+            if crm_students:
+                lines.append("👨‍🎓 **Профиль учеников (CRM):**")
+                for s in crm_students:
+                    fname = s.get("full_name", "")
+                    uname = f"@{s.get('username')}" if s.get("username") else "Личка: нет"
+                    gname = s.get("group_name") or "Группа не указана"
+                    status = s.get("status", "хорошо")
+                    notes = s.get("mentor_notes") or ""
+                    lines.append(f"• **{fname}** — Группа: **{gname}** (Статус: {status})\n  Telegram: {uname}" + (f"\n  Примечание: {notes}" if notes else ""))
+                lines.append("")
 
-        if tg_chats:
-            lines.append("📱 **Telegramdan topilgan chatlar va kontaktlar:**")
-            for c in tg_chats:
-                c_name = c.get("name", "")
-                c_type = "📁 Guruh/Kanal" if c.get("type") == "group" else "💬 Lichka"
-                c_uname = c.get("username") or ""
-                c_phone = c.get("phone") or ""
-                link = c.get("link", "")
-                info_parts = []
-                if c_uname: info_parts.append(c_uname)
-                if c_phone: info_parts.append(c_phone)
-                info_str = f" ({', '.join(info_parts)})" if info_parts else ""
-                lines.append(f"• [{c_type}] **[{c_name}]({link})**{info_str}")
-            lines.append("")
+            if tg_chats:
+                lines.append("📱 **Найденные чаты и контакты в Telegram:**")
+                for c in tg_chats:
+                    c_name = c.get("name", "")
+                    c_type = "📁 Группа/Канал" if c.get("type") == "group" else "💬 Личка"
+                    c_uname = c.get("username") or ""
+                    c_phone = c.get("phone") or ""
+                    link = c.get("link", "")
+                    info_parts = []
+                    if c_uname: info_parts.append(c_uname)
+                    if c_phone: info_parts.append(c_phone)
+                    info_str = f" ({', '.join(info_parts)})" if info_parts else ""
+                    lines.append(f"• [{c_type}] **[{c_name}]({link})**{info_str}")
+                lines.append("")
 
-        if group_members:
-            lines.append("👥 **Guruhlar ichidan topilgan a'zolar / o'quvchilar:**")
-            for m in group_members:
-                m_name = m.get("name", "")
-                m_uname = m.get("username") or ""
-                m_group = m.get("in_group", "")
-                link = m.get("link", "")
-                uname_str = f" ({m_uname})" if m_uname else ""
-                lines.append(f"• 👤 **[{m_name}]({link})**{uname_str} — 📍 Guruh: **{m_group}**")
-            lines.append("")
+            if group_members:
+                lines.append("👥 **Участники / ученики, найденные в группах:**")
+                for m in group_members:
+                    m_name = m.get("name", "")
+                    m_uname = m.get("username") or ""
+                    m_group = m.get("in_group", "")
+                    link = m.get("link", "")
+                    uname_str = f" ({m_uname})" if m_uname else ""
+                    lines.append(f"• 👤 **[{m_name}]({link})**{uname_str} — 📍 Группа: **{m_group}**")
+                lines.append("")
 
-        if not crm_students and not tg_chats and not group_members:
-            lines.append(f"'{query}' bo'yicha na CRM dan, na Telegram chatlari yoki guruh a'zolaridan hech kim topilmadi.")
+            if not crm_students and not tg_chats and not group_members:
+                lines.append(f"По запросу '{query}' ни в CRM, ни в чатах или группах Telegram никого не найдено.")
+
+        else:
+            lines = [f"👤 **'{query}' bo'yicha qidiruv natijalari:**\n"]
+            if crm_students:
+                lines.append("👨‍🎓 **O'quvchilar profili (CRM):**")
+                for s in crm_students:
+                    fname = s.get("full_name", "")
+                    uname = f"@{s.get('username')}" if s.get("username") else "Lichka: yo'q"
+                    gname = s.get("group_name") or "Guruh belgilanmagan"
+                    status = s.get("status", "yaxshi")
+                    notes = s.get("mentor_notes") or ""
+                    lines.append(f"• **{fname}** — Guruh: **{gname}** (Status: {status})\n  Telegram: {uname}" + (f"\n  Izoh: {notes}" if notes else ""))
+                lines.append("")
+
+            if tg_chats:
+                lines.append("📱 **Telegramdan topilgan chatlar va kontaktlar:**")
+                for c in tg_chats:
+                    c_name = c.get("name", "")
+                    c_type = "📁 Guruh/Kanal" if c.get("type") == "group" else "💬 Lichka"
+                    c_uname = c.get("username") or ""
+                    c_phone = c.get("phone") or ""
+                    link = c.get("link", "")
+                    info_parts = []
+                    if c_uname: info_parts.append(c_uname)
+                    if c_phone: info_parts.append(c_phone)
+                    info_str = f" ({', '.join(info_parts)})" if info_parts else ""
+                    lines.append(f"• [{c_type}] **[{c_name}]({link})**{info_str}")
+                lines.append("")
+
+            if group_members:
+                lines.append("👥 **Guruhlar ichidan topilgan a'zolar / o'quvchilar:**")
+                for m in group_members:
+                    m_name = m.get("name", "")
+                    m_uname = m.get("username") or ""
+                    m_group = m.get("in_group", "")
+                    link = m.get("link", "")
+                    uname_str = f" ({m_uname})" if m_uname else ""
+                    lines.append(f"• 👤 **[{m_name}]({link})**{uname_str} — 📍 Guruh: **{m_group}**")
+                lines.append("")
+
+            if not crm_students and not tg_chats and not group_members:
+                lines.append(f"'{query}' bo'yicha na CRM dan, na Telegram chatlari yoki guruh a'zolaridan hech kim topilmadi.")
 
         return "\n".join(lines)
 
     # 5. Action: send_message
     m_send = ACTION_SEND_MSG.search(reply_text)
     if not m_send:
-        fb = re.search(r"^(.+?)(?:ga|da)\s+['\"](.+?)['\"]\s+(?:deb\s+)?(?:yoz|xabar\s+yubor|tashla)", orig_msg, re.I)
+        fb = (
+            re.search(r"^(.+?)(?:ga|da)\s+['\"](.+?)['\"]\s+(?:deb\s+)?(?:yoz|xabar\s+yubor|tashla)", orig_msg, re.I) or
+            re.search(r"^(?:напиши|отправь|скинь)\s+(.+?)\s+['\"](.+?)['\"]", orig_msg, re.I)
+        )
         if fb:
             m_send = fb
 
@@ -927,24 +1121,35 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
         text = m_send.group(2).strip()
         res = await send_telegram_message(client, target, text)
         if res.get("ok"):
+            if is_ru:
+                return (
+                    f"✅ **Сообщение успешно отправлено!**\n\n"
+                    f"• **Получатель:** {res.get('target_name')}\n"
+                    f"• **Текст сообщения:** «{text}»"
+                )
             return (
                 f"✅ **Xabar muvaffaqiyatli yuborildi!**\n\n"
                 f"• **Qabul qiluvchi:** {res.get('target_name')}\n"
                 f"• **Yuborilgan xabar:** «{text}»"
             )
         else:
+            if is_ru:
+                return f"❌ **Не удалось отправить сообщение:** {res.get('error')}"
             return f"❌ **Xabarni yuborib bo'lmadi:** {res.get('error')}"
 
-    # 6. Action: learn_fact (Yangi bilim yoki qoidani xotiraga saqlash)
+    # 6. Action: learn_fact (Yangi bilim yoki qoidani xotiraga saqlash / Запомнить)
     m_learn = ACTION_LEARN_FACT.search(reply_text)
     if m_learn:
         topic = m_learn.group(1).strip()
         content = m_learn.group(2).strip()
         memory_service.add_learned_fact(topic, content, category="mentor_rule")
-        return format_learning_report(topic, content)
+        return format_learning_report(topic, content, is_ru=is_ru)
 
-    # To'g'ridan-to'g'ri o'rganish buyruqlari (Eslab qol: ..., O'rganib ol: ...)
-    m_learn_direct = re.search(r"^(?:eslab\s+qol|o'rganib\s+ol|bilib\s+ol|xotirangda\s+saqla)\s*[:\-]?\s*(.+)", orig_msg, re.I)
+    # To'g'ridan-to'g'ri o'rganish buyruqlari (Eslab qol: ..., Запомни: ...)
+    m_learn_direct = (
+        re.search(r"^(?:eslab\s+qol|o'rganib\s+ol|bilib\s+ol|xotirangda\s+saqla)\s*[:\-]?\s*(.+)", orig_msg, re.I) or
+        re.search(r"^(?:запомни|выучи|сохрани(?:\s+в\s+памяти)?)\s*[:\-]?\s*(.+)", orig_msg, re.I)
+    )
     if m_learn_direct:
         raw = m_learn_direct.group(1).strip()
         parts = re.split(r"(?:\s*:\s*|\s+[-—]\s+)", raw, maxsplit=1)
@@ -952,30 +1157,40 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
             topic = parts[0].strip()
             content = parts[1].strip()
         else:
-            topic = "mentor_qoidasi"
+            topic = "правило_ментора" if is_ru else "mentor_qoidasi"
             content = raw
         memory_service.add_learned_fact(topic, content, category="mentor_rule")
-        return format_learning_report(topic, content)
+        return format_learning_report(topic, content, is_ru=is_ru)
 
-    # 7. Action: get_learned_facts (O'rganilgan bilimlar ro'yxati)
-    m_get_learned = ACTION_GET_LEARNED.search(reply_text) or \
-                    re.search(r"\b(?:nimalarni\s+o'rganding|o'rganganlaringni\s+ko'rsat|bilimlar\s+bazasi|xotirangni\s+ko'rsat|bazangda\s+nima\s+bor)\b", orig_msg, re.I)
+    # 7. Action: get_learned_facts (O'rganilgan bilimlar ro'yxati / База знаний)
+    m_get_learned = (
+        ACTION_GET_LEARNED.search(reply_text) or
+        re.search(r"\b(?:nimalarni\s+o'rganding|o'rganganlaringni\s+ko'rsat|bilimlar\s+bazasi|xotirangni\s+ko'rsat|bazangda\s+nima\s+bor)\b", orig_msg, re.I) or
+        re.search(r"\b(?:что\s+ты\s+знаешь|что\s+выучил|покажи\s+базу\s+знаний|список\s+правил|база\s+знаний)\b", orig_msg, re.I)
+    )
     if m_get_learned:
         facts = memory_service.get_all_learned_facts(limit=50)
-        return format_all_learned_report(facts)
+        return format_all_learned_report(facts, is_ru=is_ru)
 
-    # 8. Action: forget_fact (Bilimni o'chirish)
+    # 8. Action: forget_fact (Bilimni o'chirish / Забудь)
     m_forget = ACTION_FORGET_FACT.search(reply_text)
     if not m_forget:
-        fb_forget = re.search(r"(?:buni\s+)?(?:unut|o'chir|xotirangdan\s+o'chir)\s*[:\-]?\s*(.+)", orig_msg, re.I)
+        fb_forget = (
+            re.search(r"(?:buni\s+)?(?:unut|o'chir|xotirangdan\s+o'chir)\s*[:\-]?\s*(.+)", orig_msg, re.I) or
+            re.search(r"(?:забудь|удали\s+из\s+памяти|удали\s+правило)\s*[:\-]?\s*(.+)", orig_msg, re.I)
+        )
         if fb_forget:
             m_forget = fb_forget
     if m_forget:
         target = m_forget.group(1).strip()
         ok = memory_service.delete_learned_fact(target)
         if ok:
+            if is_ru:
+                return f"🗑 **Правило по теме '{target}' успешно удалено из памяти.**"
             return f"🗑 **'{target}' mavzusidagi qoida xotiradan muvaffaqiyatli o'chirildi.**"
         else:
+            if is_ru:
+                return f"⚠️ **В памяти не найдено правил по теме '{target}'.**"
             return f"⚠️ **'{target}' bo'yicha xotirada qoida topilmadi.**"
 
     return reply_text
