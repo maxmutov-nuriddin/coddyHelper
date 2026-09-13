@@ -21,10 +21,30 @@ ESCALATE_PATTERN = re.compile(r"<<<ESCALATE>>>(.*?)<<<END_ESCALATE>>>", re.DOTAL
 
 
 def check_fast_faq(text: str) -> str | None:
-    """Eng ko'p uchraydigan standart dasturlash xatolariga 0.5 soniyada tayyor yechim beradi."""
+    """Eng ko'p uchraydigan standart dasturlash xatolari va salomlashuvlarga 0.01 soniyada tayyor yechim beradi."""
     t = text.strip()
     if not t:
         return None
+
+    # 0. Standart salomlashuvlar (0.001s da xushmuomala javob)
+    clean_t = t.lower().rstrip("!?.,~ ")
+    uzbek_greetings = {
+        "salom", "assalomu alaykum", "assalom alaykum", "assalomu alekum", 
+        "salom aleykum", "salomaleykum", "salom ustoz", "assalomu alaykum ustoz",
+        "salom mentor", "qalaysiz", "yaxshimisiz", "tormisiz"
+    }
+    russian_greetings = {
+        "привет", "здравствуйте", "добрый день", "добрый вечер", "доброе утро", "хай"
+    }
+    english_greetings = {
+        "hello", "hi", "hey", "good morning", "good afternoon", "good evening"
+    }
+    if clean_t in uzbek_greetings:
+        return "Assalomu alaykum! Yaxshimisiz? Dasturlash yoki dars masalalarida qanday yordam bera olaman?"
+    if clean_t in russian_greetings:
+        return "Здравствуйте! Чем могу помочь по урокам или программированию?"
+    if clean_t in english_greetings:
+        return "Hello! How can I help you with programming or lessons?"
 
     # 1. ModuleNotFoundError
     mod_match = re.search(r"ModuleNotFoundError:\s*No module named\s*['\"]([^'\"]+)['\"]", t, re.IGNORECASE)

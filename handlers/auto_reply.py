@@ -183,6 +183,13 @@ async def check_is_vazifalar_chat(event) -> bool:
     if is_escalation_chat(event.chat_id):
         return True
     try:
+        if getattr(event, "client", None):
+            me = await event.client.get_me()
+            if event.chat_id == me.id:
+                return True
+    except Exception:
+        pass
+    try:
         chat = await event.get_chat()
         title = getattr(chat, "title", "") or ""
         if "vazifalar" in title.lower():
@@ -190,6 +197,7 @@ async def check_is_vazifalar_chat(event) -> bool:
     except Exception:
         pass
     return False
+
 
 
 def register_auto_reply_handlers(client: TelegramClient) -> None:
@@ -271,15 +279,18 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             if not input_text and not file_text and not image_bytes:
                 return
 
-            # 4. Telegram kontaktlar va guruhlar kontekstini olish
+            # 4. Telegram kontaktlar va guruhlar kontekstini olish (faqat zarur bo'lganda)
             chats_context = None
-            try:
-                recent = await list_recent_chats(client, limit=10)
-                if recent:
-                    chat_names = [f"{c['name']} ({c['type']})" for c in recent]
-                    chats_context = f"Sizning Telegramingizdagi faol guruhlar va kontaktlar: {', '.join(chat_names)}"
-            except Exception as c_err:
-                logger.debug("Chatlar kontekstini olishda xatolik: %s", c_err)
+            lower_in = input_text.lower()
+            needs_context = any(w in lower_in for w in ("guruh", "kontakt", "lichka", "chat", "xabar", "o'quvchi", "oquvchi", "kim", "qidir", "top"))
+            if needs_context:
+                try:
+                    recent = await list_recent_chats(client, limit=10)
+                    if recent:
+                        chat_names = [f"{c['name']} ({c['type']})" for c in recent]
+                        chats_context = f"Sizning Telegramingizdagi faol guruhlar va kontaktlar: {', '.join(chat_names)}"
+                except Exception as c_err:
+                    logger.debug("Chatlar kontekstini olishda xatolik: %s", c_err)
 
             # 5. AI Co-Pilot javobini yaratish (Admin / Co-Pilot rejimida)
             raw_reply = await ai_service.generate_reply(

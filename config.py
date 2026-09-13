@@ -144,9 +144,13 @@ def is_escalation_chat(chat_id: int | str) -> bool:
     """Chat ID 'Vazifalar' (Admin/Eskalyatsiya) guruhi ekanini tekshiradi."""
     target = str(config.escalation_chat).strip()
     c_id = str(chat_id).strip()
+    if target.lower() in ("me", "self"):
+        if c_id.lower() in ("me", "self") or c_id in (str(config.mentor_user_id), "8105823872"):
+            return True
     if c_id == target:
         return True
     c_norm = c_id.replace("-100", "-")
     t_norm = target.replace("-100", "-")
     return c_norm == t_norm
+
 
