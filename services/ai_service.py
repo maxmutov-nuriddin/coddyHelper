@@ -134,6 +134,44 @@ def redact_sensitive_data(text: str) -> str:
     return text
 
 
+def optimize_image_for_vision(image_bytes: bytes, max_dim: int = 960, quality: int = 80) -> bytes:
+    """
+    Katta hajmdagi skrinshot va rasmlarni Groq token limitlariga (7000 ITPM) moslash uchun
+    sifatini buzmagan holda o'lchamini ixchamlashtiradi va JPEG siqadi.
+    """
+    if not image_bytes:
+        return image_bytes
+    try:
+        import io
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+
+        w, h = img.size
+        if max(w, h) > max_dim:
+            if w > h:
+                new_w = max_dim
+                new_h = int(h * (max_dim / w))
+            else:
+                new_h = max_dim
+                new_w = int(w * (max_dim / h))
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        out_buf = io.BytesIO()
+        img.save(out_buf, format="JPEG", quality=quality, optimize=True)
+        compressed = out_buf.getvalue()
+        logger.info(
+            "Rasm AI Vision uchun optimizatsiya qilindi: %d bayt -> %d bayt (o'lchami: %dx%d)",
+            len(image_bytes), len(compressed), img.size[0], img.size[1]
+        )
+        return compressed
+    except Exception as e:
+        logger.warning("Rasmni siqishda ogohlantirish: %s", e)
+        return image_bytes
+
+
 def extract_smart_reminder(text: str, current_tashkent_time: str | None = None) -> dict | None:
     """
     O'zbek tilidagi har qanday eslatma so'rovidan (nisbiy vaqt, sana, soat, minut, daqiqa)
@@ -412,34 +450,45 @@ class AIService:
         is_admin_mode: bool = False,
     ) -> str:
         """Groq orqali javob generatsiya qilish (avtomatik kalit almashtirish va model tanlash)."""
-        history = memory_service.get_history(chat_id)
-        sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
-        knowledge_context = memory_service.get_knowledge_context()
-        if knowledge_context:
-            sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
-        messages = [{"role": "system", "content": sys_prompt}]
-
-        for msg in history:
-            role = "user" if msg.role == "user" else "assistant"
-            messages.append({"role": role, "content": msg.content})
-
         if image_bytes:
-            img_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            opt_image = optimize_image_for_vision(image_bytes, max_dim=960, quality=80)
+            img_b64 = base64.b64encode(opt_image).decode("utf-8")
             prompt_text = (
                 effective_prompt
                 if effective_prompt
-                else "Ushbu rasm/skrinshotdagi LMS vazifasi yoki xatolikni tahlil qilib, to'g'ri yechim va yo'nalish ber."
+                else "Ushbu rasm/skrinshotdagi LMS vazifasi yoki kod xatoligini tahlil qilib, to'g'ri yechim va yo'nalish ber."
             )
+            # Vision uchun ixcham tizim prompti (Groq 7000 ITPM limitiga sig'ish uchun)
+            vision_sys = (
+                "Siz CoddyCamp IT dasturlash mentori AIsiz. "
+                "Foydalanuvchi yuborgan rasm, kod xatosi yoki LMS topshirig'ini OCR orqali o'qib, "
+                "aniq, qisqa va tushunarli yechim bering."
+            )
+            messages = [{"role": "system", "content": vision_sys}]
+            for msg in history[-2:]:
+                role = "user" if msg.role == "user" else "assistant"
+                messages.append({"role": role, "content": msg.content[:300]})
+
             user_content = [
                 {"type": "text", "text": prompt_text},
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+                    "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
                 },
             ]
             messages.append({"role": "user", "content": user_content})
             model_to_use = config.groq_vision_model
         else:
+            sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
+            knowledge_context = memory_service.get_knowledge_context()
+            if knowledge_context:
+                sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
+            messages = [{"role": "system", "content": sys_prompt}]
+
+            for msg in history:
+                role = "user" if msg.role == "user" else "assistant"
+                messages.append({"role": role, "content": msg.content})
+
             messages.append({"role": "user", "content": effective_prompt})
             model_to_use = config.groq_model
 
@@ -459,6 +508,27 @@ class AIService:
             except Exception as e:
                 logger.warning("Groq kalitida xatolik, zaxira kalitga o'tilmoqda: %s", e)
                 last_error = e
+
+        # Agar rasm hajmi tufayli 413 (rate_limit_exceeded) bo'lsa, yanada ixcham (640px) qilib qayta urinib ko'rish
+        if image_bytes and last_error and ("rate_limit_exceeded" in str(last_error) or "413" in str(last_error)):
+            logger.warning("Rasm hajmi oshdi (413), 640px ga yanada kichraytirib qayta urinilmoqda...")
+            try:
+                tiny_image = optimize_image_for_vision(image_bytes, max_dim=640, quality=65)
+                tiny_b64 = base64.b64encode(tiny_image).decode("utf-8")
+                messages[-1]["content"][1]["image_url"]["url"] = f"data:image/jpeg;base64,{tiny_b64}"
+                for client in self._groq_clients:
+                    try:
+                        response = await client.chat.completions.create(
+                            model=model_to_use,
+                            messages=messages,
+                            temperature=0.3,
+                            max_tokens=1024,
+                        )
+                        return response.choices[0].message.content.strip()
+                    except Exception:
+                        continue
+            except Exception as retry_err:
+                logger.warning("Qayta urinishda xatolik: %s", retry_err)
 
         if last_error:
             raise last_error
