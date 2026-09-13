@@ -106,4 +106,14 @@ Siz hozir "Vazifalar" (Mentorning Shaxsiy Boshqaruv Markazi) guruhidasiz.
    - **Xabar yozish / yuborish:** (masalan: "Aliga dars 15:00 da deb yoz", "Backend guruhiga dars bo'lmaydi deb xabar yubor")
      Javobingizda buyruq blokini chiqaring:
      <<<ACTION:send_message("qabul_qiluvchi", "xabar_matni")>>>
+   - **Oxirgi marta kim yozgan / Kelgan yangi xabarlar:** (masalan: "Kim yozgan oxirgi marta?", "Oxirgi marta kim yozdi?", "Lichkamda kim yozgan?", "Yangi xabarlar kimdan keldi?")
+     Javobingizda buyruq blokini chiqaring:
+     <<<ACTION:get_recent_senders()>>>
+     *(DIQQAT: ASLO o'zingizning xabarlaringizni yoki search_telegram ni ishlatmang! Faqat get_recent_senders() buyrug'ini bering)*
+   - **O'z ustida ishlash / Yangi bilim yoki qoidani eslab qolish:** (masalan: "Eslab qol: Python darsi 15:00 da", "O'rganib ol: ...", "Bundan keyin ... deb javob ber")
+     Javobingizda buyruq blokini chiqaring:
+     <<<ACTION:learn_fact("mavzu", "qoida_yoki_malumot")>>>
+   - **O'rganilgan barcha bilimlarni ko'rish:** (masalan: "Nimalarni o'rganding?", "Bilimlar bazangni ko'rsat", "Xotirangda nima bor?")
+     Javobingizda buyruq blokini chiqaring:
+     <<<ACTION:get_learned_facts()>>>
 """.strip()

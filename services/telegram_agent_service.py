@@ -384,6 +384,195 @@ async def list_recent_chats(client, limit: int = 15) -> list[dict[str, Any]]:
         return []
 
 
+def _format_relative_time(dt: datetime | None) -> str:
+    if not dt:
+        return ""
+    try:
+        tashkent_tz = ZoneInfo("Asia/Tashkent")
+        now = datetime.now(tashkent_tz)
+        target = dt if dt.tzinfo else dt.replace(tzinfo=tashkent_tz)
+        target = target.astimezone(tashkent_tz)
+        diff = now - target
+        secs = int(diff.total_seconds())
+        if secs < 60:
+            rel = "hozirgina"
+        elif secs < 3600:
+            rel = f"{secs // 60} daqiqa oldin"
+        elif secs < 86400:
+            rel = f"{secs // 3600} soat oldin"
+        elif secs < 172800:
+            rel = "kecha"
+        else:
+            rel = f"{secs // 86400} kun oldin"
+        time_str = target.strftime("%H:%M")
+        return f"{time_str} ({rel})"
+    except Exception:
+        return _get_tashkent_time(dt)
+
+
+async def get_recent_incoming_senders(client, limit: int = 10, unread_only: bool = False) -> list[dict[str, Any]]:
+    """
+    Mentorga Telegram orqali kelgan (incoming) eng so'nggi xabarlar va ularni kim yozganini aniqlaydi.
+    Aslo mentorning o'zi yuborgan xabarlarni 'kelgan xabar' deb hisoblamaydi.
+    """
+    if not client:
+        return [{"error": "Telegram mijoz ulanmagan"}]
+
+    from config import config
+    mentor_ids = {config.mentor_user_id, 8105823872}
+    vazifalar_target = str(config.escalation_chat).strip()
+
+    try:
+        me = await client.get_me()
+        if me:
+            mentor_ids.add(me.id)
+    except Exception:
+        pass
+
+    results = []
+    try:
+        dialogs = await client.get_dialogs(limit=35)
+        for d in dialogs:
+            # Saved Messages yoki Vazifalar boshqaruv guruhini ro'yxatdan chiqarish
+            if d.id in mentor_ids:
+                continue
+            if str(d.id) == vazifalar_target or str(d.id).replace("-100", "-") == vazifalar_target.replace("-100", "-"):
+                continue
+            if d.name and "vazifalar" in d.name.lower():
+                continue
+
+            last_msg = d.message
+            if not last_msg:
+                continue
+
+            unread = getattr(d, "unread_count", 0) or 0
+            if unread_only and unread == 0:
+                continue
+
+            is_out = bool(last_msg.out)
+            chat_title = d.name or "Noma'lum"
+            chat_type = "guruh" if (d.is_group or d.is_channel) else "lichka"
+            username = getattr(d.entity, "username", None)
+            phone = getattr(d.entity, "phone", None)
+
+            incoming_msg = last_msg
+            if is_out:
+                try:
+                    # Agar oxirgi xabarni mentor yuborgan bo'lsa, chatdagi oxirgi kelgan xabarni qidiramiz
+                    recent_msgs = await client.get_messages(d.entity, limit=6)
+                    found_incoming = next((m for m in recent_msgs if not m.out), None)
+                    if found_incoming:
+                        incoming_msg = found_incoming
+                    else:
+                        incoming_msg = None
+                except Exception:
+                    pass
+
+            if incoming_msg:
+                sender = await incoming_msg.get_sender()
+                sender_name = getattr(sender, "first_name", None) or getattr(sender, "title", None) or chat_title
+                if getattr(sender, "last_name", None):
+                    sender_name += f" {sender.last_name}"
+                sender_uname = getattr(sender, "username", None) or username
+                text_snip = (incoming_msg.text or incoming_msg.raw_text or "").strip().replace("\n", " ")
+                if not text_snip:
+                    if incoming_msg.photo:
+                        text_snip = "[Rasm / Skrinshot]"
+                    elif incoming_msg.voice:
+                        text_snip = "[Ovozli xabar]"
+                    elif incoming_msg.document:
+                        text_snip = f"[Fayl: {getattr(incoming_msg.file, 'name', 'hujjat')}]"
+                    else:
+                        text_snip = "[Xabar]"
+
+                if len(text_snip) > 120:
+                    text_snip = text_snip[:117] + "..."
+
+                results.append({
+                    "chat_id": d.id,
+                    "chat_title": chat_title,
+                    "chat_type": chat_type,
+                    "sender_name": sender_name,
+                    "sender_username": f"@{sender_uname}" if sender_uname else None,
+                    "phone": phone,
+                    "text": text_snip,
+                    "date": incoming_msg.date,
+                    "time_str": _format_relative_time(incoming_msg.date),
+                    "unread_count": unread,
+                    "last_action_by_me": is_out,
+                })
+            elif is_out:
+                results.append({
+                    "chat_id": d.id,
+                    "chat_title": chat_title,
+                    "chat_type": chat_type,
+                    "sender_name": chat_title,
+                    "sender_username": f"@{username}" if username else None,
+                    "phone": phone,
+                    "text": f"(Oxirgi xabarni siz yozgansiz: «{last_msg.text[:50] if last_msg.text else ''}»)",
+                    "date": last_msg.date,
+                    "time_str": _format_relative_time(last_msg.date),
+                    "unread_count": unread,
+                    "last_action_by_me": True,
+                })
+
+            if len(results) >= limit:
+                break
+
+    except Exception as e:
+        logger.error("Kelgan xabarlarni olishda xatolik: %s", e)
+        return [{"error": str(e)}]
+
+    results.sort(key=lambda x: x.get("date") or datetime.min, reverse=True)
+    return results[:limit]
+
+
+def format_recent_senders_report(results: list[dict[str, Any]]) -> str:
+    if not results:
+        return "📬 **Telegram xabarlari:**\nHozircha sizga kelgan yangi xabarlar topilmadi."
+    if len(results) == 1 and "error" in results[0]:
+        return f"❌ **Telegram xabarlarini olishda xatolik:** {results[0]['error']}"
+
+    lines = ["📬 **Telegramda sizga oxirgi marta xabar yozganlar (Kelgan xabarlar):**\n"]
+    for i, r in enumerate(results, 1):
+        s_name = r.get("sender_name", "Noma'lum")
+        uname = r.get("sender_username")
+        c_title = r.get("chat_title", "")
+        c_type = r.get("chat_type", "lichka")
+        unread = r.get("unread_count", 0)
+        time_str = r.get("time_str", "")
+        text = r.get("text", "")
+
+        type_badge = "💬 Shaxsiy lichka" if c_type == "lichka" else f"👥 Guruh ({c_title})"
+        unread_badge = f" 🔴 **({unread} ta o'qilmagan)**" if unread > 0 else ""
+        uname_str = f" ({uname})" if uname else ""
+
+        lines.append(f"{i}. 👤 **{s_name}**{uname_str} [{type_badge}]{unread_badge}")
+        lines.append(f"   ⏰ *{time_str}*")
+        lines.append(f"   💬 «{text}»\n")
+
+    return "\n".join(lines).strip()
+
+
+def format_learning_report(topic: str, content: str) -> str:
+    return (
+        f"🧠 **Yangi bilim muvaffaqiyatli eslab qolindi!**\n\n"
+        f"• 📌 **Mavzu:** `{topic}`\n"
+        f"• 📝 **Qoida / Ko'rsatma:** {content}\n\n"
+        f"✅ _Ushbu qoida xotiraga saqlandi va bundan keyin barcha savollarda unga qat'iy amal qilaman!_"
+    )
+
+
+def format_all_learned_report(facts: list[dict]) -> str:
+    if not facts:
+        return "🧠 **AI Bilimlar Bazasi:**\nHozircha qo'shimcha o'rganilgan qoidalar yo'q. Menga xohlagan qoidangizni 'Eslab qol: ...' deb yozsangiz, darhol o'rganib olaman!"
+    lines = [f"🧠 **AI tomonidan o'rganilgan barcha bilim va qoidalar ({len(facts)} ta):**\n"]
+    for i, f in enumerate(facts, 1):
+        lines.append(f"{i}. 📌 **[{f['topic'].upper()}]**: {f['content']}")
+    lines.append("\n💡 _Yangi qoida qo'shish uchun: 'Eslab qol: [Mavzu] - [Qoida]' deb yozing._")
+    return "\n".join(lines).strip()
+
+
 async def get_group_info(client, group_query: str = "") -> dict[str, Any]:
     """
     Guruhdagi o'quvchilar/a'zolar soni, ismlari va ma'lumotlarini Telethon va CRM orqali aniqlaydi.
@@ -480,6 +669,11 @@ ACTION_STUDENTS_SUM = re.compile(r'<<<ACTION:get_students_summary\(\)>>>', re.IG
 ACTION_SEARCH = re.compile(r'<<<ACTION:search_telegram\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
 ACTION_FIND_CONTACT = re.compile(r'<<<ACTION:find_contact\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
 ACTION_SEND_MSG = re.compile(r'<<<ACTION:send_message\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
+ACTION_RECENT_SENDERS = re.compile(r'<<<ACTION:get_recent_senders\((.*?)\)>>>', re.IGNORECASE)
+ACTION_LEARN_FACT = re.compile(r'<<<ACTION:learn_fact\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
+ACTION_GET_LEARNED = re.compile(r'<<<ACTION:get_learned_facts\(\)>>>', re.IGNORECASE)
+ACTION_FORGET_FACT = re.compile(r'<<<ACTION:forget_fact\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
+
 
 
 async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
@@ -487,6 +681,24 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
     AI javobidagi maxsus harakat buyruqlarini (Action Tools) yoki
     foydalanuvchining to'g'ridan-to'g'ri Telegram amallari talablarini bajaradi.
     """
+    # 0. Action: get_recent_senders (Oxirgi marta kim yozdi? Kelgan xabarlar)
+    m_senders = ACTION_RECENT_SENDERS.search(reply_text)
+    if not m_senders:
+        senders_pat = (
+            r"(?:kim\s*yozgan|kim\s*yozdi|kimlar\s*yozdi|kimlar\s*yozgan|"
+            r"kim(?:dir)?\s*yoz(?:gan|di)|kim\s*yozganligini|"
+            r"o[hx]irgi\s+marta\s+kim|so[\'`]?nggi\s+marta\s+kim|"
+            r"kim\s+o[hx]irgi\s+marta|"
+            r"o[hx]irgi\s+xabarlar\s+kimdan|so[\'`]?nggi\s+xabarlar\s+kimdan|"
+            r"kelgan\s+xabarlar|yangi\s+xabarlar|lichka(?:m)?da\s+kim)"
+        )
+        if re.search(senders_pat, orig_msg, re.I):
+            m_senders = True
+
+    if m_senders:
+        senders_data = await get_recent_incoming_senders(client, limit=10)
+        return format_recent_senders_report(senders_data)
+
     # 1. Action: get_group_info (Guruh a'zolari/o'quvchilar soni)
     m_group = ACTION_GROUP_INFO.search(reply_text)
     is_group_query = False
@@ -668,6 +880,49 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
             )
         else:
             return f"❌ **Xabarni yuborib bo'lmadi:** {res.get('error')}"
+
+    # 6. Action: learn_fact (Yangi bilim yoki qoidani xotiraga saqlash)
+    m_learn = ACTION_LEARN_FACT.search(reply_text)
+    if m_learn:
+        topic = m_learn.group(1).strip()
+        content = m_learn.group(2).strip()
+        memory_service.add_learned_fact(topic, content, category="mentor_rule")
+        return format_learning_report(topic, content)
+
+    # To'g'ridan-to'g'ri o'rganish buyruqlari (Eslab qol: ..., O'rganib ol: ...)
+    m_learn_direct = re.search(r"^(?:eslab\s+qol|o'rganib\s+ol|bilib\s+ol|xotirangda\s+saqla)\s*[:\-]?\s*(.+)", orig_msg, re.I)
+    if m_learn_direct:
+        raw = m_learn_direct.group(1).strip()
+        parts = re.split(r"(?:\s*:\s*|\s+[-—]\s+)", raw, maxsplit=1)
+        if len(parts) == 2 and len(parts[0].strip()) < 35:
+            topic = parts[0].strip()
+            content = parts[1].strip()
+        else:
+            topic = "mentor_qoidasi"
+            content = raw
+        memory_service.add_learned_fact(topic, content, category="mentor_rule")
+        return format_learning_report(topic, content)
+
+    # 7. Action: get_learned_facts (O'rganilgan bilimlar ro'yxati)
+    m_get_learned = ACTION_GET_LEARNED.search(reply_text) or \
+                    re.search(r"\b(?:nimalarni\s+o'rganding|o'rganganlaringni\s+ko'rsat|bilimlar\s+bazasi|xotirangni\s+ko'rsat|bazangda\s+nima\s+bor)\b", orig_msg, re.I)
+    if m_get_learned:
+        facts = memory_service.get_all_learned_facts(limit=50)
+        return format_all_learned_report(facts)
+
+    # 8. Action: forget_fact (Bilimni o'chirish)
+    m_forget = ACTION_FORGET_FACT.search(reply_text)
+    if not m_forget:
+        fb_forget = re.search(r"(?:buni\s+)?(?:unut|o'chir|xotirangdan\s+o'chir)\s*[:\-]?\s*(.+)", orig_msg, re.I)
+        if fb_forget:
+            m_forget = fb_forget
+    if m_forget:
+        target = m_forget.group(1).strip()
+        ok = memory_service.delete_learned_fact(target)
+        if ok:
+            return f"🗑 **'{target}' mavzusidagi qoida xotiradan muvaffaqiyatli o'chirildi.**"
+        else:
+            return f"⚠️ **'{target}' bo'yicha xotirada qoida topilmadi.**"
 
     return reply_text
 

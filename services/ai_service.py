@@ -414,6 +414,9 @@ class AIService:
         """Groq orqali javob generatsiya qilish (avtomatik kalit almashtirish va model tanlash)."""
         history = memory_service.get_history(chat_id)
         sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
+        knowledge_context = memory_service.get_knowledge_context()
+        if knowledge_context:
+            sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
         messages = [{"role": "system", "content": sys_prompt}]
 
         for msg in history:
@@ -470,6 +473,9 @@ class AIService:
             full_content = f"Avvalgi suhbat konteksti:\n{history_context}\n\nFoydalanuvchining yangi xabari:\n{prompt}"
 
         sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
+        knowledge_context = memory_service.get_knowledge_context()
+        if knowledge_context:
+            sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
         response = self._gemini_client.models.generate_content(
             model=config.gemini_model,
             contents=full_content,

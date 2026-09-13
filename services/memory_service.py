@@ -102,6 +102,22 @@ class SQLiteMemoryService:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_student_user_id ON students (user_id)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS learned_memory (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        category TEXT DEFAULT 'rule',
+                        topic TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        source TEXT DEFAULT 'mentor',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_learned_topic ON learned_memory (topic)"
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -290,6 +306,91 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("O'quvchilar savollarini olishda xatolik: %s", e)
             return []
+
+    # -----------------------------------------------------------
+    # O'z ustida ishlash va Bilimlar Bazasi (Continuous Learning)
+    # -----------------------------------------------------------
+    def add_learned_fact(self, topic: str, content: str, category: str = "rule") -> int:
+        """Mentor ko'rsatmasi, qoidasi yoki yangi faktni doimiy xotiraga yozadi."""
+        t = topic.strip()
+        c = content.strip()
+        if not t or not c:
+            return 0
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (t,))
+                existing = cursor.fetchone()
+                if existing:
+                    cursor.execute(
+                        "UPDATE learned_memory SET content = ?, category = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (c, category, existing[0]),
+                    )
+                    conn.commit()
+                    return existing[0]
+                else:
+                    cursor.execute(
+                        "INSERT INTO learned_memory (category, topic, content) VALUES (?, ?, ?)",
+                        (category, t, c),
+                    )
+                    conn.commit()
+                    return cursor.lastrowid
+        except Exception as e:
+            logger.error("Yangi bilimni saqlashda xatolik: %s", e)
+            return 0
+
+    def get_all_learned_facts(self, limit: int = 50) -> list[dict]:
+        """Barcha o'rganilgan bilimlar va qoidalarni qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, category, topic, content, created_at, updated_at FROM learned_memory ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "id": r[0],
+                        "category": r[1],
+                        "topic": r[2],
+                        "content": r[3],
+                        "created_at": r[4],
+                        "updated_at": r[5],
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("O'rganilgan bilimlarni olishda xatolik: %s", e)
+            return []
+
+    def delete_learned_fact(self, target: str | int) -> bool:
+        """Bilimni mavzusi yoki ID si bo'yicha o'chiradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if str(target).isdigit():
+                    cursor.execute("DELETE FROM learned_memory WHERE id = ?", (int(target),))
+                else:
+                    cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (str(target).strip(),))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Bilimni o'chirishda xatolik: %s", e)
+            return False
+
+    def get_knowledge_context(self, limit: int = 30) -> str:
+        """AI promptiga qo'shish uchun barcha o'rganilgan qoidalar va faktlarni chiroyli formatda qaytaradi."""
+        facts = self.get_all_learned_facts(limit=limit)
+        if not facts:
+            return ""
+        lines = [
+            "# DOIMIY O'RGANILGAN BILIMLAR VA MENTORNING QOIDALARI (LEARNED KNOWLEDGE BASE):",
+            "Siz oldingi suhbatlarda mentor tomonidan o'rgatilgan quyidagi qoidalar, ma'lumotlar va tuzatishlarga QAT'IY amal qilishingiz shart:"
+        ]
+        for f in reversed(facts):
+            lines.append(f"• [{f['topic'].upper()}]: {f['content']}")
+        return "\n".join(lines)
 
     # -----------------------------------------------------------
     # Eslatmalar (Reminders) Boshqaruvi
