@@ -770,7 +770,10 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
     # 3. Action: search_telegram
     m_search = ACTION_SEARCH.search(reply_text)
     if not m_search:
-        fb = re.search(r"(?:telegramdan|chatlardan)\s+(?:'|\")?([^'\"]+?)(?:'|\")?\s+(?:ni\s+)?(?:qidir|top)", orig_msg, re.I)
+        fb = (
+            re.search(r"(?:telegramdan|chatlardan|xabarlardan|xabarlarni)\s+(?:'|\")?([^'\"]+?)(?:'|\")?\s+(?:ni\s+)?(?:qidir|top|izla)", orig_msg, re.I) or
+            re.search(r"^(?:xabar\s+qidir|xabarlarni\s+qidir|telegramdan\s+qidir)\s*[:\-]?\s*(.+)$", orig_msg, re.I)
+        )
         if fb:
             m_search = fb
 
@@ -804,9 +807,12 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
     # 4. Action: find_contact (O'quvchi, odamlar, chatlar va guruh a'zolarini qidirish)
     m_contact = ACTION_FIND_CONTACT.search(reply_text)
     if not m_contact:
-        fb = re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|odamni|bolani|uydagilarini|lichkasini|kontaktini|chatini)\s+\b(?:top|qidir|aniqla)\b", orig_msg, re.I) or \
-             re.search(r"(?:chatlar\s+ismi\s+bilan\s+)?(?:odamlarni|chatlarni|o'quvchilarni|kontaktlarni)\s+(?:ham\s+)?\b(?:top|qidir|aniqla)\b\s*[:\-]?(?:\s+)?(.+)", orig_msg, re.I) or \
-             re.search(r"^([A-Za-z0-9_'\`\s]{2,25}?)(?:ning|ni|i)?\s+\b(?:chatini\s+top|lichkasini\s+top|qaysi\s+guruhda|top|qidir)\b", orig_msg, re.I)
+        fb = (
+            re.search(r"^(?:top|qidir|izla|aniqla)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
+            re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|odamni|bolani|uydagilarini|lichkasini|kontaktini|chatini)\s+\b(?:top|qidir|aniqla|izla)\b", orig_msg, re.I) or
+            re.search(r"(?:chatlar\s+ismi\s+bilan\s+)?(?:odamlarni|chatlarni|o'quvchilarni|kontaktlarni)\s+(?:ham\s+)?\b(?:top|qidir|aniqla|izla)\b\s*[:\-]?(?:\s+)?(.+)", orig_msg, re.I) or
+            re.search(r"^([A-Za-z0-9_'\`\s]{2,25}?)(?:ning|ni|i)?\s+\b(?:chatini\s+top|lichkasini\s+top|qaysi\s+guruhda|top|qidir|izla)\b", orig_msg, re.I)
+        )
         if fb:
             m_contact = fb
 

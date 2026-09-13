@@ -491,6 +491,10 @@ class AIService:
         )
         draft = res_gen.choices[0].message.content.strip()
 
+        # Agar javobda Telegram ACTION buyrug'i bo'lsa (qidirish, topish va h.k.), darhol qaytarish
+        if "<<<ACTION:" in draft:
+            return draft
+
         # Agar qisqa javob bo'lsa yoki salomlashuv bo'lsa, ortiqcha cho'zmasdan qaytarish
         if len(draft.split()) < 30:
             return draft

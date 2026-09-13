@@ -323,6 +323,10 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, xabar yuborish)
             final_reply = await execute_agent_action(str(raw_reply), client, input_text)
 
+            if final_reply != str(raw_reply):
+                # Web App'dagi kabi xotiradagi oxirgi xabarni amaliy natija bilan yangilash:
+                memory_service.update_last_message(config.mentor_user_id, final_reply)
+
             # 7. Javobni yuborish (agar ovozli bo'lsa, ovozli javob ham jo'natish)
             voice_reply_enabled = memory_service.get_setting("voice_reply_enabled", "true").lower() == "true"
             if (has_voice or "ovozli" in input_text.lower()) and voice_reply_enabled:
