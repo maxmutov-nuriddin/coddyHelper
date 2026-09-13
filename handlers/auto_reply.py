@@ -557,6 +557,29 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if "ustoz" in message_text.lower() or "mentor" in message_text.lower():
             is_mentioned = True
 
+        # Qisqa tasdiq va loqayd so'zlar (AI jim turishi shart, bot aralashmaydi)
+        clean_text = message_text.lower().strip().rstrip("!?.,~ ")
+        ignored_acknowledgments = {
+            "ok", "ha", "yoq", "yo'q", "tushunarli", "bopti", "hop", "xop", "+", "++", "+++",
+            "yaxshi", "boladi", "bo'ladi", "tushundim", "mayli", "boldi", "bo'ldi",
+            "aha", "xa", "eha", "voy", "hm", "hmm", "hmmm",
+            "хорошо", "ладно", "понял", "понятно", "ок", "да", "нет", "ясно"
+        }
+        if clean_text in ignored_acknowledgments and not has_photo and not has_doc_file:
+            logger.info("Chat [%s]: Qisqa tasdiq so'zi ('%s'), AI jim turadi.", event.chat_id, clean_text)
+            return
+
+        # Agar bu shaxsiy xabar (lichka) bo'lsa va mentor so'nggi 20 daqiqada (1200 soniya) ushbu chatda o'zi yozgan bo'lsa:
+        # Mentor suhbatni o'zi olib bormoqda, AI mentorning suhbatiga MUTLAQO ARALASHMAYDI!
+        if is_private:
+            last_m_time = LAST_MENTOR_ACTIVITY.get(event.chat_id, 0.0)
+            if time.time() - last_m_time < 1200:
+                logger.info(
+                    "Chat [%s]: Mentor o'zi faol suhbatda (so'nggi 20 daqiqada yozgan). AI aralashmadi.",
+                    event.chat_id,
+                )
+                return
+
         # Guruhlarda xabarning o'rinliligini tekshirish (Vazifalar admin guruhi bundan mustasno)
         if is_group and not is_escalation_chat(event.chat_id) and not is_relevant_group_message(
             message_text=message_text,
@@ -592,8 +615,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     )
                     await asyncio.sleep(wait_sec)
 
-                    # 5 soniya o'tdi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi?
-                    if LAST_MENTOR_ACTIVITY.get(chat_id, 0.0) >= message_received_time:
+                    # 5 soniya o'tdi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi yoki lichkada faolmi?
+                    last_m_time = LAST_MENTOR_ACTIVITY.get(chat_id, 0.0)
+                    if last_m_time >= message_received_time or (is_private and (time.time() - last_m_time < 1200)):
                         log_activity(f"Mentor o'zi javob yozgani uchun AI aralashmadi [{chat_id}]")
                         logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", chat_id)
                         return
@@ -724,8 +748,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         file_text=file_text,
                     )
 
-                # Yakuniy tekshiruv: agar shu orada mentor o'zi yozgan bo'lsa, yubormaslik
-                if LAST_MENTOR_ACTIVITY.get(chat_id, 0.0) >= message_received_time:
+                # Yakuniy tekshiruv: agar shu orada mentor o'zi yozgan bo'lsa yoki lichkada faol bo'lsa, yubormaslik
+                last_m_time = LAST_MENTOR_ACTIVITY.get(chat_id, 0.0)
+                if last_m_time >= message_received_time or (is_private and (time.time() - last_m_time < 1200)):
                     log_activity(f"Mentor o'zi yozgani aniqlandi [{chat_id}], AI javobi bekor qilindi.")
                     logger.info("Mentor o'zi javob yozgan ekan [%s]. AI javobi yuborilmadi.", chat_id)
                     return

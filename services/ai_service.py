@@ -29,9 +29,10 @@ def check_fast_faq(text: str) -> str | None:
     # 0. Standart salomlashuvlar (0.001s da xushmuomala javob)
     clean_t = t.lower().rstrip("!?.,~ ")
     uzbek_greetings = {
-        "salom", "assalomu alaykum", "assalom alaykum", "assalomu alekum", 
-        "salom aleykum", "salomaleykum", "salom ustoz", "assalomu alaykum ustoz",
-        "salom mentor", "qalaysiz", "yaxshimisiz", "tormisiz"
+        "salom", "assalomu alaykum", "assalom alaykum", "assalomu alekum", "assalomu aleykum",
+        "assalom", "assalomaleykum", "assalomualaykum", "assalomualeykum", "salom aleykum",
+        "salomaleykum", "salom alekum", "salom alaykum", "salom ustoz", "assalomu alaykum ustoz",
+        "assalomu aleykum ustoz", "salom mentor", "qalaysiz", "yaxshimisiz", "tormisiz"
     }
     russian_greetings = {
         "привет", "здравствуйте", "добрый день", "добрый вечер", "доброе утро", "хай"
@@ -45,6 +46,29 @@ def check_fast_faq(text: str) -> str | None:
         return "Здравствуйте! Чем могу помочь по урокам или программированию?"
     if clean_t in english_greetings:
         return "Hello! How can I help you with programming or lessons?"
+
+    # 0.1 Minnatdorchilik (Rahmat / Spasibo)
+    uzbek_thanks = {
+        "rahmat", "raxmat", "katta rahmat", "katta raxmat", "tashakkur", "spasibo",
+        "спасибо", "спасибо большое", "благодарю", "thanks", "thank you", "thx"
+    }
+    if clean_t in uzbek_thanks:
+        return "Arzimaydi, salomat bo'ling! Yana savollaringiz bo'lsa bemalol yozing 😊"
+
+    # 0.2 Ustozlarning telefon raqami yoki shaxsiy Telegrami so'ralganda
+    contact_keywords = [
+        "nomeri", "nomerini", "telefon raqam", "telefon raqami", "raqamini", "tel raqam",
+        "tglari yomi", "tglari bormi", "telegrami bormi", "telegramini ber",
+        "nomerini ber", "kontaktini ber", "kontaktini", "nomerin", "nomeri bosa"
+    ]
+    if any(k in clean_t for k in contact_keywords):
+        return (
+            "Ustozlarning shaxsiy telefon raqamlari berilmaydi. "
+            "Barcha tashkiliy masalalar, yangi darslar va ma'lumotlar uchun "
+            "CoddyCamp ma'muriyatiga murojaat qilishingiz mumkin:\n"
+            "👉 @coddycamp_sergeli\n\n"
+            "Dasturlash yoki dars vazifalari bo'yicha savollaringiz bo'lsa, bemalol shu yerda bering!"
+        )
 
     # 1. ModuleNotFoundError
     mod_match = re.search(r"ModuleNotFoundError:\s*No module named\s*['\"]([^'\"]+)['\"]", t, re.IGNORECASE)
@@ -579,7 +603,14 @@ class AIService:
                 sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
             messages = [{"role": "system", "content": sys_prompt}]
 
+            prev_assistant = ""
             for msg in history:
+                content_clean = msg.content.strip()
+                if msg.role == "model":
+                    # Agar ketma-ket bir xil assistant javobi bo'lsa, takrorlamaslik
+                    if content_clean == prev_assistant:
+                        continue
+                    prev_assistant = content_clean
                 role = "user" if msg.role == "user" else "assistant"
                 messages.append({"role": role, "content": msg.content})
 
