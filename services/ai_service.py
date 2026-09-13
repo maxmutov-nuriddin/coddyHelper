@@ -79,18 +79,37 @@ def check_fast_faq(text: str) -> str | None:
             "Dasturlash yoki dars vazifalari bo'yicha savollaringiz bo'lsa, bemalol shu yerda bering!"
         )
 
-    # 0.3 "Sen kimsan?" / "Kim bu?" / "Кто ты?"
-    who_are_you_uz = {"sen kimsan", "kim bu", "kimsan", "siz kimsiz", "sen kim", "vazifang nima", "kim siz"}
-    who_are_you_ru = {"кто ты", "ты кто", "кто вы", "вы кто", "что ты умеешь"}
+    # 0.3 "Sen kimsan?" / "Kim bu?" / "Кто ты?" / "Who are you?"
+    who_are_you_uz = {
+        "sen kimsan", "kim bu", "kimsan", "siz kimsiz", "sen kim", "vazifang nima", "kim siz",
+        "botmisan", "ai misan", "kim bu ozi", "kim bu o'zi"
+    }
+    who_are_you_ru = {
+        "кто ты", "ты кто", "кто вы", "вы кто", "что ты умеешь", "ты бот", "кто это"
+    }
+    who_are_you_en = {
+        "who are you", "what are you", "who is this", "are you a bot", "are you ai"
+    }
     if clean_t in who_are_you_uz:
         return (
-            "Assalomu alaykum! Men CoddyCamp IT akademiyasining AI yordamchisiman.\n\n"
-            "ℹ️ **Eslatma:** Men toʻliq AI emasman, faqat darslardagi xatoliklar va kichik vazifalarda yordamlashaman. Qanday savolingiz bor?"
+            "Assalomu alaykum! Men CoddyCamp dasturlash mentori (Teacher / Nuriddin aka) tomonidan yaratilgan kichik AI yordamchisiman. "
+            "Ustoz band boʻlganlarida sizga tezkor koʻmak berib turaman.\n\n"
+            "Dasturlash kodlari yoki LMS topshiriqlari boʻyicha har qanday savollaringiz boʻlsa, bemalol soʻrashingiz mumkin! "
+            "Agar oʻzim yordam bera olmagan murakkab savollar boʻlsa, ustozning oʻzlariga yetkazib qoʻyaman 😊"
         )
     if clean_t in who_are_you_ru:
         return (
-            "Здравствуйте! Я ИИ-помощник IT-академии CoddyCamp.\n\n"
-            "ℹ️ **Примечание:** Я не полноценный ИИ для масштабных задач, а помогаю с разбором ошибок и небольшими практическими вопросами по урокам. Чем могу помочь?"
+            "Здравствуйте! Я ИИ-помощник, созданный преподавателем программирования CoddyCamp (Нуриддин ака). "
+            "Я помогаю с ответами, когда учитель занят.\n\n"
+            "Если у вас есть любые вопросы по программному коду или заданиям LMS — смело обращайтесь! "
+            "А если вопрос окажется слишком сложным, я обязательно передам его лично учителю 😊"
+        )
+    if clean_t in who_are_you_en:
+        return (
+            "Hello! I am an AI assistant created by CoddyCamp coding mentor (Teacher / Nuriddin). "
+            "I provide quick assistance while the mentor is busy.\n\n"
+            "Feel free to ask any questions regarding programming code or LMS assignments! "
+            "If there are complex questions I cannot resolve, I will forward them directly to the teacher 😊"
         )
 
     # 1. ModuleNotFoundError
