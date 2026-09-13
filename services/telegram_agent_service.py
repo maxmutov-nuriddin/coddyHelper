@@ -814,6 +814,116 @@ async def get_student_common_groups(client, user_id: int) -> list[str]:
         return []
 
 
+async def check_group_schedule_and_announcements(
+    client,
+    chat_id: int,
+    is_group: bool,
+    student_user_id: int | None = None
+) -> dict[str, Any]:
+    """
+    O'quvchi guruhi va undagi @coddycamp_sergeli ma'muriyati e'lonlarini (bayram, dars qoldirilishi)
+    avtomatik tahlil qiladi.
+    Qaytaradi:
+    {
+        "status": "found_cancellation" | "normal_schedule" | "unknown_group",
+        "group_name": str,
+        "announcement_text": str | None,
+        "announcement_date": str | None,
+    }
+    """
+    if not client:
+        return {"status": "unknown_group", "group_name": None, "announcement_text": None, "announcement_date": None}
+
+    target_groups = []
+
+    try:
+        if is_group:
+            entity = await client.get_entity(chat_id)
+            title = getattr(entity, "title", "") or "CoddyCamp guruhi"
+            target_groups.append((entity, title))
+        else:
+            # Shaxsiy chat: o'quvchi bilan umumiy guruhlarni topamiz
+            target_user = student_user_id or chat_id
+            from telethon.tl.functions.messages import GetCommonChatsRequest
+            res = await client(GetCommonChatsRequest(user_id=target_user, max_id=0, limit=10))
+            for chat in getattr(res, "chats", []):
+                t_title = getattr(chat, "title", "") or ""
+                clean_title = t_title.strip()
+                lower_t = clean_title.lower()
+                if any(ign in lower_t for ign in ("vazifalar", "boshqaruv", "markaz", "admin", "co-pilot", "copilot")):
+                    continue
+                if clean_title:
+                    target_groups.append((chat, clean_title))
+    except Exception as err:
+        logger.warning("Guruhlarni aniqlashda xatolik: %s", err)
+
+    if not target_groups:
+        return {"status": "unknown_group", "group_name": None, "announcement_text": None, "announcement_date": None}
+
+    # Bayram yoki dars qoldirilishi haqidagi regex qoliplari
+    cancellation_patterns = [
+        r"\bbayram\b",
+        r"\bdam\s+olish\b",
+        r"\bdars(?:lar)?\s+(?:bo['’`]?lmaydi|qoldiril\w*|otkazil\w*|o'tkazil\w*|to['’`]?xtatil\w*)\b",
+        r"\bdars\s+yo['’`]?q\b",
+        r"\bta['’`]?til\b",
+        r"\btatil\b",
+        r"\berkin\s+kun\b",
+        r"\bпраздник\w*\b",
+        r"\bвыходн\w*\b",
+        r"\bурок(?:ов|и)?\s+(?:не\s+будет|отменя\w*|перенос\w*)\b",
+        r"\bзаняти[ей]\s+(?:не\s+будет|отменя\w*)\b",
+        r"\bканикул\w*\b",
+    ]
+
+    tashkent_tz = ZoneInfo("Asia/Tashkent")
+    now_tashkent = datetime.now(tashkent_tz)
+
+    for chat_obj, g_title in target_groups[:2]:  # Ko'pi bilan 2 ta guruhni tekshiramiz
+        try:
+            messages = await client.get_messages(chat_obj, limit=25)
+            for m in messages:
+                if not m.text or len(m.text.strip()) < 5:
+                    continue
+
+                # Xabar yuborilgan vaqtni tekshirish (oxirgi 72 soat ichidagi e'lonlar)
+                m_date = m.date
+                if m_date:
+                    if m_date.tzinfo is None:
+                        m_date = m_date.replace(tzinfo=tashkent_tz)
+                    else:
+                        m_date = m_date.astimezone(tashkent_tz)
+                    diff_hours = (now_tashkent - m_date).total_seconds() / 3600.0
+                    if diff_hours > 72:
+                        continue
+
+                m_lower = m.text.lower()
+                has_cancel_keyword = any(re.search(pat, m_lower, re.I) for pat in cancellation_patterns)
+
+                if has_cancel_keyword:
+                    clean_announcement = m.text.strip()
+                    if len(clean_announcement) > 300:
+                        clean_announcement = clean_announcement[:297] + "..."
+                    date_str = m_date.strftime("%d.%m.%Y") if m_date else "Yaqinda"
+                    return {
+                        "status": "found_cancellation",
+                        "group_name": g_title,
+                        "announcement_text": clean_announcement,
+                        "announcement_date": date_str,
+                    }
+        except Exception as msg_err:
+            logger.warning("Guruh [%s] xabarlarini tahlil qilishda ogohlantirish: %s", g_title, msg_err)
+
+    primary_group = target_groups[0][1]
+    return {
+        "status": "normal_schedule",
+        "group_name": primary_group,
+        "announcement_text": None,
+        "announcement_date": None,
+    }
+
+
+
 ACTION_GROUP_INFO = re.compile(r'<<<ACTION:get_group_info\(["\']?(.*?)["\']?\)>>>', re.IGNORECASE)
 ACTION_STUDENTS_SUM = re.compile(r'<<<ACTION:get_students_summary\(\)>>>', re.IGNORECASE)
 ACTION_SEARCH = re.compile(r'<<<ACTION:search_telegram\(["\'](.*?)["\']\)>>>', re.IGNORECASE)

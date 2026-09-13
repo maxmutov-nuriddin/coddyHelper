@@ -17,6 +17,7 @@ from services.telegram_agent_service import (
     execute_agent_action,
     list_recent_chats,
     get_student_common_groups,
+    check_group_schedule_and_announcements,
     is_russian_text,
 )
 
@@ -110,6 +111,38 @@ def is_absence_message(text: str) -> bool:
         r"\b(?:опоздаю|задержусь)\s*(?:на\s+урок)?\b",
     ]
     return any(re.search(pat, t, re.I) for pat in absence_triggers)
+
+
+def is_schedule_query(text: str) -> bool:
+    """
+    O'quvchining bugun dars bo'lishi, soat nechada ekanligi, jadval yoki bayram sababli dars qoldirilgani haqidagi
+    savollarini aniqlaydi.
+    """
+    t = text.lower().strip()
+    if not t:
+        return False
+
+    schedule_triggers = [
+        # O'zbekcha dars bo'ladimi / bormi / soat nechada
+        r"\b(?:bugun|ertaga)?\s*dars\s+(?:bo['’`]?ladimi|bo['’`]?lar\s+ekanmi|bo['’`]?larmikan|bormi|bormi\s+yo['’`]?qmi)\b",
+        r"\bdars\s+(?:bormi|bo['’`]?ladimi)\b",
+        r"\bdars\s+soat\s+nechada\b",
+        r"\bsoat\s+nechada\s+dars\b",
+        r"\bdars\s+nechida\b",
+        r"\bdars\s+qachon\b",
+        r"\b(?:bugun|ertaga)\s+dars\s+bormi\b",
+        r"\bbayram(?:da)?\s+(?:dars\s+bormi|dars\s+bo['’`]?ladimi)\b",
+        r"\bdars\s+(?:qoldirildimi|bekor\s+qilindimi)\b",
+        # Ruscha
+        r"\b(?:сегодня|завтра)?\s*(?:есть\s+ли\s+урок|есть\s+урок|будет\s+ли\s+урок|урок\s+будет|будут\s+ли\s+уроки)\b",
+        r"\bво\s+сколько\s+(?:сегодня\s+)?(?:урок|занятие)\b",
+        r"\bкогда\s+(?:урок|занятие)\b",
+        r"\b(?:урок|занятия)\s+(?:отменили|будут|состоятся)\b",
+        r"\b(?:отменили|отменен|отменяется)\s+(?:ли\s+)?(?:урок\w*|заняти\w*)\b",
+        r"\bпраздник\s+(?:урок\s+будет|будут\s+ли\s+уроки)\b",
+    ]
+    return any(re.search(pat, t, re.I) for pat in schedule_triggers)
+
 
 
 def extract_safe_zip_content(file_bytes: bytes, zip_name: str) -> tuple[str | None, str | None, str | None]:
@@ -911,6 +944,82 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         return
                     except Exception as abs_err:
                         logger.exception("Davomat xabarini qayta ishlashda xatolik: %s", abs_err)
+
+                # 🕒 DARS JADVALI VA BAYRAM E'LONLARI (@coddycamp_sergeli)
+                if is_schedule_query(input_text) and not is_admin_chat and not is_mentor_user:
+                    try:
+                        clean_raw = input_text.replace("[Ovozli xabar]: ", "").strip()
+                        sched_res = await check_group_schedule_and_announcements(
+                            client=client,
+                            chat_id=chat_id,
+                            is_group=is_group,
+                            student_user_id=sender_id,
+                        )
+                        status = sched_res.get("status")
+                        grp_name = sched_res.get("group_name") or "CoddyCamp guruhi"
+                        ann_text = sched_res.get("announcement_text")
+                        ann_date = sched_res.get("announcement_date") or "Yaqinda"
+
+                        is_ru_sched = is_russian_text(clean_raw)
+
+                        if status == "found_cancellation":
+                            if is_ru_sched:
+                                sched_reply = (
+                                    "📢 **По объявлению администрации CoddyCamp (@coddycamp_sergeli):**\n\n"
+                                    f"📚 Группа: **{grp_name}**\n"
+                                    f"📅 Дата объявления: {ann_date}\n\n"
+                                    f"💬 *Текст объявления:*\n\"{ann_text}\"\n\n"
+                                    "В связи с праздником / выходным днём занятий сегодня не будет. "
+                                    "Следующий урок состоится по обычному расписанию. Хорошего отдыха! 😊"
+                                )
+                            else:
+                                sched_reply = (
+                                    "📢 **CoddyCamp ma'muriyati (@coddycamp_sergeli) e'loni bo'yicha:**\n\n"
+                                    f"📚 Guruh: **{grp_name}**\n"
+                                    f"📅 E'lon sanasi: {ann_date}\n\n"
+                                    f"💬 *E'lon matni:*\n\"{ann_text}\"\n\n"
+                                    "Bayram / dam olish kuni munosabati bilan bugun guruhingizda darslar bo'lmaydi. "
+                                    "Keyingi dars odatiy dars jadvalingiz bo'yicha davom etadi. Maroqli dam oling! 😊"
+                                )
+                        elif status == "normal_schedule":
+                            if is_ru_sched:
+                                sched_reply = (
+                                    "🗓 **Информация о расписании:**\n\n"
+                                    f"📚 Ваша группа: **{grp_name}**\n\n"
+                                    "✅ Администрация (@coddycamp_sergeli) не публиковала объявлений об отмене занятий или праздниках.\n\n"
+                                    "Сегодня урок пройдет в обычное время по утвержденному расписанию! Ждем вас на занятии 😊"
+                                )
+                            else:
+                                sched_reply = (
+                                    "🗓 **Dars jadvali ma'lumoti:**\n\n"
+                                    f"📚 Sizning guruhingiz: **{grp_name}**\n\n"
+                                    "✅ CoddyCamp ma'muriyati (@coddycamp_sergeli) tomonidan dars bekor qilinishi yoki bayram e'loni berilmagan.\n\n"
+                                    "Bugun dars odatiy vaqtda va jadval bo'yicha bo'lib o'tadi! Darsda kutib qolamiz 😊"
+                                )
+                        else:
+                            if is_ru_sched:
+                                sched_reply = (
+                                    "🗓 **Информация о расписании:**\n\n"
+                                    "Чтобы точно узнать расписание уроков и праздничные дни, пожалуйста, уточните название вашей группы "
+                                    "или обратитесь к администрации CoddyCamp (@coddycamp_sergeli) 😊"
+                                )
+                            else:
+                                sched_reply = (
+                                    "🗓 **Dars jadvali ma'lumoti:**\n\n"
+                                    "Dars jadvali va bayram kunlarini aniq bilish uchun, iltimos, guruhingiz nomini yozing "
+                                    "yoki CoddyCamp ma'muriyatiga (@coddycamp_sergeli) murojaat qiling 😊"
+                                )
+
+                        sent = await event.reply(sched_reply)
+                        if sent:
+                            BOT_SENT_MESSAGE_IDS.add(sent.id)
+
+                        log_activity(f"🗓 Dars jadvali/bayram javobi berildi [{chat_id}]: {status}")
+                        memory_service.add_message(chat_id=chat_id, role="user", content=input_text)
+                        memory_service.add_message(chat_id=chat_id, role="model", content=sched_reply)
+                        return
+                    except Exception as sched_err:
+                        logger.exception("Dars jadvali va bayram xabarini tahlil qilishda xatolik: %s", sched_err)
 
                 # Agar mavzu tushuntirish so'ralgan bo'lsa (tushuntir <mavzu>)
                 lower_input = input_text.strip().lower()

@@ -22,11 +22,12 @@ ESCALATE_PATTERN = re.compile(r"<<<ESCALATE>>>(.*?)<<<END_ESCALATE>>>", re.DOTAL
 
 def is_russian_text(text: str) -> bool:
     """Matn rus tilida ekanini aniqlaydi."""
+    if not text:
+        return False
     ru_chars = len(re.findall(r"[\u0400-\u04FF]", text))
-    total_alpha = len(re.findall(r"[a-zA-Z\u0400-\u04FF]", text))
-    if total_alpha > 0 and (ru_chars / total_alpha) > 0.4:
+    if ru_chars >= 2:
         return True
-    return bool(re.search(r"\b(?:привет|здравствуйте|спасибо|пожалуйста|как|что|где|когда|почему)\b", text, re.I))
+    return bool(re.search(r"\b(?:привет|здравствуйте|спасибо|пожалуйста|как|что|где|когда|почему|ошибка|помогите|подскажите|урок|занятие)\b", text, re.I))
 
 
 def check_fast_faq(text: str) -> str | None:
@@ -112,22 +113,41 @@ def check_fast_faq(text: str) -> str | None:
             "If there are complex questions I cannot resolve, I will forward them directly to the teacher 😊"
         )
 
+    is_ru = is_russian_text(t)
+
     # 1. ModuleNotFoundError
     mod_match = re.search(r"ModuleNotFoundError:\s*No module named\s*['\"]([^'\"]+)['\"]", t, re.IGNORECASE)
     if mod_match:
         pkg = mod_match.group(1)
         pip_pkg = pkg
-        if pkg.lower() == "telebot":
-            pip_pkg = "pyTelegramBotAPI"
-        elif pkg.lower() == "cv2":
-            pip_pkg = "opencv-python"
-        elif pkg.lower() == "bs4":
-            pip_pkg = "beautifulsoup4"
-        elif pkg.lower() == "dotenv":
-            pip_pkg = "python-dotenv"
-        elif pkg.lower() == "pil":
-            pip_pkg = "pillow"
+        pkg_map = {
+            "telebot": "pyTelegramBotAPI",
+            "cv2": "opencv-python",
+            "bs4": "beautifulsoup4",
+            "dotenv": "python-dotenv",
+            "pil": "pillow",
+            "aiogram": "aiogram",
+            "telethon": "telethon",
+            "fastapi": "fastapi",
+            "uvicorn": "uvicorn",
+            "django": "django",
+            "flask": "flask",
+            "pygame": "pygame",
+            "numpy": "numpy",
+            "pandas": "pandas",
+            "requests": "requests",
+            "sqlalchemy": "sqlalchemy",
+            "pydantic": "pydantic",
+        }
+        pip_pkg = pkg_map.get(pkg.lower(), pkg)
 
+        if is_ru:
+            return (
+                f"🔍 **Обнаруженная ошибка:** Библиотека `{pkg}` не установлена.\n\n"
+                f"🛠 **Решение:** Выполните в терминале команду:\n"
+                f"```bash\npip install {pip_pkg}\n```\n"
+                f"_Если вы используете виртуальное окружение (venv), сначала активируйте его._"
+            )
         return (
             f"🔍 **Aniqlangan xatolik:** `{pkg}` kutubxonasi o'rnatilmagan.\n\n"
             f"🛠 **Yechim:** Terminalga quyidagi buyruqni yozing:\n"
@@ -135,8 +155,16 @@ def check_fast_faq(text: str) -> str | None:
             f"_Agar virtual muhit (venv) ishlatayotgan bo'lsangiz, avval venv ni faollashtiring._"
         )
 
-    # 2. 'pip' is not recognized
+    # 2. 'pip' is not recognized / pip topilmadi
     if ("'pip' is not recognized" in t.lower()) or ("pip topilmadi" in t.lower()) or ("pip: command not found" in t.lower()):
+        if is_ru:
+            return (
+                "🔍 **Обнаруженная ошибка:** Система не распознает команду `pip` (Python не добавлен в PATH).\n\n"
+                "🛠 **Решение (2 способа):**\n"
+                "1. **Быстрый способ:** Запустите установку через python модуль:\n"
+                "```bash\npython -m pip install <название_библиотеки>\n```\n"
+                "2. **Основное решение:** При установке Python обязательно поставьте галочку **'Add Python to PATH'**."
+            )
         return (
             "🔍 **Aniqlangan xatolik:** Tizim `pip` buyrug'ini taniy olmayapti (Python PATH muhitiga qo'shilmagan).\n\n"
             "🛠 **Yechim (2 xil usul):**\n"
@@ -145,17 +173,174 @@ def check_fast_faq(text: str) -> str | None:
             "2. **Asosiy yechim:** Python ni qayta o'rnatayotganda pastdagi **'Add Python to PATH'** katagiga belgi qo'ying."
         )
 
-    # 3. IndentationError
-    if "indentationerror" in t.lower():
+    # 3. IndentationError / TabError
+    if "indentationerror" in t.lower() or "taberror" in t.lower():
+        if is_ru:
+            return (
+                "🔍 **Обнаруженная ошибка:** `IndentationError` — Нарушены отступы (пробелы/табуляция) в коде.\n\n"
+                "🛠 **Решение (Подсказка):**\n"
+                "• В Python строки внутри блоков `if`, `for`, `def`, `while` должны иметь одинаковый отступ — ровно **4 пробела (или 1 Tab)**.\n"
+                "• Проверьте указанную строку и выровняйте все отступы одинаково."
+            )
         return (
             "🔍 **Aniqlangan xatolik:** `IndentationError` — Qator boshidagi bo'shliqlar (probellar) xato ketgan.\n\n"
-            "🛠 **Yechim:**\n"
+            "🛠 **Yechim (Maslahat):**\n"
             "• Python'da `if`, `for`, `def`, `while` dan keyingi qatorlar aniq **4 ta probel (yoki 1 ta Tab)** bilan ichkariga surilishi shart.\n"
             "• Barcha qatorlardagi bo'shliqlarni bir xil qilib to'g'rilab chiqing."
         )
 
-    # 4. Telegram Conflict (terminated by other getUpdates)
+    # 4. SyntaxError
+    syntax_match = re.search(r"SyntaxError:\s*(.+)", t, re.IGNORECASE)
+    if syntax_match:
+        s_detail = syntax_match.group(1).strip()
+        if "unexpected eof" in s_detail.lower():
+            hint_uz = "Qator oxirida qavs `()`, jingalak qavs `{}` yoki qo'shtirnoq `\"` yopilmay qolgan."
+            hint_ru = "В конце строки не закрыта скобка `()`, `{}` или кавычка `\"`."
+        elif "unmatched" in s_detail.lower() or "closing parenthesis" in s_detail.lower():
+            hint_uz = "Ortiqcha yoki mos kelmaydigan qavs yopilgan. Qavslar juftligini tekshiring."
+            hint_ru = "Лишняя или несоответствующая закрывающая скобка. Проверьте парность скобок."
+        else:
+            hint_uz = "Ko'rsatilgan qatorda `:` (ikki nuqta) qolib ketmaganini yoki sintaksis belgilari to'g'ri ekanini tekshiring."
+            hint_ru = "Проверьте, не пропущено ли двоеточие `:` в конце строки (после if, for, def) и правильность знаков."
+
+        if is_ru:
+            return (
+                f"🔍 **Обнаруженная ошибка:** `SyntaxError: {s_detail}`\n\n"
+                f"🛠 **Решение (Подсказка):** {hint_ru}"
+            )
+        return (
+            f"🔍 **Aniqlangan xatolik:** `SyntaxError: {s_detail}`\n\n"
+            f"🛠 **Yechim (Maslahat):** {hint_uz}"
+        )
+
+    # 5. NameError
+    name_match = re.search(r"NameError:\s*name\s*['\"]([^'\"]+)['\"]\s*is not defined", t, re.IGNORECASE)
+    if name_match:
+        var_name = name_match.group(1)
+        if is_ru:
+            return (
+                f"🔍 **Обнаруженная ошибка:** `NameError: name '{var_name}' is not defined` — Переменная или функция `{var_name}` не объявлена.\n\n"
+                f"🛠 **Решение (Подсказка):**\n"
+                f"• Проверьте регистр букв (Python различает большие и маленькие буквы).\n"
+                f"• Убедитесь, что переменная `{var_name}` создана ВЫШЕ строки, где вы ее используете."
+            )
+        return (
+            f"🔍 **Aniqlangan xatolik:** `NameError: name '{var_name}' is not defined` — `{var_name}` nomli o'zgaruvchi yoki funksiya topilmadi.\n\n"
+            f"🛠 **Yechim (Maslahat):**\n"
+            f"• Katta-kichik harflar to'g'ri yozilganini tekshiring (Python ularni farqlaydi).\n"
+            f"• `{var_name}` o'zgaruvchisi ishlatilishidan TEPADA yaratilganiga ishonch hosil qiling."
+        )
+
+    # 6. TypeError
+    type_match = re.search(r"TypeError:\s*(.+)", t, re.IGNORECASE)
+    if type_match:
+        t_detail = type_match.group(1).strip()
+        if "concatenate str" in t_detail.lower():
+            hint_uz = "Matn (`str`) bilan sonni (`int`) to'g'ridan-to'g'ri `+` bilan qo'shib bo'lmaydi. Sonni `str(son)` ga o'giring yoki `f\"{matn}{son}\"` ishlating."
+            hint_ru = "Нельзя объединять строку (`str`) и число (`int`) через `+`. Преобразуйте число: `str(число)` или используйте `f\"{строка}{число}\"`."
+        elif "nonetype" in t_detail.lower():
+            hint_uz = "O'zgaruvchi qiymati bo'sh (`None`), lekin undan metod yoki qiymat chaqirilyapti. Avval `if ozgaruvchi is not None:` deb tekshiring."
+            hint_ru = "Значение переменной равно `None`, но у нее вызывается метод или свойство. Добавьте проверку `if переменная is not None:`."
+        else:
+            hint_uz = "Mos kelmaydigan ma'lumot turlari yoki noto'g'ri parametrlar uzatilgan. Qiymatlar turini `type(...)` orqali tekshiring."
+            hint_ru = "Переданы несовместимые типы данных. Проверьте типы значений с помощью `type(...)`."
+
+        if is_ru:
+            return (
+                f"🔍 **Обнаруженная ошибка:** `TypeError: {t_detail}`\n\n"
+                f"🛠 **Решение (Подсказка):** {hint_ru}"
+            )
+        return (
+            f"🔍 **Aniqlangan xatolik:** `TypeError: {t_detail}`\n\n"
+            f"🛠 **Yechim (Maslahat):** {hint_uz}"
+        )
+
+    # 7. AttributeError
+    attr_match = re.search(r"AttributeError:\s*['\"]?(\w+)['\"]?\s*object has no attribute\s*['\"]([^'\"]+)['\"]", t, re.IGNORECASE)
+    if attr_match:
+        obj_name = attr_match.group(1)
+        attr_name = attr_match.group(2)
+        if is_ru:
+            return (
+                f"🔍 **Обнаруженная ошибка:** `AttributeError: '{obj_name}' object has no attribute '{attr_name}'` — У объекта `{obj_name}` нет метода или свойства `{attr_name}`.\n\n"
+                f"🛠 **Решение (Подсказка):** Проверьте правильность написания метода `{attr_name}` и убедитесь, что тип объекта действительно тот, который вы ожидаете (`print(type({obj_name}))`)."
+            )
+        return (
+            f"🔍 **Aniqlangan xatolik:** `AttributeError: '{obj_name}' object has no attribute '{attr_name}'` — `{obj_name}` obyektida `{attr_name}` nomli metod yoki xususiyat mavjud emas.\n\n"
+            f"🛠 **Yechim (Maslahat):** Metod nomi to'g'ri yozilganini va obyekt kutilgan turda ekanini tekshiring (`print(type({obj_name}))`)."
+        )
+
+    # 8. ZeroDivisionError
+    if "zerodivisionerror" in t.lower():
+        if is_ru:
+            return (
+                "🔍 **Обнаруженная ошибка:** `ZeroDivisionError: division by zero` — Деление на ноль невозможно.\n\n"
+                "🛠 **Решение (Подсказка):** Перед делением добавьте проверку: `if делитель != 0:`."
+            )
+        return (
+            "🔍 **Aniqlangan xatolik:** `ZeroDivisionError: division by zero` — Sonni 0 ga bo'lish mumkin emas.\n\n"
+            "🛠 **Yechim (Maslahat):** Bo'lish amalini bajarishdan oldin maxraj 0 ga teng emasligini tekshiring: `if maxraj != 0:`."
+        )
+
+    # 9. FileNotFoundError
+    fn_match = re.search(r"FileNotFoundError:\s*\[Errno 2\]\s*No such file or directory:\s*['\"]([^'\"]+)['\"]", t, re.IGNORECASE)
+    if fn_match:
+        fname = fn_match.group(1)
+        if is_ru:
+            return (
+                f"🔍 **Обнаруженная ошибка:** `FileNotFoundError` — Файл `{fname}` не найден.\n\n"
+                f"🛠 **Решение (Подсказка):** Убедитесь, что файл существует и скрипт запускается из правильной папки. Попробуйте указать полный (абсолютный) путь к файлу."
+            )
+        return (
+            f"🔍 **Aniqlangan xatolik:** `FileNotFoundError` — `{fname}` nomli fayl topilmadi.\n\n"
+            f"🛠 **Yechim (Maslahat):** Fayl nomi to'g'riligini va dastur o'sha fayl turgan papkadan ishga tushirilayotganini tekshiring yoki faylning to'liq manzilini ko'rsating."
+        )
+
+    # 10. RecursionError
+    if "recursionerror" in t.lower() or "maximum recursion depth" in t.lower():
+        if is_ru:
+            return (
+                "🔍 **Обнаруженная ошибка:** `RecursionError: maximum recursion depth exceeded` — Бесконечная рекурсия.\n\n"
+                "🛠 **Решение (Подсказка):** Функция бесконечно вызывает саму себя. Проверьте базовое условие выхода (base condition, например: `if n <= 1: return ...`)."
+            )
+        return (
+            "🔍 **Aniqlangan xatolik:** `RecursionError: maximum recursion depth exceeded` — Cheksiz rekursiya yuzaga keldi.\n\n"
+            "🛠 **Yechim (Maslahat):** Funksiya o'zini to'xtovsiz chaqirmoqda. Rekursiyadan chiqish shartini (`if n <= 1: return ...`) to'g'ri qo'yganingizni tekshiring."
+        )
+
+    # 11. UnboundLocalError
+    if "unboundlocalerror" in t.lower():
+        if is_ru:
+            return (
+                "🔍 **Обнаруженная ошибка:** `UnboundLocalError` — Локальная переменная использована до того, как ей было присвоено значение.\n\n"
+                "🛠 **Решение (Подсказка):** Если вы хотите изменить глобальную переменную внутри функции, добавьте `global <переменная>` в начале функции."
+            )
+        return (
+            "🔍 **Aniqlangan xatolik:** `UnboundLocalError` — Funksiya ichida o'zgaruvchiga qiymat berilishidan oldin unga murojaat qilingan.\n\n"
+            "🛠 **Yechim (Maslahat):** Agar global o'zgaruvchini funksiya ichida o'zgartirmoqchi bo'lsangiz, funksiya boshiga `global <ozgaruvchi>` deb yozing."
+        )
+
+    # 12. ValueError (invalid literal for int)
+    if "invalid literal for int() with base 10" in t.lower():
+        if is_ru:
+            return (
+                "🔍 **Обнаруженная ошибка:** `ValueError: invalid literal for int() with base 10` — Невозможно преобразовать нечисловую строку в целое число `int()`.\n\n"
+                "🛠 **Решение (Подсказка):** Проверьте, что вводимая строка содержит только цифры (`if s.isdigit():`), либо используйте блок `try...except ValueError`."
+            )
+        return (
+            "🔍 **Aniqlangan xatolik:** `ValueError: invalid literal for int() with base 10` — Harf yoki noaniq belgini `int()` orqali songa aylantirib bo'lmaydi.\n\n"
+            "🛠 **Yechim (Maslahat):** Kiritilgan matn faqat raqamlardan iborat ekanini tekshiring (`if matn.isdigit():`) yoki `try...except ValueError` blokidan foydalaning."
+        )
+
+    # 13. Telegram Conflict (terminated by other getUpdates)
     if "conflict: terminated by other getupdates request" in t.lower():
+        if is_ru:
+            return (
+                "🔍 **Обнаруженная ошибка:** Telegram Bot Token Conflict — Бот запущен одновременно в двух местах!\n\n"
+                "🛠 **Решение:**\n"
+                "1. Закройте все остальные терминалы или вкладки VS Code, где запущен этот бот (Ctrl + C).\n"
+                "2. Запустите бота только в одном месте."
+            )
         return (
             "🔍 **Aniqlangan xatolik:** Telegram Bot Token Conflict — Bot bir vaqtning o'zida ikkita joyda ishlab turibdi!\n\n"
             "🛠 **Yechim:**\n"
@@ -163,8 +348,15 @@ def check_fast_faq(text: str) -> str | None:
             "2. Faqat bitta joyda botni qayta ishga tushiring. Shunda ziddiyat yo'qoladi."
         )
 
-    # 5. IndexError: list index out of range
-    if "indexerror: list index out of range" in t.lower():
+    # 14. IndexError: list index out of range
+    if "indexerror: list index out of range" in t.lower() or "indexerror" in t.lower():
+        if is_ru:
+            return (
+                "🔍 **Обнаруженная ошибка:** `IndexError: list index out of range` — Обращение к несуществующему индексу списка.\n\n"
+                "🛠 **Решение (Подсказка):**\n"
+                "• Например, если в списке 3 элемента, их индексы: `0, 1, 2`. Вы обращаетесь к индексу 3 или больше.\n"
+                "• Перед вызовом элемента проверьте длину списка: `if len(список) > index:`."
+            )
         return (
             "🔍 **Aniqlangan xatolik:** `IndexError: list index out of range` — Ro'yxatda mavjud bo'lmagan indeksga murojaat qilingan.\n\n"
             "🛠 **Yechim:**\n"
@@ -172,10 +364,16 @@ def check_fast_faq(text: str) -> str | None:
             "• Element chaqirishdan oldin ro'yxat uzunligini tekshiring: `if len(royxat) > index:`"
         )
 
-    # 6. KeyError
+    # 15. KeyError
     key_match = re.search(r"KeyError:\s*['\"]?([^'\"]+)['\"]?", t, re.IGNORECASE)
     if key_match:
         k_name = key_match.group(1)
+        if is_ru:
+            return (
+                f"🔍 **Обнаруженная ошибка:** `KeyError: '{k_name}'` — В словаре (dict) отсутствует ключ `{k_name}`.\n\n"
+                f"🛠 **Решение (Подсказка):** Используйте безопасный метод `.get()`:\n"
+                f"```python\nзначение = словарь.get('{k_name}', None)\n```"
+            )
         return (
             f"🔍 **Aniqlangan xatolik:** `KeyError: '{k_name}'` — Lug'atda (dictionary) `{k_name}` nomli kalit mavjud emas.\n\n"
             f"🛠 **Yechim:** Xavfsiz usuldan foydalaning:\n"
