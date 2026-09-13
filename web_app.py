@@ -456,6 +456,27 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             logger.error("AI Chat xatolik: %s", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_api_ai_chat_history(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            history = memory_service.get_history(config.mentor_user_id)
+            messages = [{"role": m.role, "content": m.content} for m in history]
+            return web.json_response({"ok": True, "messages": messages})
+        except Exception as e:
+            logger.error("AI chat tarixini olishda xatolik: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_ai_chat_clear(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            memory_service.clear(config.mentor_user_id)
+            return web.json_response({"ok": True, "cleared": True})
+        except Exception as e:
+            logger.error("AI chat tarixini tozalashda xatolik: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     # -----------------------------------------------------------
     # 8. Ma'lumotlar bazasi zaxirasi (Backup coddy_memory.db)
     # -----------------------------------------------------------
@@ -584,6 +605,8 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_get("/api/ignored", handle_api_get_ignored)
     app.router.add_post("/api/ignored/remove", handle_api_remove_ignored)
     app.router.add_post("/api/ai_chat", handle_api_ai_chat)
+    app.router.add_get("/api/ai_chat/history", handle_api_ai_chat_history)
+    app.router.add_post("/api/ai_chat/clear", handle_api_ai_chat_clear)
     app.router.add_get("/api/backup", handle_api_backup)
     app.router.add_post("/api/backup/send_bot", handle_api_backup_bot)
     app.router.add_get("/api/students", handle_api_get_students)

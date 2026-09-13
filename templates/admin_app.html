@@ -137,7 +137,7 @@
       overflow-x: hidden;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior-y: contain !important;
-      padding: 14px 14px calc(120px + max(15px, env(safe-area-inset-bottom))) 14px;
+      padding: 14px 14px calc(75px + max(10px, env(safe-area-inset-bottom))) 14px;
       max-width: 600px;
       margin: 0 auto;
       width: 100%;
@@ -424,7 +424,7 @@
     /* Container adjustments when chat tab is active - LOCK PAGE SCROLL */
     .container.chat-active {
       overflow: hidden !important;
-      padding: 10px 14px calc(75px + max(12px, env(safe-area-inset-bottom))) 14px !important;
+      padding: 8px 12px calc(54px + max(6px, env(safe-area-inset-bottom))) 12px !important;
       display: flex !important;
       flex-direction: column !important;
       height: 100% !important;
@@ -447,8 +447,9 @@
       min-height: 0 !important;
       height: 100% !important;
       margin-bottom: 0 !important;
-      padding: 12px 14px !important;
+      padding: 10px 12px 10px 12px !important;
       box-sizing: border-box !important;
+      border-radius: var(--radius) !important;
     }
 
     .container.chat-active .chat-container {
@@ -461,8 +462,8 @@
 
     .container.chat-active .chat-chips {
       flex: 0 0 auto !important;
-      margin-bottom: 6px !important;
-      padding-bottom: 4px !important;
+      margin-bottom: 4px !important;
+      padding-bottom: 2px !important;
     }
 
     .container.chat-active .chat-messages {
@@ -470,12 +471,13 @@
       min-height: 0 !important;
       overflow-y: auto !important;
       -webkit-overflow-scrolling: touch !important;
-      padding: 6px 0 !important;
+      padding: 4px 2px !important;
     }
 
     .container.chat-active .chat-input-bar {
       flex: 0 0 auto !important;
       padding-top: 8px !important;
+      margin-top: 2px !important;
       border-top: 1px solid var(--border-color) !important;
     }
 
@@ -655,8 +657,8 @@
       border-top: 1px solid var(--border-color);
       display: flex;
       justify-content: space-around;
-      padding: 8px 0;
-      padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 38px);
+      padding: 5px 0;
+      padding-bottom: calc(max(6px, env(safe-area-inset-bottom)) + 5px);
       z-index: 100;
       touch-action: none;
       user-select: none;
@@ -1138,6 +1140,7 @@
       if (containerEl) {
         if (tabId === "chat") {
           containerEl.classList.add("chat-active");
+          loadAiChatHistory();
           const chatMsgs = document.getElementById("chat-messages");
           if (chatMsgs) setTimeout(() => { chatMsgs.scrollTop = chatMsgs.scrollHeight; }, 60);
         } else {
@@ -1221,6 +1224,7 @@
           localStorage.setItem("coddy_admin_token", authToken);
           hideLockScreen();
           loadStatus();
+          loadAiChatHistory();
         } else {
           showLockScreen();
         }
@@ -1229,6 +1233,7 @@
         else {
           hideLockScreen();
           loadStatus();
+          loadAiChatHistory();
         }
       }
     }
@@ -1628,18 +1633,86 @@
       }
     }
 
-    // 7. AI Chat
+    // 7. AI Chat (Persistent across reloads, never lost until manually cleared)
+    const DEFAULT_AI_WELCOME = `
+      <div class="chat-bubble bubble-ai">
+        Assalomu alaykum, Ustoz! Men sizning shaxsiy AI yordamchingizman. Vazifalar guruhidagi topshiriqlar, kodlar yoki ta'lim jarayoni bo'yicha qanday yordam bera olaman?
+      </div>
+    `;
+
+    function getStoredAiChat() {
+      try {
+        const raw = localStorage.getItem("coddy_ai_chat_history");
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function setStoredAiChat(messages) {
+      try {
+        localStorage.setItem("coddy_ai_chat_history", JSON.stringify(messages));
+      } catch (e) {}
+    }
+
+    function renderAiChatMessages(messages) {
+      const container = document.getElementById("chat-messages");
+      if (!container) return;
+      if (!messages || messages.length === 0) {
+        container.innerHTML = DEFAULT_AI_WELCOME;
+        return;
+      }
+
+      container.innerHTML = "";
+      messages.forEach(m => {
+        const bubble = document.createElement("div");
+        if (m.role === "user") {
+          bubble.className = "chat-bubble bubble-user";
+          bubble.innerText = m.content;
+        } else {
+          bubble.className = "chat-bubble bubble-ai";
+          bubble.innerHTML = formatMarkdown(m.content);
+        }
+        container.appendChild(bubble);
+      });
+
+      container.scrollTop = container.scrollHeight;
+    }
+
+    async function loadAiChatHistory() {
+      // 1. Render immediately from local storage
+      const local = getStoredAiChat();
+      if (local && local.length > 0) {
+        renderAiChatMessages(local);
+      } else {
+        renderAiChatMessages([]);
+      }
+
+      // 2. Sync from backend SQLite in background
+      try {
+        const res = await apiRequest("/api/ai_chat/history", "GET");
+        if (res && res.ok && Array.isArray(res.messages) && res.messages.length > 0) {
+          setStoredAiChat(res.messages);
+          renderAiChatMessages(res.messages);
+        }
+      } catch (e) {
+        console.warn("Backend chat tarixi yuklanmadi:", e);
+      }
+    }
+
     function quickAiPrompt(promptText) {
       document.getElementById("chat-input").value = promptText;
       sendAiMessage();
     }
 
-    function clearAiChat() {
-      document.getElementById("chat-messages").innerHTML = `
-        <div class="chat-bubble bubble-ai">
-          Suhbat tozalandi. Yangi savolingizni yozishingiz mumkin!
-        </div>
-      `;
+    async function clearAiChat() {
+      haptic();
+      localStorage.removeItem("coddy_ai_chat_history");
+      renderAiChatMessages([]);
+      showToast("Suhbat tarixi tozalandi!");
+      try {
+        await apiRequest("/api/ai_chat/clear", "POST");
+      } catch (e) {}
     }
 
     async function sendAiMessage() {
@@ -1657,6 +1730,11 @@
       userBubble.innerText = msg;
       container.appendChild(userBubble);
 
+      // Save user message to persistent storage
+      let history = getStoredAiChat() || [];
+      history.push({ role: "user", content: msg });
+      setStoredAiChat(history);
+
       // Append thinking bubble
       const aiBubble = document.createElement("div");
       aiBubble.className = "chat-bubble bubble-ai";
@@ -1667,9 +1745,14 @@
       const res = await apiRequest("/api/ai_chat", "POST", { message: msg });
       if (res && res.ok && res.reply) {
         aiBubble.innerHTML = formatMarkdown(res.reply);
+        history.push({ role: "model", content: res.reply });
+        setStoredAiChat(history);
       } else {
         const errText = res?.error ? res.error : "Javob olib bo'lmadi.";
-        aiBubble.innerText = "❌ Xatolik yuz berdi: " + errText;
+        const errMsg = "❌ Xatolik yuz berdi: " + errText;
+        aiBubble.innerText = errMsg;
+        history.push({ role: "model", content: errMsg });
+        setStoredAiChat(history);
       }
       container.scrollTop = container.scrollHeight;
     }
