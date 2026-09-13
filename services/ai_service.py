@@ -795,6 +795,19 @@ class AIService:
             if escalation_info:
                 escalation_info = redact_sensitive_data(escalation_info)
 
+            # Agar suhbat allaqachon davom etayotgan bo'lsa va foydalanuvchi salom bermagan bo'lsa:
+            # Qayta-qayta sun'iy "Assalomu alaykum" yoki "Salom" deb salom berishni tozalash
+            has_history = len(memory_service.get_history(chat_id)) > 0
+            if has_history and not re.search(r"\b(?:salom|assalom|qalaysiz|yaxshimisiz|privet|здравств|привет)", user_message, re.I):
+                cleaned_start = re.sub(
+                    r"^(?:assalomu\s+alaykum[!.,]?\s*(?:yaxshimisiz[\?!.,]?\s*)?|salom[!.,]?\s*|здравствуйте[!.,]?\s*|привет[!.,]?\s*)",
+                    "",
+                    answer,
+                    flags=re.I,
+                ).strip()
+                if cleaned_start:
+                    answer = cleaned_start[0].upper() + cleaned_start[1:]
+
             # Xotiraga tozalangan javobni saqlash
             memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
             memory_service.add_message(chat_id=chat_id, role="model", content=answer)
