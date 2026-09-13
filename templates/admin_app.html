@@ -417,8 +417,66 @@
     .chat-container {
       display: flex;
       flex-direction: column;
-      height: calc(100vh - 245px);
-      min-height: 400px;
+      height: 100%;
+      min-height: 350px;
+    }
+
+    /* Container adjustments when chat tab is active - LOCK PAGE SCROLL */
+    .container.chat-active {
+      overflow: hidden !important;
+      padding: 10px 14px calc(75px + max(12px, env(safe-area-inset-bottom))) 14px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      height: 100% !important;
+      max-height: 100% !important;
+      box-sizing: border-box !important;
+    }
+
+    .container.chat-active #tab-chat {
+      display: flex !important;
+      flex-direction: column !important;
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      height: 100% !important;
+    }
+
+    .container.chat-active #tab-chat .card {
+      display: flex !important;
+      flex-direction: column !important;
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      height: 100% !important;
+      margin-bottom: 0 !important;
+      padding: 12px 14px !important;
+      box-sizing: border-box !important;
+    }
+
+    .container.chat-active .chat-container {
+      display: flex !important;
+      flex-direction: column !important;
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      height: 100% !important;
+    }
+
+    .container.chat-active .chat-chips {
+      flex: 0 0 auto !important;
+      margin-bottom: 6px !important;
+      padding-bottom: 4px !important;
+    }
+
+    .container.chat-active .chat-messages {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+      padding: 6px 0 !important;
+    }
+
+    .container.chat-active .chat-input-bar {
+      flex: 0 0 auto !important;
+      padding-top: 8px !important;
+      border-top: 1px solid var(--border-color) !important;
     }
 
     .chat-messages {
@@ -431,10 +489,10 @@
     }
 
     .chat-bubble {
-      max-width: 85%;
+      max-width: 88%;
       padding: 10px 14px;
       border-radius: 14px;
-      font-size: 14px;
+      font-size: 13.5px;
       line-height: 1.45;
       word-break: break-word;
     }
@@ -452,7 +510,59 @@
       color: var(--text-color);
       border: 1px solid var(--border-color);
       border-bottom-left-radius: 4px;
-      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+
+    .bubble-ai h4 {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--accent);
+      margin: 8px 0 4px 0;
+    }
+
+    .bubble-ai h5 {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-color);
+      margin: 6px 0 2px 0;
+    }
+
+    .bubble-ai p {
+      margin: 3px 0;
+      line-height: 1.45;
+    }
+
+    .bubble-ai .chat-bullet {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin: 3px 0;
+      line-height: 1.4;
+    }
+
+    .bubble-ai .bullet-dot {
+      color: var(--accent);
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    .bubble-ai code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    .bubble-ai pre {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin: 6px 0;
+      overflow-x: auto;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 
     .chat-input-bar {
@@ -461,6 +571,7 @@
       padding-top: 10px;
       border-top: 1px solid var(--border-color);
     }
+
 
     .chat-chips {
       display: flex;
@@ -844,9 +955,9 @@
 
         <div class="chat-container">
           <div class="chat-chips">
-            <span class="chip" onclick="quickAiPrompt('Haftalik mentorlik hisoboti tuzib ber')">📊 Hisobot</span>
-            <span class="chip" onclick="quickAiPrompt('O\'quvchilar eng ko\'p yo\'l qo\'ygan xatolar bo\'yicha maslahat ber')">💡 Xatolar tahlili</span>
-            <span class="chip" onclick="quickAiPrompt('Python bo\'yicha qiziqarli amaliy topshiriq tayyorla')">📝 Topshiriq</span>
+            <span class="chip" onclick="quickAiPrompt('Haftalik mentorlik bo\'yicha qisqa, toza va lo\'nda hisobot ber (jadvallarsiz, faqat asosiy punktlar bilan)')">📊 Hisobot</span>
+            <span class="chip" onclick="quickAiPrompt('O\'quvchilar eng ko\'p yo\'l qo\'ygan xatolar bo\'yicha qisqa tavsiya ber')">💡 Xatolar tahlili</span>
+            <span class="chip" onclick="quickAiPrompt('Python bo\'yicha bitta qiziqarli va lo\'nda amaliy topshiriq tayyorla')">📝 Topshiriq</span>
           </div>
 
           <div class="chat-messages" id="chat-messages">
@@ -1023,11 +1134,23 @@
       document.getElementById("tab-" + tabId).classList.add("active");
       if (el) el.classList.add("active");
 
+      const containerEl = document.querySelector(".container");
+      if (containerEl) {
+        if (tabId === "chat") {
+          containerEl.classList.add("chat-active");
+          const chatMsgs = document.getElementById("chat-messages");
+          if (chatMsgs) setTimeout(() => { chatMsgs.scrollTop = chatMsgs.scrollHeight; }, 60);
+        } else {
+          containerEl.classList.remove("chat-active");
+        }
+      }
+
       if (tabId === "students") loadStudents();
       if (tabId === "reminders") loadReminders();
       if (tabId === "security") loadIgnored();
       if (tabId === "dashboard") loadStatus();
     }
+
 
     async function apiRequest(path, method = "GET", body = null) {
       const headers = {
@@ -1543,7 +1666,7 @@
 
       const res = await apiRequest("/api/ai_chat", "POST", { message: msg });
       if (res && res.ok && res.reply) {
-        aiBubble.innerText = res.reply;
+        aiBubble.innerHTML = formatMarkdown(res.reply);
       } else {
         const errText = res?.error ? res.error : "Javob olib bo'lmadi.";
         aiBubble.innerText = "❌ Xatolik yuz berdi: " + errText;
@@ -1560,6 +1683,107 @@
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
     }
+
+    function formatMarkdown(raw) {
+      if (!raw) return "";
+      let text = escapeHtml(raw);
+
+      // Code blocks
+      text = text.replace(/```([\s\S]*?)```/g, (m, code) => {
+        return `<pre><code>${code.trim()}</code></pre>`;
+      });
+
+      // Inline code
+      text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+      const lines = text.split("\n");
+      const processed = [];
+
+      let i = 0;
+      while (i < lines.length) {
+        const s = lines[i].trim();
+        if (!s) {
+          processed.push('<div style="height: 4px;"></div>');
+          i++;
+          continue;
+        }
+
+        // Tables: | col1 | col2 |
+        if (s.startsWith("|") && s.endsWith("|")) {
+          const next_s = (i + 1 < lines.length) ? lines[i + 1].trim() : "";
+          if (/^\|[-:\s|]+\|$/.test(next_s)) {
+            i += 2; // Skip table header & separator line
+            continue;
+          }
+          if (/^\|[-:\s|]+\|$/.test(s)) {
+            i += 1;
+            continue;
+          }
+          const cells = s.split("|").map(c => c.trim()).filter(c => c.length > 0);
+          if (cells.length > 0) {
+            if (cells.length === 1) {
+              processed.push(`<div class="chat-bullet"><span class="bullet-dot">•</span><span>${cells[0]}</span></div>`);
+            } else if (cells.length === 2) {
+              processed.push(`<div class="chat-bullet"><span class="bullet-dot">•</span><span><strong>${cells[0]}:</strong> ${cells[1]}</span></div>`);
+            } else {
+              const extra = cells.slice(2).join(", ");
+              processed.push(`<div class="chat-bullet"><span class="bullet-dot">•</span><span><strong>${cells[0]}:</strong> ${cells[1]} <span style="color: var(--hint-color); font-size: 11px;">(${extra})</span></span></div>`);
+            }
+          }
+          i++;
+          continue;
+        }
+
+        // Headers
+        if (s.startsWith("### ")) {
+          processed.push(`<h5>${s.substring(4)}</h5>`);
+          i++;
+          continue;
+        }
+        if (s.startsWith("## ")) {
+          processed.push(`<h4>${s.substring(3)}</h4>`);
+          i++;
+          continue;
+        }
+        if (s.startsWith("# ")) {
+          processed.push(`<h4>${s.substring(2)}</h4>`);
+          i++;
+          continue;
+        }
+
+        // Bullets
+        if (/^[-*•]\s+/.test(s)) {
+          const item = s.replace(/^[-*•]\s+/, "");
+          processed.push(`<div class="chat-bullet"><span class="bullet-dot">•</span><span>${item}</span></div>`);
+          i++;
+          continue;
+        }
+
+        // Numbered list
+        const numMatch = s.match(/^(\d+)\.\s+(.*)/);
+        if (numMatch) {
+          processed.push(`<div class="chat-bullet"><span class="bullet-dot">${numMatch[1]}.</span><span>${numMatch[2]}</span></div>`);
+          i++;
+          continue;
+        }
+
+        // Separator rule
+        if (s === "---" || s === "***") {
+          processed.push('<hr style="border: none; border-top: 1px solid var(--border-color); margin: 6px 0;" />');
+          i++;
+          continue;
+        }
+
+        processed.push(`<p>${s}</p>`);
+        i++;
+      }
+
+      let out = processed.join("");
+      out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      out = out.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+      return out;
+    }
+
 
     // Start authentication on page load
     initAuth();
