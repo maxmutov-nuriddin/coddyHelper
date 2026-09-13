@@ -222,10 +222,21 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         matnli va ovozli muloqotni xuddi Web App kabi qayta ishlaydi.
         Mentor bu yerda AI Co-Pilot bilan erkin muloqot qiladi, ideyalar oladi,
         ovozli xabar yuborsa ovozli javob oladi, va Telegram amallarini bajaradi.
+        DIQQAT: Faqat va faqat mentorning o'zi uchun ishlaydi!
         """
         chat_id = event.chat_id
         if event.message.id in BOT_SENT_MESSAGE_IDS or chat_id in CURRENT_SENDING_CHATS:
             BOT_SENT_MESSAGE_IDS.discard(event.message.id)
+            return
+
+        # 🔒 FAQAT MENTOR UCHUN ISHLASHI SHART:
+        # Ushbu guruhda AI FAQAT MENTOR (Nuriddin aka) ning xabarlariga javob beradi!
+        # Begona foydalanuvchilar yoki boshqa a'zolar yozsa, AI ularga ASLO javob qaytarmaydi.
+        sender_id = event.sender_id
+        my_user_id = await get_my_id()
+        is_mentor = event.out or (sender_id == my_user_id) or (sender_id in (config.mentor_user_id, 8105823872))
+        if not is_mentor:
+            logger.info("Vazifalar guruhida (%s) begona a'zo (%s) yozdi. Faqat mentor uchun ishlashi sababli e'tiborsiz qoldirildi.", chat_id, sender_id)
             return
 
         CURRENT_SENDING_CHATS.add(chat_id)
