@@ -651,7 +651,7 @@ class AIService:
             candidate_models = [config.groq_vision_model]
         else:
             candidate_models = []
-            for m in [config.groq_model, "llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-8b-instant"]:
+            for m in [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
                 if m and m not in candidate_models:
                     candidate_models.append(m)
 
@@ -875,7 +875,7 @@ class AIService:
             self._setup_clients()
 
         models_to_try = []
-        for m in [config.groq_model, "llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-8b-instant"]:
+        for m in [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
             if m and m not in models_to_try:
                 models_to_try.append(m)
 
