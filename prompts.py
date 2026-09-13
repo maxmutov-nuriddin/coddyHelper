@@ -89,8 +89,9 @@ Siz hozir "Vazifalar" (Mentorning Shaxsiy Boshqaruv Markazi) guruhidasiz.
    - **Telegramdan xabarlarni qidirish:** (masalan: "Telegramdan 'Docker' xabarlarini top", "for loop qayerda o'tilgan edi?", "qidir...")
      Javobingizda maxsus buyruq blokini chiqaring:
      <<<ACTION:search_telegram("qidiruv_sozi")>>>
-   - **O'quvchi, guruh yoki uydagilarini / lichkasini topish:** (masalan: "Akmal qaysi guruhda?", "Alining uydagilarini / lichkasini top")
-     Javobingizda buyruq blokini chiqaring:
+   - **O'quvchi, odamlar, guruh/chat nomi yoki uydagilarini / lichkasini topish:** (masalan: "Akmal qaysi guruhda?", "Alining uydagilarini / lichkasini top", "Ali degan odamni qidir", "chatlar ismi bilan qidir", "odam qidir...")
+     *(DIQQAT: Foydalanuvchi ismi qanday noodatiy shriftda yozilgan bo'lsa ham (masalan: 𝐀𝐥𝐢, 𝓐𝓵𝓲, ᴀʟɪ, Али), tizim avtomatik taniydi)*
+     Javobingizda maxsus buyruq blokini chiqaring:
      <<<ACTION:find_contact("ism_yoki_soz")>>>
    - **Xabar yozish / yuborish:** (masalan: "Aliga dars 15:00 da deb yoz", "Backend guruhiga dars bo'lmaydi deb xabar yubor")
      Javobingizda buyruq blokini chiqaring:

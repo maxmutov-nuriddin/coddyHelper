@@ -556,18 +556,23 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             return "\n".join(lines)
 
 
-        # 2. Action: find_contact
+        # 2. Action: find_contact (O'quvchi, odamlar, chatlar va guruh a'zolarini qidirish)
         m_contact = ACTION_FIND_CONTACT.search(reply_text)
         if not m_contact:
-            fb = re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|uydagilarini|lichkasini|kontaktini)\s+(?:top|qidir|aniqla)", orig_msg, re.I)
+            fb = re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|odamni|bolani|uydagilarini|lichkasini|kontaktini|chatini)\s+(?:top|qidir|aniqla)", orig_msg, re.I) or \
+                 re.search(r"(?:chatlar\s+ismi\s+bilan\s+)?(?:odamlarni|chatlarni|o'quvchilarni|kontaktlarni)\s+(?:ham\s+)?(?:top|qidir|aniqla)\s*[:\-]?(?:\s+)?(.+)", orig_msg, re.I) or \
+                 re.search(r"^([A-Za-z0-9_'\`\s]+?)(?:ning|ni|i)?\s+(?:chatini\s+top|lichkasini\s+top|qaysi\s+guruhda|top|qidir)", orig_msg, re.I)
             if fb:
                 m_contact = fb
 
         if m_contact:
             query = m_contact.group(1).strip()
+            # Tozalash
+            query = re.sub(r"^(?:degan\s+|ismli\s+|chat\s+|guruh\s+)", "", query, flags=re.I).strip()
             data = await find_student_or_contact(client, query)
             crm_students = data.get("crm_students", [])
             tg_chats = data.get("telegram_chats", [])
+            group_members = data.get("group_members", [])
 
             lines = [f"👤 **'{query}' bo'yicha qidiruv natijalari:**\n"]
             if crm_students:
@@ -582,10 +587,10 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 lines.append("")
 
             if tg_chats:
-                lines.append("📱 **Telegramdan topilgan kontaktlar / guruhlar / uydagilari:**")
+                lines.append("📱 **Telegramdan topilgan chatlar va kontaktlar:**")
                 for c in tg_chats:
                     c_name = c.get("name", "")
-                    c_type = "Guruh" if c.get("type") == "group" else "Lichka"
+                    c_type = "📁 Guruh/Kanal" if c.get("type") == "group" else "💬 Lichka"
                     c_uname = c.get("username") or ""
                     c_phone = c.get("phone") or ""
                     link = c.get("link", "")
@@ -594,9 +599,21 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                     if c_phone: info_parts.append(c_phone)
                     info_str = f" ({', '.join(info_parts)})" if info_parts else ""
                     lines.append(f"• [{c_type}] **[{c_name}]({link})**{info_str}")
+                lines.append("")
 
-            if not crm_students and not tg_chats:
-                lines.append(f"'{query}' bo'yicha na CRM dan, na Telegram kontaktlaridan hech kim topilmadi.")
+            if group_members:
+                lines.append("👥 **Guruhlar ichidan topilgan a'zolar / o'quvchilar:**")
+                for m in group_members:
+                    m_name = m.get("name", "")
+                    m_uname = m.get("username") or ""
+                    m_group = m.get("in_group", "")
+                    link = m.get("link", "")
+                    uname_str = f" ({m_uname})" if m_uname else ""
+                    lines.append(f"• 👤 **[{m_name}]({link})**{uname_str} — 📍 Guruh: **{m_group}**")
+                lines.append("")
+
+            if not crm_students and not tg_chats and not group_members:
+                lines.append(f"'{query}' bo'yicha na CRM dan, na Telegram chatlari yoki guruh a'zolaridan hech kim topilmadi.")
 
             return "\n".join(lines)
 
