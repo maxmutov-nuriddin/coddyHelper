@@ -118,8 +118,8 @@ CYRILLIC_TO_LATIN = {
 def normalize_text(text: str) -> str:
     """
     Har qanday noodatiy shrift (Mathematical Bold, Italic, Script, Fraktur, Double-struck,
-    Small-caps, Squared, Circled, Fullwidth) va Kirill yozuvidagi belgilarni
-    standart kichik lotin harflariga o'tkazadi.
+    Small-caps, Squared, Circled, Fullwidth, Emojilar va bezaklar) va Kirill yozuvidagi belgilarni
+    standart toza kichik lotin harflariga o'tkazadi.
     """
     if not text:
         return ""
@@ -147,31 +147,76 @@ def normalize_text(text: str) -> str:
     for quote_char in ["`", "‘", "’", "ʻ", "ʼ", "´"]:
         filtered = filtered.replace(quote_char, "'")
 
-    return filtered.lower().strip()
+    # 4. Bezaklar, emojilar va noodatiy simvollarni tozalash (faqat harf, son, bo'shliq va tutuq qoladi)
+    cleaned = re.sub(r"[^\w\s\']", " ", filtered)
+    # Bo'shliqlarni birxillashtirish
+    cleaned = re.sub(r"\s+", " ", cleaned).strip().lower()
+
+    return cleaned
 
 
 def match_text(query: str, target: str) -> bool:
     """
-    Shrift va bezaklardan qat'iy nazar qidiruv so'zi maqsadli matnga mos kelishini tekshiradi.
-    Submatn, apostrofsiz variant va so'z/token darajasida taqqoslaydi.
+    Shrift, bezaklar, orfoepik xatolar va turlanishlardan (qo'shimchalar) qat'iy nazar
+    maksimal kuchli qidiruv taqqoslashini amalga oshiradi:
+    - Submatn va teskari submatn mosligi
+    - Tutuq belgisisiz (otkir/o'tkir) moslik
+    - 'x' va 'h' tovushlari mutanosibligi (shoxrux/shohruh)
+    - So'zma-so'z token va 80%+ noaniq (fuzzy) o'xshashlik
+    - O'zbekcha qo'shimchalarni (-ni, -ga, -dan, -bek, -jon) hisobga olish
     """
+    from difflib import SequenceMatcher
+
     q_norm = normalize_text(query)
     t_norm = normalize_text(target)
     if not q_norm or not t_norm:
         return False
 
-    # To'g'ridan-to'g'ri submatn mosligi
-    if q_norm in t_norm:
+    # 1. To'g'ridan-to'g'ri submatn mosligi
+    if q_norm in t_norm or t_norm in q_norm:
         return True
 
-    # Tutuq belgisisiz yumshoq moslik (masalan: otkir va o'tkir)
-    if q_norm.replace("'", "") in t_norm.replace("'", ""):
+    # 2. Tutuq belgisisiz yumshoq moslik (masalan: otkir va o'tkir, g'ayrat va gayrat)
+    q_no_quote = q_norm.replace("'", "")
+    t_no_quote = t_norm.replace("'", "")
+    if q_no_quote in t_no_quote or t_no_quote in q_no_quote:
         return True
 
-    # So'zlar / tokenlar bo'yicha moslik (masalan: "Ali" -> "Ali Vohidov", "Vohidov Ali")
-    q_tokens = [w for w in re.split(r"[\s\W_]+", q_norm) if len(w) >= 2]
-    t_tokens = [w for w in re.split(r"[\s\W_]+", t_norm) if len(w) >= 2]
-    if q_tokens and all(any(qt in tt or tt in qt for tt in t_tokens) for qt in q_tokens):
+    # 3. 'x' va 'h' tovushlarini birlashtirilgan holda tekshirish (Shohruh <-> Shoxrux, Bahrom <-> Baxrom)
+    q_xh = q_no_quote.replace("x", "h")
+    t_xh = t_no_quote.replace("x", "h")
+    if q_xh in t_xh or t_xh in q_xh:
+        return True
+
+    # 4. So'zlar / tokenlar bo'yicha va Fuzzy (xatoliklarga chidamli) taqqoslash
+    q_tokens = [w for w in q_xh.split() if len(w) >= 2]
+    t_tokens = [w for w in t_xh.split() if len(w) >= 2]
+
+    # O'zbekcha ismlar uchun keng tarqalgan qo'shimchalar
+    uz_suffixes = ("bek", "jon", "voy", "xon", "ning", "dan", "ga", "ni", "da", "chi")
+
+    def tokens_match(qt: str, tt: str) -> bool:
+        if qt == tt or qt in tt or tt in qt:
+            return True
+        # Qo'shimchalarsiz taqqoslash
+        qt_clean = qt
+        for suf in uz_suffixes:
+            if qt.endswith(suf) and len(qt) - len(suf) >= 3:
+                qt_clean = qt[:-len(suf)]
+                break
+        tt_clean = tt
+        for suf in uz_suffixes:
+            if tt.endswith(suf) and len(tt) - len(suf) >= 3:
+                tt_clean = tt[:-len(suf)]
+                break
+        if qt_clean == tt_clean or qt_clean in tt_clean or tt_clean in qt_clean:
+            return True
+        # 1 ta harf xatosi bo'lsa (Fuzzy ratio >= 0.82)
+        if SequenceMatcher(None, qt, tt).ratio() >= 0.82:
+            return True
+        return False
+
+    if q_tokens and all(any(tokens_match(qt, tt) for tt in t_tokens) for qt in q_tokens):
         return True
 
     return False
@@ -206,20 +251,22 @@ async def find_student_or_contact(client, name_or_query: str) -> dict[str, Any]:
 
     if client:
         try:
-            dialogs = await client.get_dialogs(limit=150)
+            dialogs = await client.get_dialogs(limit=250)
             family_keywords = ["dada", "ota", "ona", "oyi", "aka", "uka", "amaki", "tog'a"]
             q_norm = normalize_text(raw_q)
+            q_digits = re.sub(r"\D", "", raw_q)
 
             for d in dialogs:
                 d_name = (d.name or "").strip()
                 entity = d.entity
                 username = getattr(entity, "username", None) or ""
                 phone = getattr(entity, "phone", None) or ""
+                p_digits = re.sub(r"\D", "", phone) if phone else ""
 
                 matched = False
                 if match_text(raw_q, d_name) or match_text(raw_q, username):
                     matched = True
-                elif phone and raw_q.replace("+", "") in phone:
+                elif p_digits and q_digits and (q_digits in p_digits or (len(q_digits) >= 7 and p_digits.endswith(q_digits))):
                     matched = True
                 else:
                     for kw in family_keywords:
@@ -250,9 +297,9 @@ async def find_student_or_contact(client, name_or_query: str) -> dict[str, Any]:
     if client and group_dialogs_to_inspect:
         try:
             seen_user_ids = {m["id"] for m in tg_matches if m.get("type") == "user"}
-            for gd in group_dialogs_to_inspect[:12]:
+            for gd in group_dialogs_to_inspect[:20]:
                 try:
-                    participants = await client.get_participants(gd.entity, limit=80)
+                    participants = await client.get_participants(gd.entity, limit=100)
                     for p in participants:
                         if getattr(p, "bot", False):
                             continue
@@ -274,12 +321,12 @@ async def find_student_or_contact(client, name_or_query: str) -> dict[str, Any]:
                                 "group_id": gd.id,
                                 "link": f"https://t.me/{p_uname}" if p_uname else f"tg://user?id={p.id}",
                             })
-                            if len(group_members) >= 10:
+                            if len(group_members) >= 15:
                                 break
                 except Exception as pe:
                     logger.debug("Guruh a'zolarini o'qishda e'tiborsiz xatolik (%s): %s", gd.name, pe)
 
-                if len(group_members) >= 10:
+                if len(group_members) >= 15:
                     break
         except Exception as e:
             logger.error("Guruh a'zolarini qidirishda xatolik: %s", e)
@@ -809,6 +856,7 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
     if not m_contact:
         fb = (
             re.search(r"^(?:top|qidir|izla|aniqla)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
+            re.search(r"^(.+?)\s+(?:haqida|kim\b|qayerda\b)", orig_msg, re.I) or
             re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|odamni|bolani|uydagilarini|lichkasini|kontaktini|chatini)\s+\b(?:top|qidir|aniqla|izla)\b", orig_msg, re.I) or
             re.search(r"(?:chatlar\s+ismi\s+bilan\s+)?(?:odamlarni|chatlarni|o'quvchilarni|kontaktlarni)\s+(?:ham\s+)?\b(?:top|qidir|aniqla|izla)\b\s*[:\-]?(?:\s+)?(.+)", orig_msg, re.I) or
             re.search(r"^([A-Za-z0-9_'\`\s]{2,25}?)(?:ning|ni|i)?\s+\b(?:chatini\s+top|lichkasini\s+top|qaysi\s+guruhda|top|qidir|izla)\b", orig_msg, re.I)
