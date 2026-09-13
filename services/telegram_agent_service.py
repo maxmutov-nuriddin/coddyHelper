@@ -238,3 +238,95 @@ async def list_recent_chats(client, limit: int = 15) -> list[dict[str, Any]]:
     except Exception as e:
         logger.error("Dialoglar ro'yxatini olishda xatolik: %s", e)
         return []
+
+
+async def get_group_info(client, group_query: str = "") -> dict[str, Any]:
+    """
+    Guruhdagi o'quvchilar/a'zolar soni, ismlari va ma'lumotlarini Telethon va CRM orqali aniqlaydi.
+    """
+    if not client:
+        return {"error": "Telegram mijoz ulanmagan"}
+
+    q = (group_query or "").strip().lower()
+    generic_words = ["", "guruh", "guruhda", "guruhimizda", "guruhlar", "barcha", "hamma", "darsda"]
+    is_generic = q in generic_words or any(q.startswith(w) for w in ["hamma", "barcha", "guruhlar"])
+
+    try:
+        dialogs = await client.get_dialogs(limit=100)
+        group_dialogs = [d for d in dialogs if (d.is_group or d.is_channel)]
+
+        if not group_dialogs:
+            return {"groups": [], "message": "Siz a'zo bo'lgan guruhlar topilmadi."}
+
+        matched_groups = []
+        if is_generic:
+            matched_groups = group_dialogs
+        else:
+            matched_groups = [d for d in group_dialogs if q in (d.name or "").lower()]
+            if not matched_groups:
+                matched_groups = group_dialogs
+
+        results = []
+        for d in matched_groups[:5]:
+            total_count = getattr(d.entity, "participants_count", None)
+            participants = []
+            humans_count = 0
+            bots_count = 0
+            try:
+                p_list = await client.get_participants(d.entity, limit=100)
+                if p_list:
+                    total_count = len(p_list)
+                    for p in p_list:
+                        is_bot = getattr(p, "bot", False)
+                        if is_bot:
+                            bots_count += 1
+                        else:
+                            humans_count += 1
+                            name = (getattr(p, "first_name", "") or "") + " " + (getattr(p, "last_name", "") or "")
+                            participants.append({
+                                "name": name.strip() or "Noma'lum",
+                                "username": getattr(p, "username", None),
+                                "id": p.id,
+                            })
+            except Exception as pe:
+                logger.debug("Ishtirokchilarni olishda cheklov: %s", pe)
+
+            crm_students = memory_service.get_students(limit=50, search=d.name)
+
+            results.append({
+                "group_id": d.id,
+                "group_name": d.name,
+                "total_members": total_count if total_count is not None else (humans_count + bots_count),
+                "students_count": humans_count if humans_count > 0 else (total_count or 0),
+                "bots_count": bots_count,
+                "sample_participants": participants[:8],
+                "crm_count": len(crm_students),
+            })
+
+        return {"groups": results}
+    except Exception as e:
+        logger.error("Guruh ma'lumotlarini olishda xatolik: %s", e)
+        return {"error": str(e)}
+
+
+def get_students_summary() -> dict[str, Any]:
+    """Student CRM dagi o'quvchilar umumiy statistikasi."""
+    students = memory_service.get_students(limit=500)
+    total = len(students)
+    groups = {}
+    statuses = {"a'lo": 0, "yaxshi": 0, "o'rtacha": 0, "past": 0}
+    for s in students:
+        g = s.get("group_name") or "Guruhsiz"
+        groups[g] = groups.get(g, 0) + 1
+        st = s.get("status", "yaxshi").lower()
+        if st in statuses:
+            statuses[st] += 1
+        else:
+            statuses[st] = 1
+
+    return {
+        "total_students": total,
+        "by_group": groups,
+        "by_status": statuses,
+    }
+

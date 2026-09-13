@@ -20,6 +20,8 @@ from services.telegram_agent_service import (
     find_student_or_contact,
     send_telegram_message,
     list_recent_chats,
+    get_group_info,
+    get_students_summary,
 )
 from handlers.auto_reply import RECENT_ACTIVITY_LOGS
 
@@ -444,12 +446,82 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     # -----------------------------------------------------------
     # 7. AI Co-Pilot & Telegram Action Agent
     # -----------------------------------------------------------
+    ACTION_GROUP_INFO = re.compile(r'<<<ACTION:get_group_info\(["\']?(.*?)["\']?\)>>>', re.IGNORECASE)
+    ACTION_STUDENTS_SUM = re.compile(r'<<<ACTION:get_students_summary\(\)>>>', re.IGNORECASE)
     ACTION_SEARCH = re.compile(r'<<<ACTION:search_telegram\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
     ACTION_FIND_CONTACT = re.compile(r'<<<ACTION:find_contact\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
     ACTION_SEND_MSG = re.compile(r'<<<ACTION:send_message\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
 
     async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
-        # 1. Action: search_telegram
+        # 1. Action: get_group_info (Guruh a'zolari/o'quvchilar soni)
+        m_group = ACTION_GROUP_INFO.search(reply_text)
+        is_group_query = False
+        group_arg = ""
+        if m_group:
+            is_group_query = True
+            group_arg = m_group.group(1).strip()
+        else:
+            count_match = re.search(r"(?:guruh|dars).*?(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)", orig_msg, re.I) or \
+                          re.search(r"(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)\s+bor", orig_msg, re.I) or \
+                          re.search(r"guruhdagi\s+(?:barcha\s+)?(?:o'quvchilar|a'zolar)", orig_msg, re.I)
+            if count_match:
+                is_group_query = True
+                nm = re.search(r"([A-Za-z0-9_]+(?:\s+[A-Za-z0-9_]+)?)\s+guruh", orig_msg, re.I)
+                group_arg = nm.group(1).strip() if nm else ""
+
+        if is_group_query:
+            data = await get_group_info(client, group_arg)
+            groups = data.get("groups", [])
+            if not groups:
+                return "👥 **Guruh ma'lumotlari:**\nSiz a'zo bo'lgan guruhlar topilmadi."
+
+            lines = ["👥 **Guruhdagi o'quvchilar va a'zolar soni:**\n"]
+            for g in groups:
+                g_name = g["group_name"]
+                tot = g["total_members"]
+                stu = g["students_count"]
+                bots = g["bots_count"]
+                crm_c = g["crm_count"]
+
+                detail = f"Jami **{tot} nafar** a'zo"
+                if bots > 0:
+                    detail += f" ({stu} ta o'quvchi, {bots} ta bot)"
+                if crm_c > 0:
+                    detail += f" | CRM ro'yxatida: **{crm_c} nafar**"
+
+                lines.append(f"• 📍 **{g_name}**:\n  {detail}")
+
+                sample = g.get("sample_participants", [])
+                if sample:
+                    sample_names = [f"{p['name']}" + (f" (@{p['username']})" if p.get('username') else "") for p in sample[:6]]
+                    lines.append(f"  *A'zolardan namunalar:* {', '.join(sample_names)}" + (f" va yana {len(sample)-6} kishi..." if len(sample) > 6 else ""))
+                lines.append("")
+
+            return "\n".join(lines).strip()
+
+        # 2. Action: get_students_summary (Jami o'quvchilar umumiy statistikasi)
+        m_sum = ACTION_STUDENTS_SUM.search(reply_text)
+        if not m_sum:
+            if re.search(r"jami\s+.*?(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi)", orig_msg, re.I) or \
+               re.search(r"o'quvchilar(?:im)?\s+soni\s+qancha", orig_msg, re.I):
+                m_sum = True
+
+        if m_sum:
+            summary = get_students_summary()
+            tot = summary["total_students"]
+            lines = [f"📊 **O'quvchilar umumiy statistikasi:**\n• Jami ro'yxatdan o'tgan o'quvchilar: **{tot} nafar**"]
+            if summary.get("by_group"):
+                lines.append("\n📁 **Guruhlar bo'yicha:**")
+                for g, count in summary["by_group"].items():
+                    lines.append(f"  • {g}: **{count} nafar**")
+            if summary.get("by_status"):
+                lines.append("\n📈 **O'zlashtirish bo'yicha:**")
+                for st, count in summary["by_status"].items():
+                    if count > 0:
+                        lines.append(f"  • {st.capitalize()}: {count} nafar")
+            return "\n".join(lines)
+
+        # 3. Action: search_telegram
         m_search = ACTION_SEARCH.search(reply_text)
         if not m_search:
             fb = re.search(r"(?:telegramdan|chatlardan)\s+(?:'|\")?([^'\"]+?)(?:'|\")?\s+(?:ni\s+)?(?:qidir|top)", orig_msg, re.I)
@@ -458,6 +530,17 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
 
         if m_search:
             query = m_search.group(1).strip()
+            # Agar qidiruv so'zi guruh a'zolari soniga tegishli bo'lsa, get_group_info ga yo'naltirish
+            if re.search(r"(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)", query, re.I) or \
+               re.search(r"(?:guruhda|guruhimizda)", query, re.I):
+                data = await get_group_info(client, "")
+                groups = data.get("groups", [])
+                if groups:
+                    lines = ["👥 **Guruhdagi o'quvchilar va a'zolar soni:**\n"]
+                    for g in groups:
+                        lines.append(f"• 📍 **{g['group_name']}**: Jami **{g['total_members']} nafar** ({g['students_count']} ta o'quvchi)")
+                    return "\n".join(lines)
+
             results = await search_telegram_messages(client, query, limit=6)
             if not results or (len(results) == 1 and "error" in results[0]):
                 return f"🔍 **Telegram qidiruv natijasi:**\n'{query}' bo'yicha hech qanday xabar topilmadi."
@@ -471,6 +554,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 link_md = f" [🔗 Ochish]({link})" if link else ""
                 lines.append(f"{i}. 📍 **{chat_name}** | 👤 *{sender}* ({date}):\n   «{snippet}»{link_md}\n")
             return "\n".join(lines)
+
 
         # 2. Action: find_contact
         m_contact = ACTION_FIND_CONTACT.search(reply_text)
