@@ -213,6 +213,34 @@ class SQLiteMemoryService:
             logger.error("Xotirani o'qishda xatolik: %s", e)
             return []
 
+    def is_new_session_or_day(self, chat_id: int) -> bool:
+        """
+        Oxirgi xabar kecha yozilganmi (yangi kun) yoki oxirgi xabardan 6 soatdan ko'p vaqt o'tganmi?
+        Agar yangi kun yoki yangi sessiya bo'lsa, True qaytaradi.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT 
+                        date(created_at, '+5 hours') != date('now', '+5 hours'),
+                        (strftime('%s', 'now') - strftime('%s', created_at)) > 21600
+                    FROM messages 
+                    WHERE chat_id = ? 
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (chat_id,)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return True
+                is_different_date, is_over_6_hours = row
+                return bool(is_different_date or is_over_6_hours)
+        except Exception as e:
+            logger.error("Yangi kun tekshiruvida xatolik: %s", e)
+            return True
+
     def clear(self, chat_id: int) -> bool:
         """Chat tarixini butunlay tozalaydi."""
         try:

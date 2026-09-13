@@ -795,10 +795,12 @@ class AIService:
             if escalation_info:
                 escalation_info = redact_sensitive_data(escalation_info)
 
-            # Agar suhbat allaqachon davom etayotgan bo'lsa va foydalanuvchi salom bermagan bo'lsa:
-            # Qayta-qayta sun'iy "Assalomu alaykum" yoki "Salom" deb salom berishni tozalash
-            has_history = len(memory_service.get_history(chat_id)) > 0
-            if has_history and not re.search(r"\b(?:salom|assalom|qalaysiz|yaxshimisiz|privet|здравств|привет)", user_message, re.I):
+            # Faqatgina bir xil kunda, davom etayotgan suhbatda va foydalanuvchi o'zi salom bermagan bo'lsa:
+            # Qayta-qayta sun'iy "Assalomu alaykum" yoki "Salom" deb salom berishni tozalash.
+            # Agar bu yangi kun (ertasi kuni) yoki oradan 6+ soat o'tgan yangi sessiya bo'lsa, salomlashish tabiiy va to'g'ri,
+            # shuning uchun kunning birinchi xabarida salom toza saqlab qolinadi!
+            is_new_day = memory_service.is_new_session_or_day(chat_id)
+            if not is_new_day and not re.search(r"\b(?:salom|assalom|qalaysiz|yaxshimisiz|privet|здравств|привет)", user_message, re.I):
                 cleaned_start = re.sub(
                     r"^(?:assalomu\s+alaykum[!.,]?\s*(?:yaxshimisiz[\?!.,]?\s*)?|salom[!.,]?\s*|здравствуйте[!.,]?\s*|привет[!.,]?\s*)",
                     "",
