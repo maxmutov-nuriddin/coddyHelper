@@ -15,6 +15,12 @@ from aiohttp import web
 from config import config
 from services.memory_service import memory_service
 from services.ai_service import ai_service
+from services.telegram_agent_service import (
+    search_telegram_messages,
+    find_student_or_contact,
+    send_telegram_message,
+    list_recent_chats,
+)
 from handlers.auto_reply import RECENT_ACTIVITY_LOGS
 
 logger = logging.getLogger(__name__)
@@ -436,8 +442,102 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             return web.json_response({"ok": False, "error": str(e)}, status=400)
 
     # -----------------------------------------------------------
-    # 7. AI Co-Pilot (Tech Lead Chat)
+    # 7. AI Co-Pilot & Telegram Action Agent
     # -----------------------------------------------------------
+    ACTION_SEARCH = re.compile(r'<<<ACTION:search_telegram\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
+    ACTION_FIND_CONTACT = re.compile(r'<<<ACTION:find_contact\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
+    ACTION_SEND_MSG = re.compile(r'<<<ACTION:send_message\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
+
+    async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
+        # 1. Action: search_telegram
+        m_search = ACTION_SEARCH.search(reply_text)
+        if not m_search:
+            fb = re.search(r"(?:telegramdan|chatlardan)\s+(?:'|\")?([^'\"]+?)(?:'|\")?\s+(?:ni\s+)?(?:qidir|top)", orig_msg, re.I)
+            if fb:
+                m_search = fb
+
+        if m_search:
+            query = m_search.group(1).strip()
+            results = await search_telegram_messages(client, query, limit=6)
+            if not results or (len(results) == 1 and "error" in results[0]):
+                return f"🔍 **Telegram qidiruv natijasi:**\n'{query}' bo'yicha hech qanday xabar topilmadi."
+            lines = [f"🔍 **'{query}' bo'yicha topilgan xabarlar:**\n"]
+            for i, res in enumerate(results, 1):
+                chat_name = res.get("chat_name", "Noma'lum")
+                sender = res.get("sender_name", "Noma'lum")
+                date = res.get("date", "")
+                snippet = res.get("snippet", "")
+                link = res.get("link")
+                link_md = f" [🔗 Ochish]({link})" if link else ""
+                lines.append(f"{i}. 📍 **{chat_name}** | 👤 *{sender}* ({date}):\n   «{snippet}»{link_md}\n")
+            return "\n".join(lines)
+
+        # 2. Action: find_contact
+        m_contact = ACTION_FIND_CONTACT.search(reply_text)
+        if not m_contact:
+            fb = re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|uydagilarini|lichkasini|kontaktini)\s+(?:top|qidir|aniqla)", orig_msg, re.I)
+            if fb:
+                m_contact = fb
+
+        if m_contact:
+            query = m_contact.group(1).strip()
+            data = await find_student_or_contact(client, query)
+            crm_students = data.get("crm_students", [])
+            tg_chats = data.get("telegram_chats", [])
+
+            lines = [f"👤 **'{query}' bo'yicha qidiruv natijalari:**\n"]
+            if crm_students:
+                lines.append("👨‍🎓 **O'quvchilar profili (CRM):**")
+                for s in crm_students:
+                    fname = s.get("full_name", "")
+                    uname = f"@{s.get('username')}" if s.get("username") else "Lichka: yo'q"
+                    gname = s.get("group_name") or "Guruh belgilanmagan"
+                    status = s.get("status", "yaxshi")
+                    notes = s.get("mentor_notes") or ""
+                    lines.append(f"• **{fname}** — Guruh: **{gname}** (Status: {status})\n  Telegram: {uname}" + (f"\n  Izoh: {notes}" if notes else ""))
+                lines.append("")
+
+            if tg_chats:
+                lines.append("📱 **Telegramdan topilgan kontaktlar / guruhlar / uydagilari:**")
+                for c in tg_chats:
+                    c_name = c.get("name", "")
+                    c_type = "Guruh" if c.get("type") == "group" else "Lichka"
+                    c_uname = c.get("username") or ""
+                    c_phone = c.get("phone") or ""
+                    link = c.get("link", "")
+                    info_parts = []
+                    if c_uname: info_parts.append(c_uname)
+                    if c_phone: info_parts.append(c_phone)
+                    info_str = f" ({', '.join(info_parts)})" if info_parts else ""
+                    lines.append(f"• [{c_type}] **[{c_name}]({link})**{info_str}")
+
+            if not crm_students and not tg_chats:
+                lines.append(f"'{query}' bo'yicha na CRM dan, na Telegram kontaktlaridan hech kim topilmadi.")
+
+            return "\n".join(lines)
+
+        # 3. Action: send_message
+        m_send = ACTION_SEND_MSG.search(reply_text)
+        if not m_send:
+            fb = re.search(r"^(.+?)(?:ga|da)\s+['\"](.+?)['\"]\s+(?:deb\s+)?(?:yoz|xabar\s+yubor|tashla)", orig_msg, re.I)
+            if fb:
+                m_send = fb
+
+        if m_send:
+            target = m_send.group(1).strip()
+            text = m_send.group(2).strip()
+            res = await send_telegram_message(client, target, text)
+            if res.get("ok"):
+                return (
+                    f"✅ **Xabar muvaffaqiyatli yuborildi!**\n\n"
+                    f"• **Qabul qiluvchi:** {res.get('target_name')}\n"
+                    f"• **Yuborilgan xabar:** «{text}»"
+                )
+            else:
+                return f"❌ **Xabarni yuborib bo'lmadi:** {res.get('error')}"
+
+        return reply_text
+
     async def handle_api_ai_chat(request: web.Request):
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
@@ -447,11 +547,33 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             if not msg:
                 return web.json_response({"ok": False, "error": "Xabar bo'sh bo'lishi mumkin emas"}, status=400)
 
-            reply = await ai_service.generate_reply(
+            client = get_client_func() if callable(get_client_func) else None
+
+            # Get recent chats as context for AI
+            chats_context = None
+            if client:
+                try:
+                    recent = await list_recent_chats(client, limit=10)
+                    if recent:
+                        chat_names = [f"{c['name']} ({c['type']})" for c in recent]
+                        chats_context = f"Sizning Telegramingizdagi faol guruhlar va kontaktlar: {', '.join(chat_names)}"
+                except Exception as e:
+                    logger.debug("Chatlar kontekstini olishda ogohlantirish: %s", e)
+
+            raw_reply = await ai_service.generate_reply(
                 chat_id=config.mentor_user_id,
                 user_message=msg,
+                reply_to_context=chats_context,
             )
-            return web.json_response({"ok": True, "reply": str(reply)})
+
+            # Execute agent actions if present or detected
+            final_reply = await execute_agent_action(str(raw_reply), client, msg)
+
+            if final_reply != str(raw_reply):
+                # Update SQLite memory so that final executed result is saved
+                memory_service.update_last_message(config.mentor_user_id, final_reply)
+
+            return web.json_response({"ok": True, "reply": final_reply})
         except Exception as e:
             logger.error("AI Chat xatolik: %s", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)

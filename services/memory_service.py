@@ -145,6 +145,22 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Xotiraga yozishda xatolik: %s", e)
 
+    def update_last_message(self, chat_id: int, content: str) -> None:
+        """Chatdagi eng so'nggi xabar matnini yangilaydi (Action agent natijalarini yozish uchun)."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
+                    (chat_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    cursor.execute("UPDATE messages SET content = ? WHERE id = ?", (content.strip(), row[0]))
+                    conn.commit()
+        except Exception as e:
+            logger.error("Oxirgi xabarni yangilashda xatolik: %s", e)
+
     def get_history(self, chat_id: int) -> list[ChatMessage]:
         """Oxirgi N ta xabarlar tarixini xronologik tartibda qaytaradi."""
         try:
