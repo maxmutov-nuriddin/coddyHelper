@@ -13,7 +13,12 @@ from telethon import TelegramClient, events
 from config import config, is_escalation_chat
 from services.ai_service import ai_service
 from services.memory_service import memory_service
-from services.telegram_agent_service import execute_agent_action, list_recent_chats
+from services.telegram_agent_service import (
+    execute_agent_action,
+    list_recent_chats,
+    get_student_common_groups,
+    is_russian_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +82,34 @@ def is_token_abuse(text: str) -> bool:
         r"\bбесконечный\s+текст\b",
     ]
     return any(re.search(pat, t, re.I) for pat in abuse_triggers)
+
+
+def is_absence_message(text: str) -> bool:
+    """
+    O'quvchining darsga kela olmasligi, kechikishi yoki dars qoldirishi haqidagi xabarni aniqlaydi.
+    """
+    t = text.lower().strip()
+    if not t:
+        return False
+
+    absence_triggers = [
+        # O'zbekcha darsga kelolmaslik / bormaslik / kechikish
+        r"\b(?:kelolmay\w*|kelomiman\w*|kelolmas\w*|kelomas\w*)\b",
+        r"\b(?:borolmay\w*|boromiman\w*|borolmas\w*)\b",
+        r"\b(?:bor\w*|kel\w*|chiq\w*)\s+(?:olmay\w*|bo['’`]?lmay\w*)\b",
+        r"\b(?:qatnasholmay\w*|qatnasha\s+olmay\w*)\b",
+        r"\b(?:bo['’`]?lolmay\w*|bo['’`]?la\s+olmay\w*)\b",
+        r"\b(?:darsga|darsda)\s+(?:\w+\s+){0,2}(?:bormay\w*|kelmay\w*|bo['’`]?l\w*|qatnash\w*)\b",
+        r"\b(?:darsni|dars)\s+(?:qoldir\w*|otkaz\w*|o'tkaz\w*)\b",
+        r"\b(?:kasal\s+bo['’`]?lib|kasalman|tobim\s+yo['’`]?q|mazam\s+yo['’`]?q|mazam\s+bo['’`]?lmayapti)\b",
+        r"\b(?:kechikib\w*|kechikaman\w*|kech\s+qolaman\w*|kech\s+boraman\w*)\b",
+        # Ruscha
+        r"\b(?:не\s+смогу\s+(?:\w+\s+){0,2}(?:прийти|быть|присутствовать)|не\s+приду|не\s+буду\s+(?:\w+\s+){0,2}уроке)\b",
+        r"\b(?:пропущу|пропускаю)\s+(?:урок|занятие)\b",
+        r"\b(?:заболел\w*|плохо\s+себя\s+чувствую)\b",
+        r"\b(?:опоздаю|задержусь)\s*(?:на\s+урок)?\b",
+    ]
+    return any(re.search(pat, t, re.I) for pat in absence_triggers)
 
 
 def extract_safe_zip_content(file_bytes: bytes, zip_name: str) -> tuple[str | None, str | None, str | None]:
@@ -788,6 +821,96 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                 # GitHub linkini aniqlash
                 github_match = re.search(r"https?://github\.com/[\w\-]+/[\w\-]+/?", input_text)
+
+                # 📋 DAVOMAT: O'quvchi darsga kelolmasligi / dars qoldirishi haqidagi xabarlar
+                if is_absence_message(input_text) and not is_admin_chat and not is_mentor_user:
+                    try:
+                        # 1. O'quvchining Telegram profili
+                        sender_obj = await event.get_sender()
+                        s_name = getattr(sender_obj, "first_name", "") or "Noma'lum"
+                        if getattr(sender_obj, "last_name", None):
+                            s_name += f" {sender_obj.last_name}"
+                        s_user = f"@{sender_obj.username}" if getattr(sender_obj, "username", None) else "Username yo'q"
+
+                        # 2. Guruhni aniqlash
+                        group_hints = []
+                        if is_group:
+                            chat_obj = await event.get_chat()
+                            g_title = getattr(chat_obj, "title", "")
+                            if g_title:
+                                group_hints.append(g_title)
+                        else:
+                            common_grps = await get_student_common_groups(client, sender_id)
+                            if common_grps:
+                                group_hints.extend(common_grps)
+
+                        # 3. AI orqali xabarni tahlil qilish
+                        clean_raw = input_text.replace("[Ovozli xabar]: ", "").strip()
+                        analysis = await ai_service.analyze_absence_report(
+                            message_text=clean_raw,
+                            sender_name=s_name,
+                            common_groups=group_hints,
+                        )
+
+                        student_name = analysis.get("student_name") or s_name
+                        group_name = analysis.get("group_name") or (group_hints[0] if group_hints else "Aniqlanmadi (Shaxsiy chat)")
+                        date_time = analysis.get("date_time") or "Bugun"
+                        reason = analysis.get("reason") or "Sababi aytilmagan"
+
+                        # 4. Rasmiy hisobot matnini shakllantirish
+                        absence_report = (
+                            "📋 #DAVOMAT #DARSGA_KELOLMAYDI\n\n"
+                            f"👤 **O'quvchi:** {student_name} ({s_user})\n"
+                            f"🆔 **ID:** `{sender_id}`\n"
+                            f"📚 **Guruh:** {group_name}\n"
+                            f"⏰ **Qachon:** {date_time}\n"
+                            f"📝 **Sababi:** {reason}\n\n"
+                            f"💬 **O'quvchining xabari:**\n\"{clean_raw}\""
+                        )
+
+                        # 5. @coddycamp_sergeli chatiga yuborish
+                        try:
+                            await client.send_message("@coddycamp_sergeli", absence_report)
+                            logger.info("Davomat xabari @coddycamp_sergeli ga yuborildi: %s", student_name)
+                            log_activity(f"📋 Davomat: {student_name} -> @coddycamp_sergeli")
+                        except Exception as adm_err:
+                            logger.error("@coddycamp_sergeli ga yuborishda xatolik: %s", adm_err)
+
+                        # 6. Nusxasini Vazifalar (Mentor) guruhiga yuborish
+                        try:
+                            target = config.escalation_chat
+                            if str(target).isdigit() or (str(target).startswith("-") and str(target)[1:].isdigit()):
+                                target = int(target)
+                            await client.send_message(
+                                target,
+                                f"📨 **@coddycamp_sergeli ma'muriyatiga o'quvchi dars qoldirishi haqida xabar yo'llandi:**\n\n{absence_report}"
+                            )
+                        except Exception as esc_err:
+                            logger.error("Vazifalar guruhiga nusxa yuborishda xatolik: %s", esc_err)
+
+                        # 7. O'quvchiga xushmuomala tasdiq javobi berish
+                        if is_russian_text(clean_raw):
+                            confirm_reply = (
+                                "Здравствуйте! Информация о том, что вы не сможете прийти на урок, "
+                                "принята и передана администрации (@coddycamp_sergeli) и учителю Нуриддину.\n\n"
+                                "Выздоравливайте / ждем вас на следующем занятии! 😊"
+                            )
+                        else:
+                            confirm_reply = (
+                                "Assalomu alaykum! Darsga kela olmasligingiz haqidagi xabaringiz qabul qilindi "
+                                "va CoddyCamp ma'muriyati (@coddycamp_sergeli) hamda Nuriddin ustozga yetkazildi.\n\n"
+                                "Salomat bo'ling, keyingi darsda kutib qolamiz! 😊"
+                            )
+
+                        sent = await event.reply(confirm_reply)
+                        if sent:
+                            BOT_SENT_MESSAGE_IDS.add(sent.id)
+
+                        memory_service.add_message(chat_id=chat_id, role="user", content=input_text)
+                        memory_service.add_message(chat_id=chat_id, role="model", content=confirm_reply)
+                        return
+                    except Exception as abs_err:
+                        logger.exception("Davomat xabarini qayta ishlashda xatolik: %s", abs_err)
 
                 # Agar mavzu tushuntirish so'ralgan bo'lsa (tushuntir <mavzu>)
                 lower_input = input_text.strip().lower()

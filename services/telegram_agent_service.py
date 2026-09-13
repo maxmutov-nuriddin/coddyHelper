@@ -788,6 +788,32 @@ def get_students_summary() -> dict[str, Any]:
     }
 
 
+async def get_student_common_groups(client, user_id: int) -> list[str]:
+    """
+    O'quvchi va mentor o'rtasidagi umumiy Telegram guruhlarini aniqlaydi.
+    Vazifalar / Boshqaruv markazi va admin guruhlarini chiqarib tashlaydi.
+    """
+    if not client or not user_id:
+        return []
+    try:
+        from telethon.tl.functions.messages import GetCommonChatsRequest
+        res = await client(GetCommonChatsRequest(user_id=user_id, max_id=0, limit=20))
+        groups = []
+        for chat in getattr(res, "chats", []):
+            title = getattr(chat, "title", "") or ""
+            clean_title = title.strip()
+            # Admin yoki Vazifalar guruhini o'tkazib yuborish
+            lower_title = clean_title.lower()
+            if any(ign in lower_title for ign in ("vazifalar", "boshqaruv", "markaz", "admin", "co-pilot", "copilot")):
+                continue
+            if clean_title:
+                groups.append(clean_title)
+        return groups
+    except Exception as e:
+        logger.warning("Umumiy guruhlarni olishda xatolik (user_id=%s): %s", user_id, e)
+        return []
+
+
 ACTION_GROUP_INFO = re.compile(r'<<<ACTION:get_group_info\(["\']?(.*?)["\']?\)>>>', re.IGNORECASE)
 ACTION_STUDENTS_SUM = re.compile(r'<<<ACTION:get_students_summary\(\)>>>', re.IGNORECASE)
 ACTION_SEARCH = re.compile(r'<<<ACTION:search_telegram\(["\'](.*?)["\']\)>>>', re.IGNORECASE)

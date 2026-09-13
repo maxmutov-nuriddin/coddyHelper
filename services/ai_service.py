@@ -930,6 +930,75 @@ class AIService:
 
         return "⚠️ Mavzuni tushuntirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring."
 
+    async def analyze_absence_report(
+        self,
+        message_text: str,
+        sender_name: str = "",
+        common_groups: list[str] | None = None,
+    ) -> dict[str, str]:
+        """
+        O'quvchining darsga kelolmasligi / dars qoldirishi haqidagi xabarini
+        AI orqali tahlil qilib, toza ma'lumotlar strukturasiga ajratadi.
+        """
+        groups_str = ", ".join(common_groups) if common_groups else "Aniqlanmagan"
+        s_profile_name = sender_name if sender_name else "Nomalum"
+        prompt = (
+            f"Siz ta'lim markazi (CoddyCamp) davomat nazoratchisisiz.\n"
+            f"Quyidagi xabarni o'quvchi yuborgan:\n"
+            f"Telegram profili: {s_profile_name}\n"
+            f"A'zo bo'lgan ehtimoliy guruhlari: {groups_str}\n"
+            f"Xabar: \"{message_text}\"\n\n"
+            "Vazifangiz xabarni tahlil qilib, FAQAT quyidagi JSON formatda javob berish:\n"
+            "{\n"
+            '  "student_name": "O\'quvchining ismi (agar xabarda ismi yozilgan bo\'lsa o\'sha, bo\'lmasa profil ismi)",\n'
+            '  "group_name": "Guruh nomi (xabarda aytilgan yoki ehtimoliy guruhlar ro\'yxatidagi nom, topilmasa \'Aniqlanmadi\')",\n'
+            '  "date_time": "Qachon darsga kelolmasligi yoki kechikishi (masalan: \'Bugun\', \'Ertaga\', \'1 soatga kech\')",\n'
+            '  "reason": "Sababi lo\'nda va aniq (masalan: \'Mazasi yo\'qligi / kasallik\', \'Oilaviy sabab\', \'Tirbandlik\')"\n'
+            "}\n"
+            "DIQQAT: Faqat toza JSON formatida javob bering, kod bloki (```json) ham, ortiqcha so'z ham yozmang."
+        )
+
+        if not self._groq_clients:
+            self._setup_clients()
+
+        models_to_try = []
+        for m in [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
+            if m and m not in models_to_try:
+                models_to_try.append(m)
+
+        for model_name in models_to_try:
+            for _ in range(len(self._groq_clients)):
+                client = self._groq_clients[self._groq_idx]
+                self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+                try:
+                    res = await client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1,
+                        max_tokens=300,
+                    )
+                    content = res.choices[0].message.content.strip()
+                    clean_json = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.DOTALL).strip()
+                    data = json.loads(clean_json)
+                    return {
+                        "student_name": str(data.get("student_name") or sender_name or "Noma'lum").strip(),
+                        "group_name": str(data.get("group_name") or (common_groups[0] if common_groups else "Aniqlanmadi")).strip(),
+                        "date_time": str(data.get("date_time") or "Bugun").strip(),
+                        "reason": str(data.get("reason") or "Sababi keltirilmagan").strip(),
+                    }
+                except Exception as e:
+                    logger.warning("Davomat tahlilida xatolik (%s): %s", model_name, e)
+
+        # Fallback (AI ishlamasa xavfsiz regex/shablon tahlili)
+        fallback_reason = "Mazasi yo'qligi / betoblik" if any(w in message_text.lower() for w in ("kasal", "maza", "tob", "заболел")) else "Darsga kela olmaslik"
+        fallback_time = "Ertaga" if any(w in message_text.lower() for w in ("erta", "завтра")) else "Bugun"
+        return {
+            "student_name": sender_name or "Noma'lum",
+            "group_name": common_groups[0] if common_groups else "Aniqlanmadi",
+            "date_time": fallback_time,
+            "reason": fallback_reason,
+        }
+
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
         """
         Groq Whisper (whisper-large-v3) orqali ovozli xabarni o'zbek/rus tilida matnga o'giradi.
