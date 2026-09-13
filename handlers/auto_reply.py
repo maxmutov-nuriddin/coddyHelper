@@ -47,6 +47,38 @@ DANGEROUS_EXTS = {
 }
 
 
+def is_token_abuse(text: str) -> bool:
+    """
+    AI tokenlarini qasddan sarflash, tugatish yoki trollik urinishlarini aniqlaydi.
+    Dasturlashdagi JWT token, Bot token yoki Auth mavzularini aslo aralashtirmaydi.
+    """
+    t = text.lower().strip()
+    if not t:
+        return False
+
+    # Dasturlash mavzulari (soxta pozitivlardan himoya):
+    dev_exceptions = [
+        "jwt", "csrf", "botfather", "bearer", "access token",
+        "refresh token", "auth token", "telegram token", "bot tokeni", "botning tokeni", "api tokeni"
+    ]
+    if any(dev in t for dev in dev_exceptions):
+        return False
+
+    abuse_triggers = [
+        r"\btoken(?:ing|ingni|larni|laringni|larini)?\s+(?:\w+\s+){0,3}(?:ishlat\w*|tugat\w*|sarfla\w*|yoq\w*|yondir\w*|erit\w*)",
+        r"\b(?:ishlat\w*|tugat\w*|sarfla\w*|yoq\w*|yondir\w*)\s+(?:\w+\s+){0,3}token",
+        r"\b(?:qancha|nechta)\s+(?:\w+\s+){0,2}token(?:ing)?\b",
+        r"\btoken(?:ing)?\s+(?:\w+\s+){0,2}(?:qancha|nechta|qoldi|bormi|tugasin|yetadimi)\b",
+        r"\blimit(?:ini|ingni)?\s+(?:\w+\s+){0,2}(?:tugat\w*|yoq\w*)\b",
+        r"\b(?:слить|сжечь|потрать\w*|трать\w*|закончи\w*)\s+(?:\w+\s+){0,3}токен",
+        r"\bтокен(?:ы|ов)?\s+(?:\w+\s+){0,3}(?:потрать\w*|слить\w*|сжечь\w*|закончи\w*)\b",
+        r"\bсколько\s+(?:\w+\s+){0,2}токен(?:ов)?\b",
+        r"\b(?:cheksiz|to'xtamasdan)\s+(?:yoz\w*|davom et\w*)\b",
+        r"\bбесконечный\s+текст\b",
+    ]
+    return any(re.search(pat, t, re.I) for pat in abuse_triggers)
+
+
 def extract_safe_zip_content(file_bytes: bytes, zip_name: str) -> tuple[str | None, str | None, str | None]:
     """
     ZIP arxivini faqat RAM xotirasida xavfsiz tekshiradi va kod fayllarini ajratib oladi.
@@ -468,6 +500,37 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
             await event.reply("⛔️ **Xavfsizlik tizimi:** Xavfsizlik qoidalariga ko'ra hisob ma'lumotlari, tasdiqlash kodlari yoki sessiyalarni so'rash qat'iyan man etiladi. Hisobingiz butunlay bloklandi.")
             return
+
+        # 🛡 XAVFSIZLIK: Tokenlarni qasddan sarflash, sun'iy cheksiz so'rovlar yoki trollik urinishlari
+        is_admin_user = (sender_id in (config.mentor_user_id, 8105823872)) or is_escalation_chat(event.chat_id)
+        if not is_admin_user and is_token_abuse(clean_msg):
+            s_name = getattr(sender, "first_name", "") or "Noma'lum"
+            if getattr(sender, "last_name", None):
+                s_name += f" {sender.last_name}"
+            s_user = f"@{sender.username}" if getattr(sender, "username", None) else "Mavjud emas"
+
+            memory_service.ignore_user(sender_id, getattr(sender, "username", "") or "", reason="Tokenlarni qasddan sarflash / trollik urinishi")
+            log_activity(f"⛔️ TOKEN ABUSE! {s_name} ({s_user}) ID:{sender_id} butunlay bloklandi.")
+            logger.warning("🚨 Tokenlarni qasddan sarflash urinishi aniqlandi! Foydalanuvchi %s bloklandi.", sender_id)
+
+            alert = (
+                "🚨 **XAVFSIZLIK OGOHLANTIRISHI: TOKENLARNI QASDDAN SARFLASH / TROLLIK ANIQLANDI!**\n\n"
+                f"👤 **Foydalanuvchi:** {s_name} ({s_user})\n"
+                f"🆔 **ID:** `{sender_id}`\n\n"
+                f"💬 **Xabari:** \"{message_text}\"\n\n"
+                "🛡 **Ko'rilgan chora:** Ushbu foydalanuvchi **butunlay va abadiy bloklandi** (ignored_users). Tizim bitta ham token sarflamadi va bot unga boshqa aslo javob bermaydi."
+            )
+            try:
+                target = config.escalation_chat
+                if str(target).isdigit() or (str(target).startswith("-") and str(target)[1:].isdigit()):
+                    target = int(target)
+                await client.send_message(target, alert)
+            except Exception as esc_err:
+                logger.error("Xavfsizlik ogohlantirishini yuborishda xatolik: %s", esc_err)
+
+            await event.reply("⛔️ **Xavfsizlik tizimi:** AI tizimidan g'arazli maqsadlarda foydalanish va tokenlarni qasddan sarflashga urinish aniqlandi. Siz butunlay bloklandingiz.")
+            return
+
         has_photo = bool(
             event.message.photo
             or (

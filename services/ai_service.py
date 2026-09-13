@@ -79,6 +79,20 @@ def check_fast_faq(text: str) -> str | None:
             "Dasturlash yoki dars vazifalari bo'yicha savollaringiz bo'lsa, bemalol shu yerda bering!"
         )
 
+    # 0.3 "Sen kimsan?" / "Kim bu?" / "Кто ты?"
+    who_are_you_uz = {"sen kimsan", "kim bu", "kimsan", "siz kimsiz", "sen kim", "vazifang nima", "kim siz"}
+    who_are_you_ru = {"кто ты", "ты кто", "кто вы", "вы кто", "что ты умеешь"}
+    if clean_t in who_are_you_uz:
+        return (
+            "Assalomu alaykum! Men CoddyCamp IT akademiyasining AI yordamchisiman.\n\n"
+            "ℹ️ **Eslatma:** Men toʻliq AI emasman, faqat darslardagi xatoliklar va kichik vazifalarda yordamlashaman. Qanday savolingiz bor?"
+        )
+    if clean_t in who_are_you_ru:
+        return (
+            "Здравствуйте! Я ИИ-помощник IT-академии CoddyCamp.\n\n"
+            "ℹ️ **Примечание:** Я не полноценный ИИ для масштабных задач, а помогаю с разбором ошибок и небольшими практическими вопросами по урокам. Чем могу помочь?"
+        )
+
     # 1. ModuleNotFoundError
     mod_match = re.search(r"ModuleNotFoundError:\s*No module named\s*['\"]([^'\"]+)['\"]", t, re.IGNORECASE)
     if mod_match:
