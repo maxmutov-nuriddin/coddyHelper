@@ -474,3 +474,201 @@ def get_students_summary() -> dict[str, Any]:
         "by_status": statuses,
     }
 
+
+ACTION_GROUP_INFO = re.compile(r'<<<ACTION:get_group_info\(["\']?(.*?)["\']?\)>>>', re.IGNORECASE)
+ACTION_STUDENTS_SUM = re.compile(r'<<<ACTION:get_students_summary\(\)>>>', re.IGNORECASE)
+ACTION_SEARCH = re.compile(r'<<<ACTION:search_telegram\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
+ACTION_FIND_CONTACT = re.compile(r'<<<ACTION:find_contact\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
+ACTION_SEND_MSG = re.compile(r'<<<ACTION:send_message\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
+
+
+async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
+    """
+    AI javobidagi maxsus harakat buyruqlarini (Action Tools) yoki
+    foydalanuvchining to'g'ridan-to'g'ri Telegram amallari talablarini bajaradi.
+    """
+    # 1. Action: get_group_info (Guruh a'zolari/o'quvchilar soni)
+    m_group = ACTION_GROUP_INFO.search(reply_text)
+    is_group_query = False
+    group_arg = ""
+    if m_group:
+        is_group_query = True
+        group_arg = m_group.group(1).strip()
+    else:
+        count_match = re.search(r"(?:guruh|dars).*?(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)", orig_msg, re.I) or \
+                      re.search(r"(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)\s+bor", orig_msg, re.I) or \
+                      re.search(r"guruhdagi\s+(?:barcha\s+)?(?:o'quvchilar|a'zolar)", orig_msg, re.I)
+        if count_match:
+            is_group_query = True
+            nm = re.search(r"([A-Za-z0-9_]+(?:\s+[A-Za-z0-9_]+)?)\s+guruh", orig_msg, re.I)
+            group_arg = nm.group(1).strip() if nm else ""
+
+    if is_group_query:
+        data = await get_group_info(client, group_arg)
+        groups = data.get("groups", [])
+        if not groups:
+            return "👥 **Guruh ma'lumotlari:**\nSiz a'zo bo'lgan guruhlar topilmadi."
+
+        lines = ["👥 **Guruhdagi o'quvchilar va a'zolar soni:**\n"]
+        for g in groups:
+            g_name = g["group_name"]
+            tot = g["total_members"]
+            stu = g["students_count"]
+            bots = g["bots_count"]
+            crm_c = g["crm_count"]
+
+            detail = f"Jami **{tot} nafar** a'zo"
+            if bots > 0:
+                detail += f" ({stu} ta o'quvchi, {bots} ta bot)"
+            if crm_c > 0:
+                detail += f" | CRM ro'yxatida: **{crm_c} nafar**"
+
+            lines.append(f"• 📍 **{g_name}**:\n  {detail}")
+
+            sample = g.get("sample_participants", [])
+            if sample:
+                sample_names = [f"{p['name']}" + (f" (@{p['username']})" if p.get('username') else "") for p in sample[:6]]
+                lines.append(f"  *A'zolardan namunalar:* {', '.join(sample_names)}" + (f" va yana {len(sample)-6} kishi..." if len(sample) > 6 else ""))
+            lines.append("")
+
+        return "\n".join(lines).strip()
+
+    # 2. Action: get_students_summary (Jami o'quvchilar umumiy statistikasi)
+    m_sum = ACTION_STUDENTS_SUM.search(reply_text)
+    if not m_sum:
+        if re.search(r"jami\s+.*?(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi)", orig_msg, re.I) or \
+           re.search(r"o'quvchilar(?:im)?\s+soni\s+qancha", orig_msg, re.I):
+            m_sum = True
+
+    if m_sum:
+        summary = get_students_summary()
+        tot = summary["total_students"]
+        lines = [f"📊 **O'quvchilar umumiy statistikasi:**\n• Jami ro'yxatdan o'tgan o'quvchilar: **{tot} nafar**"]
+        if summary.get("by_group"):
+            lines.append("\n📁 **Guruhlar bo'yicha:**")
+            for g, count in summary["by_group"].items():
+                lines.append(f"  • {g}: **{count} nafar**")
+        if summary.get("by_status"):
+            lines.append("\n📈 **O'zlashtirish bo'yicha:**")
+            for st, count in summary["by_status"].items():
+                if count > 0:
+                    lines.append(f"  • {st.capitalize()}: {count} nafar")
+        return "\n".join(lines)
+
+    # 3. Action: search_telegram
+    m_search = ACTION_SEARCH.search(reply_text)
+    if not m_search:
+        fb = re.search(r"(?:telegramdan|chatlardan)\s+(?:'|\")?([^'\"]+?)(?:'|\")?\s+(?:ni\s+)?(?:qidir|top)", orig_msg, re.I)
+        if fb:
+            m_search = fb
+
+    if m_search:
+        query = m_search.group(1).strip()
+        # Agar qidiruv so'zi guruh a'zolari soniga tegishli bo'lsa, get_group_info ga yo'naltirish
+        if re.search(r"(?:necha|nechta|qancha)\s+(?:o'quvchi|oquvchi|odam|bola|a'zo|azo|kishi)", query, re.I) or \
+           re.search(r"(?:guruhda|guruhimizda)", query, re.I):
+            data = await get_group_info(client, "")
+            groups = data.get("groups", [])
+            if groups:
+                lines = ["👥 **Guruhdagi o'quvchilar va a'zolar soni:**\n"]
+                for g in groups:
+                    lines.append(f"• 📍 **{g['group_name']}**: Jami **{g['total_members']} nafar** ({g['students_count']} ta o'quvchi)")
+                return "\n".join(lines)
+
+        results = await search_telegram_messages(client, query, limit=6)
+        if not results or (len(results) == 1 and "error" in results[0]):
+            return f"🔍 **Telegram qidiruv natijasi:**\n'{query}' bo'yicha hech qanday xabar topilmadi."
+        lines = [f"🔍 **'{query}' bo'yicha topilgan xabarlar:**\n"]
+        for i, res in enumerate(results, 1):
+            chat_name = res.get("chat_name", "Noma'lum")
+            sender = res.get("sender_name", "Noma'lum")
+            date = res.get("date", "")
+            snippet = res.get("snippet", "")
+            link = res.get("link")
+            link_md = f" [🔗 Ochish]({link})" if link else ""
+            lines.append(f"{i}. 📍 **{chat_name}** | 👤 *{sender}* ({date}):\n   «{snippet}»{link_md}\n")
+        return "\n".join(lines)
+
+    # 4. Action: find_contact (O'quvchi, odamlar, chatlar va guruh a'zolarini qidirish)
+    m_contact = ACTION_FIND_CONTACT.search(reply_text)
+    if not m_contact:
+        fb = re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|odamni|bolani|uydagilarini|lichkasini|kontaktini|chatini)\s+\b(?:top|qidir|aniqla)\b", orig_msg, re.I) or \
+             re.search(r"(?:chatlar\s+ismi\s+bilan\s+)?(?:odamlarni|chatlarni|o'quvchilarni|kontaktlarni)\s+(?:ham\s+)?\b(?:top|qidir|aniqla)\b\s*[:\-]?(?:\s+)?(.+)", orig_msg, re.I) or \
+             re.search(r"^([A-Za-z0-9_'\`\s]{2,25}?)(?:ning|ni|i)?\s+\b(?:chatini\s+top|lichkasini\s+top|qaysi\s+guruhda|top|qidir)\b", orig_msg, re.I)
+        if fb:
+            m_contact = fb
+
+    if m_contact:
+        query = m_contact.group(1).strip()
+        query = re.sub(r"^(?:degan\s+|ismli\s+|chat\s+|guruh\s+)", "", query, flags=re.I).strip()
+        data = await find_student_or_contact(client, query)
+        crm_students = data.get("crm_students", [])
+        tg_chats = data.get("telegram_chats", [])
+        group_members = data.get("group_members", [])
+
+        lines = [f"👤 **'{query}' bo'yicha qidiruv natijalari:**\n"]
+        if crm_students:
+            lines.append("👨‍🎓 **O'quvchilar profili (CRM):**")
+            for s in crm_students:
+                fname = s.get("full_name", "")
+                uname = f"@{s.get('username')}" if s.get("username") else "Lichka: yo'q"
+                gname = s.get("group_name") or "Guruh belgilanmagan"
+                status = s.get("status", "yaxshi")
+                notes = s.get("mentor_notes") or ""
+                lines.append(f"• **{fname}** — Guruh: **{gname}** (Status: {status})\n  Telegram: {uname}" + (f"\n  Izoh: {notes}" if notes else ""))
+            lines.append("")
+
+        if tg_chats:
+            lines.append("📱 **Telegramdan topilgan chatlar va kontaktlar:**")
+            for c in tg_chats:
+                c_name = c.get("name", "")
+                c_type = "📁 Guruh/Kanal" if c.get("type") == "group" else "💬 Lichka"
+                c_uname = c.get("username") or ""
+                c_phone = c.get("phone") or ""
+                link = c.get("link", "")
+                info_parts = []
+                if c_uname: info_parts.append(c_uname)
+                if c_phone: info_parts.append(c_phone)
+                info_str = f" ({', '.join(info_parts)})" if info_parts else ""
+                lines.append(f"• [{c_type}] **[{c_name}]({link})**{info_str}")
+            lines.append("")
+
+        if group_members:
+            lines.append("👥 **Guruhlar ichidan topilgan a'zolar / o'quvchilar:**")
+            for m in group_members:
+                m_name = m.get("name", "")
+                m_uname = m.get("username") or ""
+                m_group = m.get("in_group", "")
+                link = m.get("link", "")
+                uname_str = f" ({m_uname})" if m_uname else ""
+                lines.append(f"• 👤 **[{m_name}]({link})**{uname_str} — 📍 Guruh: **{m_group}**")
+            lines.append("")
+
+        if not crm_students and not tg_chats and not group_members:
+            lines.append(f"'{query}' bo'yicha na CRM dan, na Telegram chatlari yoki guruh a'zolaridan hech kim topilmadi.")
+
+        return "\n".join(lines)
+
+    # 5. Action: send_message
+    m_send = ACTION_SEND_MSG.search(reply_text)
+    if not m_send:
+        fb = re.search(r"^(.+?)(?:ga|da)\s+['\"](.+?)['\"]\s+(?:deb\s+)?(?:yoz|xabar\s+yubor|tashla)", orig_msg, re.I)
+        if fb:
+            m_send = fb
+
+    if m_send:
+        target = m_send.group(1).strip()
+        text = m_send.group(2).strip()
+        res = await send_telegram_message(client, target, text)
+        if res.get("ok"):
+            return (
+                f"✅ **Xabar muvaffaqiyatli yuborildi!**\n\n"
+                f"• **Qabul qiluvchi:** {res.get('target_name')}\n"
+                f"• **Yuborilgan xabar:** «{text}»"
+            )
+        else:
+            return f"❌ **Xabarni yuborib bo'lmadi:** {res.get('error')}"
+
+    return reply_text
+
+

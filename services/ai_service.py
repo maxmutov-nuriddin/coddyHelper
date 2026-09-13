@@ -468,6 +468,7 @@ class AIService:
         image_bytes: bytes | None = None,
         file_name: str | None = None,
         file_text: str | None = None,
+        is_admin_mode: bool | None = None,
     ) -> AIResult:
         """
         Xabarni tahlil qilib AI javobini qaytaradi (matn, fayl yoki rasm/skrinshot bilan).
@@ -478,7 +479,8 @@ class AIService:
                 return AIResult("⚠️ **Xatolik:** Hech qanday AI provayderi sozlanmagan. Iltimos `.env` faylini tekshiring.")
 
         # Vazifalar (Admin) guruhi yoki Mentor ekanini aniqlash
-        is_admin_mode = is_escalation_chat(chat_id) or (chat_id in (config.mentor_user_id, 8105823872))
+        if is_admin_mode is None:
+            is_admin_mode = is_escalation_chat(chat_id) or (chat_id in (config.mentor_user_id, 8105823872))
 
         # Standart xatoliklarga (FAQ) 0.01 soniyada tezkor javob berish
         if not is_admin_mode and not file_text and not image_bytes:

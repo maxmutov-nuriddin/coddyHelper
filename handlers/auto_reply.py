@@ -13,6 +13,7 @@ from telethon import TelegramClient, events
 from config import config, is_escalation_chat
 from services.ai_service import ai_service
 from services.memory_service import memory_service
+from services.telegram_agent_service import execute_agent_action, list_recent_chats
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,20 @@ def is_relevant_group_message(
     return True
 
 
+async def check_is_vazifalar_chat(event) -> bool:
+    """Xabar 'Vazifalar' (Mentorning Shaxsiy Boshqaruv Markazi) guruhida ekanini aniqlaydi."""
+    if is_escalation_chat(event.chat_id):
+        return True
+    try:
+        chat = await event.get_chat()
+        title = getattr(chat, "title", "") or ""
+        if "vazifalar" in title.lower():
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def register_auto_reply_handlers(client: TelegramClient) -> None:
     my_id = None
 
@@ -186,6 +201,123 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             me = await client.get_me()
             my_id = me.id
         return my_id
+
+    async def handle_vazifalar_chat(event: events.NewMessage.Event):
+        """
+        'Vazifalar' (Mentorning Shaxsiy Boshqaruv Markazi) guruhidagi
+        matnli va ovozli muloqotni xuddi Web App kabi qayta ishlaydi.
+        Mentor bu yerda AI Co-Pilot bilan erkin muloqot qiladi, ideyalar oladi,
+        ovozli xabar yuborsa ovozli javob oladi, va Telegram amallarini bajaradi.
+        """
+        chat_id = event.chat_id
+        if event.message.id in BOT_SENT_MESSAGE_IDS or chat_id in CURRENT_SENDING_CHATS:
+            BOT_SENT_MESSAGE_IDS.discard(event.message.id)
+            return
+
+        CURRENT_SENDING_CHATS.add(chat_id)
+        try:
+            message_text = event.raw_text or event.message.message or ""
+            has_voice = bool(
+                event.message.voice
+                or (
+                    event.message.audio
+                    and getattr(event.message.file, "mime_type", "").startswith("audio/")
+                )
+            )
+            has_photo = bool(
+                event.message.photo
+                or (
+                    event.message.document
+                    and event.message.file
+                    and getattr(event.message.file, "mime_type", "").startswith("image/")
+                )
+            )
+            has_doc = bool(event.message.document and not has_photo and not has_voice)
+
+            input_text = message_text.strip()
+
+            # 1. Ovozli xabar bo'lsa, Whisper orqali matnga o'girish
+            if has_voice and not input_text:
+                try:
+                    audio_bytes = await event.message.download_media(bytes)
+                    if audio_bytes:
+                        transcribed = await ai_service.transcribe_audio(audio_bytes)
+                        if transcribed:
+                            input_text = transcribed.strip()
+                            log_activity(f"Vazifalar ovozi o'qildi: {input_text[:60]}")
+                except Exception as v_err:
+                    logger.error("Vazifalar ovozli xabarni o'qishda xatolik: %s", v_err)
+
+            # 2. Hujjat yoki fayl bo'lsa
+            file_name = None
+            file_text = None
+            if has_doc:
+                try:
+                    file_bytes = await event.message.download_media(bytes)
+                    if file_bytes:
+                        file_name = getattr(event.message.file, "name", "file.txt")
+                        file_text = file_bytes.decode("utf-8", errors="ignore")
+                except Exception as f_err:
+                    logger.debug("Vazifalar faylini o'qishda ogohlantirish: %s", f_err)
+
+            # 3. Rasm bo'lsa
+            image_bytes = None
+            if has_photo:
+                try:
+                    image_bytes = await event.message.download_media(bytes)
+                except Exception as p_err:
+                    logger.debug("Vazifalar rasmini yuklashda ogohlantirish: %s", p_err)
+
+            if not input_text and not file_text and not image_bytes:
+                return
+
+            # 4. Telegram kontaktlar va guruhlar kontekstini olish
+            chats_context = None
+            try:
+                recent = await list_recent_chats(client, limit=10)
+                if recent:
+                    chat_names = [f"{c['name']} ({c['type']})" for c in recent]
+                    chats_context = f"Sizning Telegramingizdagi faol guruhlar va kontaktlar: {', '.join(chat_names)}"
+            except Exception as c_err:
+                logger.debug("Chatlar kontekstini olishda xatolik: %s", c_err)
+
+            # 5. AI Co-Pilot javobini yaratish (Admin / Co-Pilot rejimida)
+            raw_reply = await ai_service.generate_reply(
+                chat_id=config.mentor_user_id,
+                user_message=input_text,
+                reply_to_context=chats_context,
+                image_bytes=image_bytes,
+                file_name=file_name,
+                file_text=file_text,
+                is_admin_mode=True,
+            )
+
+            # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, xabar yuborish)
+            final_reply = await execute_agent_action(str(raw_reply), client, input_text)
+
+            # 7. Javobni yuborish (agar ovozli bo'lsa, ovozli javob ham jo'natish)
+            voice_reply_enabled = memory_service.get_setting("voice_reply_enabled", "true").lower() == "true"
+            if (has_voice or "ovozli" in input_text.lower()) and voice_reply_enabled:
+                try:
+                    from services.tts_service import generate_voice_message
+                    voice_path = await generate_voice_message(str(final_reply))
+                    if voice_path and voice_path.exists():
+                        sent_voice = await event.reply(file=str(voice_path), voice_note=True)
+                        if sent_voice:
+                            BOT_SENT_MESSAGE_IDS.add(sent_voice.id)
+                        voice_path.unlink(missing_ok=True)
+                except Exception as v_send_err:
+                    logger.warning("Vazifalarda ovozli javob yuborishda ogohlantirish: %s", v_send_err)
+
+            sent_msg = await event.reply(final_reply)
+            if sent_msg:
+                BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+            log_activity(f"Vazifalar AI javobi berildi: {str(final_reply)[:50]}")
+
+        except Exception as e:
+            logger.error("Vazifalar xabarini qayta ishlashda xatolik: %s", e)
+        finally:
+            CURRENT_SENDING_CHATS.discard(chat_id)
 
     # -----------------------------------------------------------
     # 1. Mentor o'zi xabar yuborganini kuzatish (Outgoing)
@@ -198,6 +330,14 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         chat_id = event.chat_id
+        is_vazifalar = await check_is_vazifalar_chat(event)
+
+        # Agar bu "Vazifalar" guruhi bo'lsa:
+        # Mentor shaxsiy AI Co-Pilot bilan muloqot qilmoqda (matn yoki ovozli xabar).
+        if is_vazifalar:
+            await handle_vazifalar_chat(event)
+            return
+
         LAST_MENTOR_ACTIVITY[chat_id] = time.time()
 
         # Ushbu chatdagi barcha kutilayotgan AI vazifalarini bekor qilish
@@ -216,15 +356,26 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if not config.auto_reply_enabled:
             return
 
+        if event.message.id in BOT_SENT_MESSAGE_IDS or event.chat_id in CURRENT_SENDING_CHATS:
+            BOT_SENT_MESSAGE_IDS.discard(event.message.id)
+            return
+
         is_private = event.is_private
         is_group = event.is_group or event.is_channel
 
         if not is_private and not is_group:
             return
 
+        is_vazifalar = await check_is_vazifalar_chat(event)
+
+        # Agar bu "Vazifalar" guruhi bo'lsa, darhol AI Co-Pilot bilan qayta ishlaymiz:
+        if is_vazifalar:
+            await handle_vazifalar_chat(event)
+            return
+
         # Agar guruh bo'lsa, maxsus tekshiruvlar:
         if is_group:
-            if not config.group_reply_enabled and not is_escalation_chat(event.chat_id):
+            if not config.group_reply_enabled:
                 return
 
         # Mentorning o'z xabari bo'lsa o'tkazib yuborish
