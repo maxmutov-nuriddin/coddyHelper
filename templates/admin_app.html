@@ -479,11 +479,59 @@
       cursor: pointer;
       color: var(--hint-color);
       flex-shrink: 0;
+      transition: all 0.2s ease;
     }
 
-    .chip:active {
+    .chip:active, .chip.active-chip {
+      background: var(--accent);
       border-color: var(--accent);
-      color: var(--accent);
+      color: white;
+    }
+
+    /* STUDENT CRM STYLES */
+    .student-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .student-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .student-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-yaxshi {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .badge-ortacha {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .badge-past {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
     }
 
     /* BOTTOM NAV */
@@ -507,15 +555,16 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 4px;
+      gap: 2px;
       background: none;
       border: none;
       color: var(--hint-color);
-      font-size: 11px;
+      font-size: 10px;
       cursor: pointer;
-      padding: 4px 8px;
+      padding: 3px 2px;
       transition: color 0.2s ease;
       flex: 1;
+      min-width: 0;
     }
 
     .nav-item.active {
@@ -523,7 +572,7 @@
     }
 
     .nav-icon {
-      font-size: 20px;
+      font-size: 18px;
     }
 
     /* TOAST */
@@ -643,6 +692,17 @@
             <span class="slider"></span>
           </label>
         </div>
+
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <h3>🎙 Ovozli Xabarga Ovozli Javob</h3>
+            <p>Ovozli savolga o'zbekcha ovoz (Voice Note) bilan javob qaytarish</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="switch-voice-reply" onchange="toggleFeature('voice_reply', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
       </div>
 
       <!-- METRICS GRID -->
@@ -652,16 +712,16 @@
           <div class="metric-label">Faol Chatlar</div>
         </div>
         <div class="metric-box">
+          <div class="metric-value" id="metric-students">0</div>
+          <div class="metric-label">O'quvchilar</div>
+        </div>
+        <div class="metric-box">
           <div class="metric-value" id="metric-reminders">0</div>
           <div class="metric-label">Eslatmalar</div>
         </div>
         <div class="metric-box">
           <div class="metric-value" id="metric-ignored">0</div>
           <div class="metric-label">Bloklanganlar</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-value" id="metric-wait" style="font-size: 18px; line-height: 28px;">5s</div>
-          <div class="metric-label">Mentor Kutish</div>
         </div>
       </div>
 
@@ -671,7 +731,7 @@
           <span class="card-title">💾 Ma'lumotlar & Zaxira</span>
         </div>
         <p style="font-size: 13px; color: var(--hint-color); margin-bottom: 10px; line-height: 1.4;">
-          Baza zaxirasi botingizga (@coddyassistanstbot) yuboriladi. Yangisi kelganda avvalgisi o'chiriladi.
+          Baza zaxirasi botingizga (@coddyassistanstbot) yuboriladi. Yangi baza kelganda avvalgisi o'chiriladi.
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px;">
           <button class="btn btn-primary" onclick="sendBackupToBot()">
@@ -679,11 +739,12 @@
           </button>
           <div style="display: flex; gap: 8px;">
             <button class="btn btn-secondary" onclick="downloadBackup()" style="flex: 1;">
-              📥 Faylni Yuklab Olish
+              📥 Yuklab Olish
             </button>
-            <button class="btn btn-secondary" onclick="loadStatus()" style="flex: 1;">
-              🔄 Yangilash
+            <button class="btn btn-secondary" onclick="document.getElementById('db-file-input').click()" style="flex: 1;">
+              📤 Baza Yuklash (Merge)
             </button>
+            <input type="file" id="db-file-input" accept=".db,.sqlite,.sqlite3" style="display:none;" onchange="uploadDatabase(event)" />
           </div>
         </div>
       </div>
@@ -701,7 +762,34 @@
 
     </div>
 
-    <!-- ==================== TAB 2: REMINDERS ==================== -->
+    <!-- ==================== TAB 2: STUDENTS CRM ==================== -->
+    <div class="tab-pane" id="tab-students">
+      
+      <!-- CONTROLS & SEARCH -->
+      <div class="card">
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <input type="text" id="student-search-input" class="form-input" placeholder="🔍 Ism, @username yoki guruh..." oninput="debounceStudentSearch()" style="flex: 1;" />
+          <button class="btn btn-primary" onclick="openStudentModal()" style="width: auto; padding: 0 14px; white-space: nowrap; font-size: 13px;">
+            ➕ Yangi
+          </button>
+        </div>
+        <div class="chat-chips" style="padding-bottom: 0;">
+          <div class="chip active-chip" id="chip-status-all" onclick="filterStudentStatus('all')">Barchasi</div>
+          <div class="chip" id="chip-status-yaxshi" onclick="filterStudentStatus('yaxshi')">🟢 A'lo / Yaxshi</div>
+          <div class="chip" id="chip-status-ortacha" onclick="filterStudentStatus('ortacha')">🟡 O'rtacha</div>
+          <div class="chip" id="chip-status-past" onclick="filterStudentStatus('past')">🔴 Past</div>
+        </div>
+      </div>
+
+      <!-- STUDENTS LIST -->
+      <div id="students-list">
+        <div class="card" style="text-align: center; color: var(--hint-color); padding: 30px 20px;">
+          O'quvchilar ro'yxati yuklanmoqda...
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 3: REMINDERS ==================== -->
     <div class="tab-pane" id="tab-reminders">
       
       <!-- ADD REMINDER CARD -->
@@ -792,11 +880,62 @@
 
   </main>
 
+  <!-- STUDENT MODAL -->
+  <div id="student-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; padding: 16px;">
+    <div style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: var(--radius); width: 100%; max-width: 450px; max-height: 90vh; overflow-y: auto; padding: 20px; box-shadow: var(--shadow);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 id="student-modal-title" style="font-size: 16px; font-weight: 600;">👨‍🎓 O'quvchi Profili</h3>
+        <button onclick="closeStudentModal()" style="background: none; border: none; color: var(--hint-color); font-size: 20px; cursor: pointer;">✕</button>
+      </div>
+      <input type="hidden" id="modal-student-id" />
+      <div class="form-group">
+        <label class="form-label">Ism-Familiya *</label>
+        <input type="text" id="modal-student-name" class="form-input" placeholder="Masalan: Azizbek Ergashev" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Telegram Username yoki ID</label>
+        <input type="text" id="modal-student-username" class="form-input" placeholder="@azizbek_dev yoki 12345678" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Guruhi / Kursi</label>
+        <input type="text" id="modal-student-group" class="form-input" placeholder="Masalan: Python Backend - 14" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">O'zlashtirish Holati</label>
+        <select id="modal-student-status" class="form-input" style="background: var(--card-bg); color: var(--text-color);">
+          <option value="yaxshi">🟢 A'lo / Yaxshi</option>
+          <option value="ortacha">🟡 O'rtacha</option>
+          <option value="past">🔴 Past (E'tibor zarur)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Kuchli Tomonlari</label>
+        <input type="text" id="modal-student-strengths" class="form-input" placeholder="OOP, Algoritmlar, Mantiq" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Qiyinchiliklari / Bo'shliqlari</label>
+        <input type="text" id="modal-student-weaknesses" class="form-input" placeholder="for/while sikllari, Indentation" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mentor Izohi / Tavsiya</label>
+        <textarea id="modal-student-notes" class="form-input" rows="3" placeholder="Uyda kompyuterda ko'proq mashq qilsa, natijasi yanada ajoyib bo'ladi..."></textarea>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="closeStudentModal()" style="flex: 1;">Bekor qilish</button>
+        <button class="btn btn-primary" onclick="saveStudent()" style="flex: 1;">Saqlash</button>
+      </div>
+    </div>
+  </div>
+
   <!-- BOTTOM NAVIGATION BAR -->
   <nav class="bottom-nav">
     <button class="nav-item active" onclick="switchTab('dashboard', this)">
       <span class="nav-icon">🎛</span>
       <span>Boshqaruv</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('students', this)">
+      <span class="nav-icon">👨‍🎓</span>
+      <span>O'quvchilar</span>
     </button>
     <button class="nav-item" onclick="switchTab('reminders', this)">
       <span class="nav-icon">⏰</span>
@@ -884,6 +1023,7 @@
       document.getElementById("tab-" + tabId).classList.add("active");
       if (el) el.classList.add("active");
 
+      if (tabId === "students") loadStudents();
       if (tabId === "reminders") loadReminders();
       if (tabId === "security") loadIgnored();
       if (tabId === "dashboard") loadStatus();
@@ -978,6 +1118,8 @@
       // Update toggles
       document.getElementById("switch-auto-reply").checked = data.auto_reply_enabled;
       document.getElementById("switch-group-reply").checked = data.group_reply_enabled;
+      const vSwitch = document.getElementById("switch-voice-reply");
+      if (vSwitch) vSwitch.checked = data.voice_reply_enabled !== false;
 
       // Global status pill
       const pill = document.getElementById("global-status");
@@ -994,7 +1136,8 @@
       document.getElementById("metric-chats").innerText = data.active_chats_count;
       document.getElementById("metric-reminders").innerText = data.active_reminders_count;
       document.getElementById("metric-ignored").innerText = data.ignored_users_count;
-      document.getElementById("metric-wait").innerText = data.mentor_wait_seconds + "s";
+      const stMetric = document.getElementById("metric-students");
+      if (stMetric) stMetric.innerText = data.students_count || 0;
 
       // Logs
       const logList = document.getElementById("log-list");
@@ -1012,7 +1155,10 @@
       haptic();
       const res = await apiRequest("/api/toggle", "POST", { feature, enabled });
       if (res && res.ok) {
-        const name = feature === "auto_reply" ? "Lichka avto-javobi" : "Guruhlar avto-javobi";
+        let name = "Sozlama";
+        if (feature === "auto_reply") name = "Lichka avto-javobi";
+        else if (feature === "group_reply") name = "Guruhlar avto-javobi";
+        else if (feature === "voice_reply") name = "Ovozli javob (Voice Reply)";
         showToast(name + " " + (enabled ? "yoqildi ✅" : "to'xtatildi ⏸"));
         loadStatus();
       } else {
@@ -1020,11 +1166,37 @@
       }
     }
 
-    // 4. Download Backup
+    // 4. Download Backup & Upload DB
     function downloadBackup() {
       haptic();
       window.location.href = "/api/backup?token=" + encodeURIComponent(authToken);
       showToast("Zaxira nusxasi yuklab olinmoqda...");
+    }
+
+    async function uploadDatabase(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      showToast("⏳ Baza yuklanmoqda va birlashtirilmoqda...");
+      const formData = new FormData();
+      formData.append("db_file", file);
+
+      try {
+        const res = await fetch("/api/upload_db?token=" + encodeURIComponent(authToken), {
+          method: "POST",
+          body: formData
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast("✅ Baza muvaffaqiyatli birlashtirildi!");
+          loadStatus();
+        } else {
+          showToast("❌ " + (data.message || data.error || "Xatolik yuz berdi"));
+        }
+      } catch (err) {
+        showToast("❌ Yuklashda xatolik: " + err.message);
+      }
+      event.target.value = "";
     }
 
     async function sendBackupToBot() {
@@ -1038,7 +1210,183 @@
       }
     }
 
-    // 5. Reminders
+    // -----------------------------------------------------------
+    // 5. Student CRM Functions
+    // -----------------------------------------------------------
+    let currentStudentFilter = 'all';
+    let studentSearchTimer = null;
+    let studentsCache = [];
+
+    async function loadStudents() {
+      const searchInput = document.getElementById("student-search-input");
+      const search = searchInput ? searchInput.value.trim() : "";
+      const query = new URLSearchParams({ search, status: currentStudentFilter });
+      const data = await apiRequest("/api/students?" + query.toString());
+
+      const listEl = document.getElementById("students-list");
+      if (!listEl) return;
+
+      if (!data || !data.ok || !data.students || data.students.length === 0) {
+        listEl.innerHTML = `
+          <div class="card" style="text-align: center; color: var(--hint-color); padding: 30px 20px;">
+            <div style="font-size: 32px; margin-bottom: 8px;">👨‍🎓</div>
+            <p style="font-size: 14px;">Hozircha hech qanday o'quvchi topilmadi.</p>
+            <p style="font-size: 12px; margin-top: 4px;">Yangi o'quvchi qo'shish uchun yuqoridagi <b>➕ Yangi</b> tugmasini bosing.</p>
+          </div>`;
+        return;
+      }
+
+      studentsCache = data.students;
+      listEl.innerHTML = data.students.map(s => {
+        let badgeClass = "badge-yaxshi";
+        let statusText = "🟢 A'lo / Yaxshi";
+        if (s.status === "ortacha") {
+          badgeClass = "badge-ortacha";
+          statusText = "🟡 O'rtacha";
+        } else if (s.status === "past") {
+          badgeClass = "badge-past";
+          statusText = "🔴 Past (E'tibor zarur)";
+        }
+
+        const usernameDisplay = s.username ? `<span style="color: var(--accent); font-size: 12px;">@${escapeHtml(s.username.replace('@',''))}</span>` : '';
+        const groupDisplay = s.group_name ? `<span style="font-size: 11px; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px;">${escapeHtml(s.group_name)}</span>` : '';
+        const strengthsDisplay = s.strengths ? `<div style="font-size: 12px; color: var(--text-color);"><span style="color: var(--success); font-weight: 600;">+ Kuchli:</span> ${escapeHtml(s.strengths)}</div>` : '';
+        const weaknessesDisplay = s.weaknesses ? `<div style="font-size: 12px; color: var(--text-color);"><span style="color: var(--warning); font-weight: 600;">- Qiynaladi:</span> ${escapeHtml(s.weaknesses)}</div>` : '';
+        const notesDisplay = s.mentor_notes ? `<div style="font-size: 12px; color: var(--hint-color); font-style: italic; background: rgba(0,0,0,0.15); padding: 6px 8px; border-radius: 6px;">💬 "${escapeHtml(s.mentor_notes)}"</div>` : '';
+
+        return `
+          <div class="student-card">
+            <div class="student-header">
+              <div>
+                <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 2px;">${escapeHtml(s.full_name)}</h4>
+                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                  ${usernameDisplay}
+                  ${groupDisplay}
+                </div>
+              </div>
+              <span class="student-badge ${badgeClass}">${statusText}</span>
+            </div>
+            
+            <div style="font-size: 12px; color: var(--hint-color); display: flex; gap: 12px;">
+              <span>❓ Savollar: <b>${s.questions_count} ta</b></span>
+              <span>🕒 Oxirgi faollik: <b>${s.last_active.split(' ')[0]}</b></span>
+            </div>
+
+            ${strengthsDisplay}
+            ${weaknessesDisplay}
+            ${notesDisplay}
+
+            <div style="display: flex; gap: 8px; margin-top: 4px;">
+              <button class="btn btn-secondary" onclick="openStudentModal(${s.id})" style="padding: 6px 12px; font-size: 12px; flex: 1;">
+                ✏️ Tahrirlash / Izoh
+              </button>
+              <button class="btn btn-secondary" onclick="deleteStudent(${s.id})" style="padding: 6px 12px; font-size: 12px; color: var(--danger); width: auto;">
+                🗑
+              </button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function debounceStudentSearch() {
+      clearTimeout(studentSearchTimer);
+      studentSearchTimer = setTimeout(() => {
+        loadStudents();
+      }, 300);
+    }
+
+    function filterStudentStatus(status) {
+      haptic();
+      currentStudentFilter = status;
+      document.querySelectorAll("#tab-students .chip").forEach(c => c.classList.remove("active-chip"));
+      const chip = document.getElementById("chip-status-" + status);
+      if (chip) chip.classList.add("active-chip");
+      loadStudents();
+    }
+
+    function openStudentModal(studentId = null) {
+      haptic();
+      const modal = document.getElementById("student-modal");
+      const title = document.getElementById("student-modal-title");
+      modal.style.display = "flex";
+
+      if (studentId) {
+        title.innerText = "✏️ O'quvchini Tahrirlash";
+        const student = studentsCache.find(s => s.id === studentId);
+        if (student) {
+          document.getElementById("modal-student-id").value = student.id;
+          document.getElementById("modal-student-name").value = student.full_name || "";
+          document.getElementById("modal-student-username").value = student.username || "";
+          document.getElementById("modal-student-group").value = student.group_name || "";
+          document.getElementById("modal-student-status").value = student.status || "yaxshi";
+          document.getElementById("modal-student-strengths").value = student.strengths || "";
+          document.getElementById("modal-student-weaknesses").value = student.weaknesses || "";
+          document.getElementById("modal-student-notes").value = student.mentor_notes || "";
+          return;
+        }
+      }
+
+      title.innerText = "➕ Yangi O'quvchi Qo'shish";
+      document.getElementById("modal-student-id").value = "";
+      document.getElementById("modal-student-name").value = "";
+      document.getElementById("modal-student-username").value = "";
+      document.getElementById("modal-student-group").value = "";
+      document.getElementById("modal-student-status").value = "yaxshi";
+      document.getElementById("modal-student-strengths").value = "";
+      document.getElementById("modal-student-weaknesses").value = "";
+      document.getElementById("modal-student-notes").value = "";
+    }
+
+    function closeStudentModal() {
+      document.getElementById("student-modal").style.display = "none";
+    }
+
+    async function saveStudent() {
+      haptic();
+      const name = document.getElementById("modal-student-name").value.trim();
+      if (!name) {
+        showToast("Ism-familiyani kiritish majburiy!");
+        return;
+      }
+
+      const id = document.getElementById("modal-student-id").value;
+      const payload = {
+        id: id ? parseInt(id) : null,
+        full_name: name,
+        username: document.getElementById("modal-student-username").value.trim(),
+        group_name: document.getElementById("modal-student-group").value.trim(),
+        status: document.getElementById("modal-student-status").value,
+        strengths: document.getElementById("modal-student-strengths").value.trim(),
+        weaknesses: document.getElementById("modal-student-weaknesses").value.trim(),
+        mentor_notes: document.getElementById("modal-student-notes").value.trim()
+      };
+
+      const res = await apiRequest("/api/students", "POST", payload);
+      if (res && res.ok) {
+        showToast("✅ O'quvchi profili muvaffaqiyatli saqlandi!");
+        closeStudentModal();
+        loadStudents();
+        loadStatus();
+      } else {
+        showToast("❌ Saqlashda xatolik yuz berdi!");
+      }
+    }
+
+    async function deleteStudent(studentId) {
+      haptic();
+      if (!confirm("Haqiqatan ham ushbu o'quvchini o'chirmoqchimisiz?")) return;
+      const res = await apiRequest("/api/students/delete", "POST", { id: studentId });
+      if (res && res.ok) {
+        showToast("O'quvchi o'chirildi.");
+        loadStudents();
+        loadStatus();
+      } else {
+        showToast("Xatolik yuz berdi!");
+      }
+    }
+
+    // 6. Reminders
     async function loadReminders() {
       const data = await apiRequest("/api/reminders");
       const container = document.getElementById("reminders-list");

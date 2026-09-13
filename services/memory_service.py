@@ -81,6 +81,27 @@ class SQLiteMemoryService:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_remind_at ON reminders (is_sent, remind_at)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS students (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER UNIQUE,
+                        full_name TEXT NOT NULL,
+                        username TEXT DEFAULT '',
+                        group_name TEXT DEFAULT '',
+                        questions_count INTEGER DEFAULT 0,
+                        strengths TEXT DEFAULT '',
+                        weaknesses TEXT DEFAULT '',
+                        mentor_notes TEXT DEFAULT '',
+                        status TEXT DEFAULT 'yaxshi',
+                        last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_student_user_id ON students (user_id)"
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -334,6 +355,335 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Eslatmani o'chirishda xatolik: %s", e)
             return False
+
+    # -----------------------------------------------------------
+    # O'quvchilar CRM boshqaruvi (Student Digital Profile)
+    # -----------------------------------------------------------
+    def upsert_student(
+        self,
+        full_name: str,
+        user_id: int | None = None,
+        username: str = "",
+        group_name: str = "",
+        status: str = "yaxshi",
+        strengths: str = "",
+        weaknesses: str = "",
+        mentor_notes: str = "",
+    ) -> int:
+        """O'quvchini qo'shadi yoki yangilaydi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if user_id:
+                    cursor.execute(
+                        """
+                        INSERT INTO students (user_id, full_name, username, group_name, status, strengths, weaknesses, mentor_notes, last_active)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT(user_id) DO UPDATE SET
+                            full_name = excluded.full_name,
+                            username = CASE WHEN excluded.username != '' THEN excluded.username ELSE students.username END,
+                            group_name = CASE WHEN excluded.group_name != '' THEN excluded.group_name ELSE students.group_name END,
+                            status = CASE WHEN excluded.status != '' THEN excluded.status ELSE students.status END,
+                            strengths = CASE WHEN excluded.strengths != '' THEN excluded.strengths ELSE students.strengths END,
+                            weaknesses = CASE WHEN excluded.weaknesses != '' THEN excluded.weaknesses ELSE students.weaknesses END,
+                            mentor_notes = CASE WHEN excluded.mentor_notes != '' THEN excluded.mentor_notes ELSE students.mentor_notes END,
+                            last_active = CURRENT_TIMESTAMP
+                        """,
+                        (user_id, full_name, username, group_name, status, strengths, weaknesses, mentor_notes),
+                    )
+                    conn.commit()
+                    return cursor.lastrowid or 0
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO students (full_name, username, group_name, status, strengths, weaknesses, mentor_notes, last_active)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """,
+                        (full_name, username, group_name, status, strengths, weaknesses, mentor_notes),
+                    )
+                    conn.commit()
+                    return cursor.lastrowid
+        except Exception as e:
+            logger.error("O'quvchini saqlashda xatolik: %s", e)
+            return 0
+
+    def record_student_activity(
+        self,
+        user_id: int,
+        full_name: str = "",
+        username: str = "",
+        question_text: str = "",
+    ) -> None:
+        """O'quvchi savol berganda uning faolligini oshiradi va profilini yangilab boradi."""
+        if not user_id:
+            return
+        try:
+            # Mavzularni aniqlash
+            topic_tag = ""
+            q_lower = question_text.lower()
+            if any(k in q_lower for k in ["for", "while", "loop", "takrorlash"]):
+                topic_tag = "Loops (Sikllar)"
+            elif any(k in q_lower for k in ["class", "def", "oop", "self", "object", "vorislik"]):
+                topic_tag = "OOP (Klasslar)"
+            elif any(k in q_lower for k in ["list", "dict", "tuple", "set", "lug'at"]):
+                topic_tag = "Ma'lumot tuzilmalari"
+            elif any(k in q_lower for k in ["import", "pip", "modul", "venv"]):
+                topic_tag = "Modullar / Kutubxonalar"
+            elif any(k in q_lower for k in ["indexerror", "keyerror", "typeerror", "indentationerror"]):
+                topic_tag = "Xatoliklar (Exceptions)"
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, questions_count, weaknesses FROM students WHERE user_id = ?", (user_id,))
+                row = cursor.fetchone()
+                if row:
+                    s_id, q_count, w_text = row
+                    new_w = w_text or ""
+                    if topic_tag and topic_tag not in new_w:
+                        new_w = f"{new_w}, {topic_tag}".strip(", ")
+
+                    cursor.execute(
+                        """
+                        UPDATE students SET
+                            questions_count = questions_count + 1,
+                            weaknesses = ?,
+                            last_active = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (new_w, s_id),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO students (user_id, full_name, username, questions_count, weaknesses, last_active)
+                        VALUES (?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+                        """,
+                        (user_id, full_name or f"O'quvchi {user_id}", username, topic_tag),
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.debug("O'quvchi faolligini yozishda ogohlantirish: %s", e)
+
+    def get_students(self, limit: int = 100, search: str = "", status_filter: str = "") -> list[dict]:
+        """Barcha o'quvchilar ro'yxatini oladi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                query = "SELECT id, user_id, full_name, username, group_name, questions_count, strengths, weaknesses, mentor_notes, status, last_active, created_at FROM students WHERE 1=1"
+                params = []
+
+                if search:
+                    query += " AND (full_name LIKE ? OR username LIKE ? OR group_name LIKE ?)"
+                    p = f"%{search.strip()}%"
+                    params.extend([p, p, p])
+
+                if status_filter and status_filter != "all":
+                    query += " AND status = ?"
+                    params.append(status_filter)
+
+                query += " ORDER BY last_active DESC LIMIT ?"
+                params.append(limit)
+
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "id": r[0],
+                        "user_id": r[1],
+                        "full_name": r[2],
+                        "username": r[3],
+                        "group_name": r[4],
+                        "questions_count": r[5],
+                        "strengths": r[6] or "",
+                        "weaknesses": r[7] or "",
+                        "mentor_notes": r[8] or "",
+                        "status": r[9] or "yaxshi",
+                        "last_active": str(r[10]),
+                        "created_at": str(r[11]),
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("O'quvchilarni olishda xatolik: %s", e)
+            return []
+
+    def get_student_by_id(self, student_id: int) -> dict | None:
+        """ID bo'yicha bitta o'quvchini oladi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, user_id, full_name, username, group_name, questions_count, strengths, weaknesses, mentor_notes, status, last_active, created_at FROM students WHERE id = ?",
+                    (student_id,),
+                )
+                r = cursor.fetchone()
+                if not r:
+                    return None
+                return {
+                    "id": r[0],
+                    "user_id": r[1],
+                    "full_name": r[2],
+                    "username": r[3],
+                    "group_name": r[4],
+                    "questions_count": r[5],
+                    "strengths": r[6] or "",
+                    "weaknesses": r[7] or "",
+                    "mentor_notes": r[8] or "",
+                    "status": r[9] or "yaxshi",
+                    "last_active": str(r[10]),
+                    "created_at": str(r[11]),
+                }
+        except Exception as e:
+            logger.error("O'quvchini ID bo'yicha olishda xatolik: %s", e)
+            return None
+
+    def update_student(self, student_id: int, **kwargs) -> bool:
+        """O'quvchi ma'lumotlarini qisman yangilaydi."""
+        allowed_fields = {"full_name", "username", "group_name", "status", "strengths", "weaknesses", "mentor_notes"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
+        if not updates:
+            return False
+
+        try:
+            set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
+            values = list(updates.values())
+            values.append(student_id)
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"UPDATE students SET {set_clause}, last_active = CURRENT_TIMESTAMP WHERE id = ?", values)
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("O'quvchini yangilashda xatolik: %s", e)
+            return False
+
+    def delete_student(self, student_id: int) -> bool:
+        """O'quvchini bazadan o'chiradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("O'quvchini o'chirishda xatolik: %s", e)
+            return False
+
+    # -----------------------------------------------------------
+    # Baza xavfsizligi, tiklash va birlashtirish (Database Merge)
+    # -----------------------------------------------------------
+    def is_database_empty(self) -> bool:
+        """Baza yangi yoki bo'sh ekanligini aniqlaydi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM messages")
+                msg_count = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM reminders")
+                rem_count = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM students")
+                stu_count = cursor.fetchone()[0]
+                return (msg_count + rem_count + stu_count) == 0
+        except Exception:
+            return True
+
+    def merge_database(self, source_db_path: Path | str) -> tuple[bool, str]:
+        """
+        Boshqa SQLite faylidagi ma'lumotlarni (messages, settings, ignored_users, reminders, students)
+        joriy faol bazaga xavfsiz birlashtiradi (INSERT OR IGNORE).
+        """
+        source = Path(source_db_path)
+        if not source.exists():
+            return False, f"{source} fayli topilmadi"
+
+        try:
+            with sqlite3.connect(str(source)) as s_conn:
+                s_cursor = s_conn.cursor()
+
+                s_cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = {r[0] for r in s_cursor.fetchall()}
+
+                imported_stats = []
+                with self._get_connection() as target_conn:
+                    # 1. messages
+                    if "messages" in tables:
+                        s_cursor.execute("SELECT chat_id, role, content, created_at FROM messages")
+                        rows = s_cursor.fetchall()
+                        target_conn.executemany(
+                            """
+                            INSERT INTO messages (chat_id, role, content, created_at)
+                            SELECT ?, ?, ?, ?
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM messages WHERE chat_id = ? AND role = ? AND content = ? AND created_at = ?
+                            )
+                            """,
+                            [(r[0], r[1], r[2], r[3], r[0], r[1], r[2], r[3]) for r in rows],
+                        )
+                        imported_stats.append(f"{len(rows)} ta xabar")
+
+                    # 2. settings
+                    if "settings" in tables:
+                        s_cursor.execute("SELECT key, value FROM settings")
+                        rows = s_cursor.fetchall()
+                        target_conn.executemany(
+                            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                            rows,
+                        )
+                        imported_stats.append(f"{len(rows)} ta sozlama")
+
+                    # 3. ignored_users
+                    if "ignored_users" in tables:
+                        s_cursor.execute("SELECT user_id, username, created_at FROM ignored_users")
+                        rows = s_cursor.fetchall()
+                        target_conn.executemany(
+                            "INSERT OR IGNORE INTO ignored_users (user_id, username, created_at) VALUES (?, ?, ?)",
+                            rows,
+                        )
+
+                    # 4. reminders
+                    if "reminders" in tables:
+                        s_cursor.execute("SELECT chat_id, creator_id, reminder_text, remind_at, is_sent, created_at FROM reminders")
+                        rows = s_cursor.fetchall()
+                        target_conn.executemany(
+                            """
+                            INSERT INTO reminders (chat_id, creator_id, reminder_text, remind_at, is_sent, created_at)
+                            SELECT ?, ?, ?, ?, ?, ?
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM reminders WHERE chat_id = ? AND reminder_text = ? AND remind_at = ?
+                            )
+                            """,
+                            [(r[0], r[1], r[2], r[3], r[4], r[5], r[0], r[2], r[3]) for r in rows],
+                        )
+                        imported_stats.append(f"{len(rows)} ta eslatma")
+
+                    # 5. students
+                    if "students" in tables:
+                        s_cursor.execute("SELECT user_id, full_name, username, group_name, questions_count, strengths, weaknesses, mentor_notes, status, last_active, created_at FROM students")
+                        rows = s_cursor.fetchall()
+                        for r in rows:
+                            target_conn.execute(
+                                """
+                                INSERT INTO students (user_id, full_name, username, group_name, questions_count, strengths, weaknesses, mentor_notes, status, last_active, created_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ON CONFLICT(user_id) DO UPDATE SET
+                                    questions_count = MAX(students.questions_count, excluded.questions_count),
+                                    group_name = CASE WHEN excluded.group_name != '' THEN excluded.group_name ELSE students.group_name END,
+                                    status = CASE WHEN excluded.status != '' THEN excluded.status ELSE students.status END,
+                                    mentor_notes = CASE WHEN excluded.mentor_notes != '' THEN excluded.mentor_notes ELSE students.mentor_notes END
+                                """,
+                                r,
+                            )
+                        imported_stats.append(f"{len(rows)} ta o'quvchi")
+
+                    target_conn.commit()
+
+            msg = "Muvaffaqiyatli birlashtirildi: " + ", ".join(imported_stats)
+            logger.info("Baza birlashtirildi (%s): %s", source.name, msg)
+            return True, msg
+        except Exception as e:
+            logger.error("Baza birlashtirishda xatolik: %s", e)
+            return False, str(e)
 
 
 # Global xotira instansiyasi

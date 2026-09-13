@@ -516,10 +516,42 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     await asyncio.sleep(MIN_INTERVAL_SECONDS)
                 LAST_REPLY_TIME[chat_id] = time.time()
 
-                # Javobni yuborish (reply tarzida, fallback bilan)
+                # O'quvchi profiliga faollikni yozib qo'yish (Student CRM)
+                if sender_id and sender_id != config.mentor_user_id and sender_id != 8105823872:
+                    try:
+                        s_name = getattr(sender, "first_name", "") or "O'quvchi"
+                        if getattr(sender, "last_name", None):
+                            s_name += f" {sender.last_name}"
+                        s_user = getattr(sender, "username", "") or ""
+                        memory_service.record_student_activity(
+                            user_id=sender_id,
+                            full_name=s_name,
+                            username=s_user,
+                            question_text=input_text,
+                        )
+                    except Exception as st_err:
+                        logger.debug("Student faolligini yozishda ogohlantirish: %s", st_err)
+
+                # Javobni yuborish (reply tarzida, Voice-to-Voice va fallback bilan)
                 sent_reply = None
                 CURRENT_SENDING_CHATS.add(chat_id)
                 try:
+                    voice_reply_enabled = memory_service.get_setting("voice_reply_enabled", "true").lower() == "true"
+
+                    # Agar ovozli xabar bo'lsa va voice_reply_enabled yoqilgan bo'lsa
+                    if has_voice and voice_reply_enabled:
+                        try:
+                            from services.tts_service import generate_voice_message
+                            voice_path = await generate_voice_message(str(answer))
+                            if voice_path and voice_path.exists():
+                                sent_voice = await event.reply(file=str(voice_path), voice_note=True)
+                                if sent_voice:
+                                    BOT_SENT_MESSAGE_IDS.add(sent_voice.id)
+                                log_activity(f"Ovozli AI javobi yuborildi [{chat_id}]")
+                                voice_path.unlink(missing_ok=True)
+                        except Exception as v_send_err:
+                            logger.warning("Ovozli javob yuborishda ogohlantirish: %s", v_send_err)
+
                     sent_reply = await event.reply(answer)
                     if sent_reply:
                         BOT_SENT_MESSAGE_IDS.add(sent_reply.id)

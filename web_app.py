@@ -299,6 +299,8 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "ok": True,
                 "auto_reply_enabled": config.auto_reply_enabled,
                 "group_reply_enabled": config.group_reply_enabled,
+                "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
+                "students_count": len(memory_service.get_students(limit=1000)),
                 "active_ai": active_ai,
                 "escalation_chat": str(config.escalation_chat),
                 "mentor_wait_seconds": config.mentor_wait_seconds,
@@ -339,6 +341,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             config.group_reply_enabled = enabled
             memory_service.set_setting("group_reply_enabled", "true" if enabled else "false")
             logger.info("Admin Panel orqali group_reply_enabled o'zgartirildi: %s", enabled)
+        elif feature == "voice_reply":
+            memory_service.set_setting("voice_reply_enabled", "true" if enabled else "false")
+            logger.info("Admin Panel orqali voice_reply_enabled o'zgartirildi: %s", enabled)
         else:
             return web.json_response({"ok": False, "error": "Noma'lum funksiya"}, status=400)
 
@@ -349,6 +354,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "enabled": enabled,
                 "auto_reply_enabled": config.auto_reply_enabled,
                 "group_reply_enabled": config.group_reply_enabled,
+                "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
             }
         )
 
@@ -478,6 +484,95 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             logger.error("Botga backup yuborishda xatolik: %s", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+    # -----------------------------------------------------------
+    # 9. O'quvchilar CRM (Student Digital Profile) API
+    # -----------------------------------------------------------
+    async def handle_api_get_students(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        search = request.query.get("search", "").strip()
+        status_filter = request.query.get("status", "").strip()
+        students = memory_service.get_students(limit=100, search=search, status_filter=status_filter)
+        return web.json_response({"ok": True, "students": students})
+
+    async def handle_api_upsert_student(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
+
+        student_id = data.get("id")
+        if student_id:
+            # Mavjud o'quvchini tahrirlash
+            ok = memory_service.update_student(
+                int(student_id),
+                full_name=data.get("full_name", ""),
+                username=data.get("username", ""),
+                group_name=data.get("group_name", ""),
+                status=data.get("status", "yaxshi"),
+                strengths=data.get("strengths", ""),
+                weaknesses=data.get("weaknesses", ""),
+                mentor_notes=data.get("mentor_notes", ""),
+            )
+            return web.json_response({"ok": ok, "id": student_id})
+        else:
+            # Yangi o'quvchi qo'shish
+            new_id = memory_service.upsert_student(
+                full_name=data.get("full_name", ""),
+                user_id=int(data.get("user_id")) if data.get("user_id") else None,
+                username=data.get("username", ""),
+                group_name=data.get("group_name", ""),
+                status=data.get("status", "yaxshi"),
+                strengths=data.get("strengths", ""),
+                weaknesses=data.get("weaknesses", ""),
+                mentor_notes=data.get("mentor_notes", ""),
+            )
+            return web.json_response({"ok": bool(new_id), "id": new_id})
+
+    async def handle_api_delete_student(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+            student_id = int(data.get("id"))
+            ok = memory_service.delete_student(student_id)
+            return web.json_response({"ok": ok})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+    # -----------------------------------------------------------
+    # 10. Baza yuklash va birlashtirish (Upload / Merge DB) API
+    # -----------------------------------------------------------
+    async def handle_api_upload_db(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+            if not field or field.name != "db_file":
+                return web.json_response({"ok": False, "error": "db_file parametri topilmadi"}, status=400)
+
+            import tempfile
+            tmp_dir = Path(tempfile.gettempdir()) / "coddy_upload"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            tmp_file = tmp_dir / f"uploaded_{int(time.time())}.db"
+
+            with open(tmp_file, "wb") as f:
+                while True:
+                    chunk = await field.read_chunk()
+                    if not chunk:
+                        break
+                    f.write(chunk)
+
+            ok, msg = memory_service.merge_database(tmp_file)
+            tmp_file.unlink(missing_ok=True)
+            return web.json_response({"ok": ok, "message": msg if ok else f"Xatolik: {msg}"})
+        except Exception as e:
+            logger.error("Baza yuklashda xatolik: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
@@ -491,5 +586,10 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_post("/api/ai_chat", handle_api_ai_chat)
     app.router.add_get("/api/backup", handle_api_backup)
     app.router.add_post("/api/backup/send_bot", handle_api_backup_bot)
+    app.router.add_get("/api/students", handle_api_get_students)
+    app.router.add_post("/api/students", handle_api_upsert_student)
+    app.router.add_post("/api/students/delete", handle_api_delete_student)
+    app.router.add_post("/api/upload_db", handle_api_upload_db)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
+

@@ -91,6 +91,40 @@ async def start_backup_worker(client: TelegramClient):
         await asyncio.sleep(86400)  # Har 24 soatda bir marta
 
 
+async def auto_restore_database_on_startup(client: TelegramClient):
+    """
+    Render qayta ishga tushganda bo'sh database hosil bo'lsa,
+    bot chatidagi eng so'nggi zaxira (coddy_memory.db) faylini avtomatik topib, tiklaydi.
+    """
+    from services.memory_service import memory_service
+    if not memory_service.is_database_empty():
+        return
+
+    logger.info("⏳ SQLite bazasi bo'sh yoki yangi. Zaxira xotirasini qidirish...")
+    try:
+        from pathlib import Path
+        import tempfile
+        bot_target = config.bot_username or config.mentor_user_id
+        if not bot_target:
+            return
+
+        async for message in client.iter_messages(bot_target, limit=30):
+            if message.document and getattr(message.file, "name", "") == "coddy_memory.db":
+                logger.info("🔍 Bot chatidan so'nggi coddy_memory.db topildi (ID: %d). Tiklanmoqda...", message.id)
+                tmp_dir = Path(tempfile.gettempdir()) / "coddy_restore"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                tmp_file = tmp_dir / f"restore_{message.id}.db"
+
+                await message.download_media(file=str(tmp_file))
+                if tmp_file.exists() and tmp_file.stat().st_size > 0:
+                    ok, msg = memory_service.merge_database(tmp_file)
+                    if ok:
+                        logger.info("🎉 Baza startupda muvaffaqiyatli tiklandi: %s", msg)
+                    tmp_file.unlink(missing_ok=True)
+                    break
+    except Exception as e:
+        logger.warning("Startupda avto-tiklashda ogohlantirish: %s", e)
+
 
 CURRENT_CLIENT: TelegramClient | None = None
 
@@ -214,6 +248,9 @@ async def main():
     # Telegram akkauntiga ulanish
     phone = config.phone if config.phone else None
     await client.start(phone=phone)
+
+    # Render restartida bazani avtomatik zaxiradan tiklash (agar baza yangi/bo'sh bo'lsa)
+    await auto_restore_database_on_startup(client)
 
     # Doimiy eslatmalar va avto-backup xizmatlarini fonda ishga tushirish
     asyncio.create_task(start_reminder_worker(client))

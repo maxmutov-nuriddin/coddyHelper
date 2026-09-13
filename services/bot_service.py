@@ -230,7 +230,40 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         else:
             await message.answer("ℹ️ Foydalanish: `/bekor <ID>`\nMasalan: `/bekor 3`")
 
-    # 10. Lichka: Yangi eslatma qo'shish yoki matnli xabarlar
+    # 10. Lichka: Mentor tomonidan .db fayl yuborilganda avtomatik qabul qilish va birlashtirish
+    @d.message(F.chat.type == "private", F.document)
+    async def handle_db_document(message: types.Message):
+        doc = message.document
+        if not doc or not doc.file_name:
+            return
+
+        file_name = doc.file_name.lower()
+        if file_name.endswith(".db") or file_name.endswith(".sqlite") or file_name.endswith(".sqlite3"):
+            await message.answer("⏳ **Ma'lumotlar bazasi qabul qilinmoqda va birlashtirilmoqda...**")
+            try:
+                import tempfile
+                tmp_dir = Path(tempfile.gettempdir()) / "coddy_restore"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                tmp_file = tmp_dir / f"uploaded_{doc.file_name}"
+                await message.bot.download(doc.file_id, destination=tmp_file)
+
+                from services.memory_service import memory_service
+                ok, msg = memory_service.merge_database(tmp_file)
+                if ok:
+                    await message.answer(
+                        f"✅ **Baza muvaffaqiyatli qabul qilindi va birlashtirildi!**\n\n"
+                        f"📊 **Natija:** {msg}\n\n"
+                        f"Barcha eski va yangi ma'lumotlar saqlab qolindi.",
+                        parse_mode="Markdown",
+                    )
+                else:
+                    await message.answer(f"❌ Bazani birlashtirishda xatolik: {msg}")
+                tmp_file.unlink(missing_ok=True)
+            except Exception as e:
+                logger.error("DB faylini yuklab olishda xatolik: %s", e)
+                await message.answer(f"❌ Xatolik yuz berdi: {e}")
+
+    # 11. Lichka: Yangi eslatma qo'shish yoki matnli xabarlar
     @d.message(F.chat.type == "private")
     async def cmd_reminder_create(message: types.Message):
         text = (message.text or "").strip()
@@ -339,34 +372,17 @@ async def send_or_update_database_backup() -> tuple[bool, str]:
             caption=caption,
         )
 
-        # 2. Avvalgi barcha eski backup xabarlarini tozalash
-        # A) Bazada saqlangan avvalgi aniq ID
+        # 2. Faqat avvalgi bitta eski backup xabarini tozalash (boshqa xabarlarga tegilmaydi)
         old_msg_id = memory_service.get_setting("last_backup_bot_msg_id")
         if old_msg_id and str(old_msg_id).isdigit() and int(old_msg_id) != new_msg.message_id:
             try:
                 await bot.delete_message(chat_id=config.mentor_user_id, message_id=int(old_msg_id))
-            except Exception:
-                pass
-
-        # B) Bot chatidagi barcha oldingi xabarlarni to'liq tozalash (100 talik paketlarda)
-        # Bu Render serveri qayta ishga tushganda ham oldingi deploylardan qolgan har qanday eski fayllarni tozalaydi
-        start_id = max(1, new_msg.message_id - 200)
-        ids_to_delete = [mid for mid in range(start_id, new_msg.message_id)]
-        for i in range(0, len(ids_to_delete), 100):
-            batch = ids_to_delete[i : i + 100]
-            try:
-                await bot.delete_messages(chat_id=config.mentor_user_id, message_ids=batch)
-            except Exception as batch_err:
-                logger.debug("Paketlab o'chirishda ogohlantirish: %s", batch_err)
-                for mid in batch:
-                    try:
-                        await bot.delete_message(chat_id=config.mentor_user_id, message_id=mid)
-                    except Exception:
-                        pass
+            except Exception as del_err:
+                logger.debug("Avvalgi backup xabarini o'chirishda ogohlantirish: %s", del_err)
 
         # 3. Yangi xabar ID sini saqlash
         memory_service.set_setting("last_backup_bot_msg_id", str(new_msg.message_id))
-        logger.info("Yangi backup bot orqali yuborildi (MsgID: %d), oldingi xabarlar tozalandi.", new_msg.message_id)
+        logger.info("Yangi backup bot orqali yuborildi (MsgID: %d).", new_msg.message_id)
         return True, "OK"
     except Exception as e:
         logger.error("Database backup botga yuborishda xatolik: %s", e)
