@@ -570,37 +570,11 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     except Exception as st_err:
                         logger.debug("Student faolligini yozishda ogohlantirish: %s", st_err)
 
-                # 3-Strike Off-topic tekshiruvi (Mavzudan tashqari noo'rin savollar)
+                # Javob matnini tozalash (agar maxsus teglar bo'lsa)
                 raw_ans = str(answer)
                 if "<<<OFF_TOPIC>>>" in raw_ans:
-                    clean_ans = raw_ans.replace("<<<OFF_TOPIC>>>", "").strip()
-                    strikes = memory_service.increment_user_strikes(sender_id)
-                    s_name = getattr(sender, "first_name", "") or "Noma'lum"
-                    s_user = f"@{sender.username}" if getattr(sender, "username", None) else "Mavjud emas"
-                    if strikes == 1:
-                        answer = clean_ans + "\n\n⚠️ _Eslatma: Men faqat CoddyCamp dasturlash darslari bo'yicha yordam beraman. Mavzudan tashqari savollar berish taqiqlangan (Ogohlantirish 1/3)._"
-                    elif strikes == 2:
-                        answer = clean_ans + "\n\n⚠️ _Qat'iy ogohlantirish: Mavzudan tashqari savollar taqiqlangan (Ogohlantirish 2/3). Yana bitta noo'rin savoldan so'ng hisobingiz butunlay bloklanadi!_"
-                    else:
-                        memory_service.ignore_user(sender_id, getattr(sender, "username", "") or "", reason="3 marta mavzudan tashqari savol")
-                        answer = "⛔️ **Bloklandingiz:** Bir necha bor mavzudan tashqari va noo'rin savollar berganingiz sababli tizim tomonidan butunlay bloklandingiz. Sizga boshqa javob berilmaydi."
-                        log_activity(f"Foydalanuvchi {s_name} ({s_user}) 3 ta strike bilan bloklandi.")
-                        try:
-                            alert_off = (
-                                "⚠️ **Foydalanuvchi 3 marta mavzudan tashqari savol bergani sababli doimiy bloklandi:**\n\n"
-                                f"👤 {s_name} ({s_user})\n"
-                                f"🆔 ID: `{sender_id}`\n"
-                                f"💬 Oxirgi xabari: \"{input_text}\""
-                            )
-                            target = config.escalation_chat
-                            if str(target).isdigit() or (str(target).startswith("-") and str(target)[1:].isdigit()):
-                                target = int(target)
-                            await client.send_message(target, alert_off)
-                        except Exception:
-                            pass
-                else:
-                    if sender_id and sender_id != config.mentor_user_id and sender_id != 8105823872:
-                        memory_service.reset_user_strikes(sender_id)
+                    raw_ans = raw_ans.replace("<<<OFF_TOPIC>>>", "").strip()
+                answer = raw_ans
 
                 # Javobni yuborish (reply tarzida, Voice-to-Voice va fallback bilan)
                 sent_reply = None
