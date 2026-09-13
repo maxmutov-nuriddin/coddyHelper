@@ -20,6 +20,15 @@ logger = logging.getLogger(__name__)
 ESCALATE_PATTERN = re.compile(r"<<<ESCALATE>>>(.*?)<<<END_ESCALATE>>>", re.DOTALL)
 
 
+def is_russian_text(text: str) -> bool:
+    """Matn rus tilida ekanini aniqlaydi."""
+    ru_chars = len(re.findall(r"[\u0400-\u04FF]", text))
+    total_alpha = len(re.findall(r"[a-zA-Z\u0400-\u04FF]", text))
+    if total_alpha > 0 and (ru_chars / total_alpha) > 0.4:
+        return True
+    return bool(re.search(r"\b(?:привет|здравствуйте|спасибо|пожалуйста|как|что|где|когда|почему)\b", text, re.I))
+
+
 def check_fast_faq(text: str) -> str | None:
     """Eng ko'p uchraydigan standart dasturlash xatolari va salomlashuvlarga 0.01 soniyada tayyor yechim beradi."""
     t = text.strip()
@@ -475,6 +484,7 @@ class AIService:
         effective_prompt: str,
         sys_prompt: str,
         is_admin_mode: bool,
+        model_name: str | None = None,
     ) -> str:
         """
         3 talik komanda (Pod Klaster) orqali chuqur tahlil qilingan xatosiz javob generatsiya qilish:
@@ -482,9 +492,10 @@ class AIService:
         2-Agent: Senior Reviewer (Xatolik va kamchiliklarni sinchkovlik bilan tekshirish)
         3-Agent: Master Mentor (Yakuniy mukammal, toza, 100% to'g'ri javobni sayqallash)
         """
+        target_model = model_name or config.groq_model
         # 1. Generator
         res_gen = await c_gen.chat.completions.create(
-            model=config.groq_model,
+            model=target_model,
             messages=messages,
             temperature=0.6 if is_admin_mode else 0.4,
             max_tokens=2500 if is_admin_mode else 1500,
@@ -524,7 +535,7 @@ class AIService:
                 )
                 rev_sys = "Siz Senior Code Reviewer mutaxassisisiz. Kod xatolarini tekshirasiz."
             res_rev = await c_rev.chat.completions.create(
-                model=config.groq_model,
+                model=target_model,
                 messages=[
                     {"role": "system", "content": rev_sys},
                     {"role": "user", "content": rev_prompt},
@@ -553,7 +564,7 @@ class AIService:
                 },
             ]
             res_syn = await c_syn.chat.completions.create(
-                model=config.groq_model,
+                model=target_model,
                 messages=syn_messages,
                 temperature=0.5 if is_admin_mode else 0.3,
                 max_tokens=3000 if is_admin_mode else 2000,
@@ -619,7 +630,6 @@ class AIService:
                 messages.append({"role": role, "content": msg.content})
 
             messages.append({"role": "user", "content": effective_prompt})
-            model_to_use = config.groq_model
 
         # 3 talik komanda (Pod Klaster) orqali murakkab savollarga xatosiz javob berish
         is_complex = (
@@ -637,45 +647,66 @@ class AIService:
             )
         )
 
-        if is_complex:
-            idx1 = self._groq_idx % len(self._groq_clients)
-            idx2 = (self._groq_idx + 1) % len(self._groq_clients)
-            idx3 = (self._groq_idx + 2) % len(self._groq_clients)
-            self._groq_idx = (self._groq_idx + 3) % len(self._groq_clients)
-
-            team_num = (idx1 // 3) + 1
-            logger.info("⚡ 3 talik komanda (Pod #%d) ishga tushirildi: [Kalit %d, %d, %d]", team_num, idx1+1, idx2+1, idx3+1)
-            try:
-                pod_result = await self._generate_with_groq_pod(
-                    self._groq_clients[idx1],
-                    self._groq_clients[idx2],
-                    self._groq_clients[idx3],
-                    messages,
-                    effective_prompt,
-                    sys_prompt,
-                    is_admin_mode,
-                )
-                if pod_result and pod_result.strip():
-                    return pod_result
-            except Exception as pod_err:
-                logger.warning("Pod klasterida xatolik, oddiy bitta kalitli rejimga o'tilmoqda: %s", pod_err)
+        if image_bytes:
+            candidate_models = [config.groq_vision_model]
+        else:
+            candidate_models = []
+            for m in [config.groq_model, "llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-8b-instant"]:
+                if m and m not in candidate_models:
+                    candidate_models.append(m)
 
         last_error = None
-        # Zaxiradagi kalitlar bo'yicha ketma-ket urinib ko'rish (oddiy xabarlar yoki pod fallback)
-        for _ in range(len(self._groq_clients)):
-            client = self._groq_clients[self._groq_idx]
-            self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
-            try:
-                response = await client.chat.completions.create(
-                    model=model_to_use,
-                    messages=messages,
-                    temperature=0.6 if is_admin_mode else 0.4,
-                    max_tokens=3000 if is_admin_mode else 2048,
+
+        # Kaskadli zaxira modellar bo'yicha ketma-ket urinish:
+        for model_to_use in candidate_models:
+            # 1. 3 talik komanda (Pod Klaster) orqali ushbu modelda sinash
+            if is_complex:
+                idx1 = self._groq_idx % len(self._groq_clients)
+                idx2 = (self._groq_idx + 1) % len(self._groq_clients)
+                idx3 = (self._groq_idx + 2) % len(self._groq_clients)
+                self._groq_idx = (self._groq_idx + 3) % len(self._groq_clients)
+
+                team_num = (idx1 // 3) + 1
+                logger.info(
+                    "⚡ 3 talik komanda (Pod #%d) ishga tushirildi: Model [%s], [Kalit %d, %d, %d]",
+                    team_num, model_to_use, idx1 + 1, idx2 + 1, idx3 + 1,
                 )
-                return response.choices[0].message.content.strip()
-            except Exception as e:
-                logger.warning("Groq kalitida xatolik, zaxira kalitga o'tilmoqda: %s", e)
-                last_error = e
+                try:
+                    pod_result = await self._generate_with_groq_pod(
+                        self._groq_clients[idx1],
+                        self._groq_clients[idx2],
+                        self._groq_clients[idx3],
+                        messages,
+                        effective_prompt,
+                        sys_prompt,
+                        is_admin_mode,
+                        model_name=model_to_use,
+                    )
+                    if pod_result and pod_result.strip():
+                        return pod_result
+                except Exception as pod_err:
+                    logger.warning("Pod klasterida xatolik (%s): %s, bitta kalitli rejimga o'tilmoqda", model_to_use, pod_err)
+                    last_error = pod_err
+
+            # 2. Ushbu model bo'yicha barcha kalitlarni ketma-ket tekshirish (oddiy xabarlar yoki pod fallback)
+            model_success = False
+            for _ in range(len(self._groq_clients)):
+                client = self._groq_clients[self._groq_idx]
+                self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+                try:
+                    response = await client.chat.completions.create(
+                        model=model_to_use,
+                        messages=messages,
+                        temperature=0.6 if is_admin_mode else 0.4,
+                        max_tokens=3000 if is_admin_mode else 2048,
+                    )
+                    return response.choices[0].message.content.strip()
+                except Exception as e:
+                    logger.warning("Groq kalitida xatolik (model: %s): %s", model_to_use, e)
+                    last_error = e
+
+            # Agar bu modelda barcha kalitlar muvaffaqiyatsiz bo'lsa (masalan limit to'lsa)
+            logger.warning("⚠️ Model [%s] bo'yicha limit yoki xatolik yuz berdi. Keyingi zaxira modelga o'tilmoqda...", model_to_use)
 
         # Agar rasm hajmi tufayli 413 (rate_limit_exceeded) bo'lsa, yanada ixcham (640px) qilib qayta urinib ko'rish
         if image_bytes and last_error and ("rate_limit_exceeded" in str(last_error) or "413" in str(last_error)):
@@ -687,7 +718,7 @@ class AIService:
                 for client in self._groq_clients:
                     try:
                         response = await client.chat.completions.create(
-                            model=model_to_use,
+                            model=config.groq_vision_model,
                             messages=messages,
                             temperature=0.3,
                             max_tokens=1024,
@@ -818,7 +849,11 @@ class AIService:
 
         except Exception as e:
             logger.exception("AI so'rovida xatolik yuz berdi: %s", e)
-            return AIResult(f"⚠️ **AI xizmatida xatolik yuz berdi:** {str(e)}")
+            if is_admin_mode:
+                return AIResult(f"⚠️ **AI xizmatida xatolik:** {str(e)}")
+            if is_russian_text(user_message):
+                return AIResult("⚠️ Извините, в данный момент серверы ИИ временно перегружены. Пожалуйста, повторите попытку через минуту.")
+            return AIResult("⚠️ Kechirasiz, ayni paytda AI serverlarida yuklama yuqori. Iltimos, bir ozdan so'ng qayta urinib ko'ring.")
 
     async def explain_topic(self, topic: str) -> str:
         """
@@ -839,20 +874,26 @@ class AIService:
         if not self._groq_clients:
             self._setup_clients()
 
-        for _ in range(len(self._groq_clients)):
-            client = self._groq_clients[self._groq_idx]
-            self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
-            try:
-                response = await client.chat.completions.create(
-                    model=config.groq_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.4,
-                    max_tokens=1200,
-                )
-                ans = response.choices[0].message.content.strip()
-                return redact_sensitive_data(ans)
-            except Exception as e:
-                logger.warning("Mavzu tushuntirishda xatolik: %s", e)
+        models_to_try = []
+        for m in [config.groq_model, "llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-8b-instant"]:
+            if m and m not in models_to_try:
+                models_to_try.append(m)
+
+        for model_name in models_to_try:
+            for _ in range(len(self._groq_clients)):
+                client = self._groq_clients[self._groq_idx]
+                self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+                try:
+                    response = await client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.4,
+                        max_tokens=1200,
+                    )
+                    ans = response.choices[0].message.content.strip()
+                    return redact_sensitive_data(ans)
+                except Exception as e:
+                    logger.warning("Mavzu tushuntirishda xatolik (%s): %s", model_name, e)
 
         return "⚠️ Mavzuni tushuntirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring."
 
