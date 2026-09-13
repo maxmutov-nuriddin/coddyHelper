@@ -442,6 +442,87 @@ class AIService:
             except Exception:
                 pass
 
+    async def _generate_with_groq_pod(
+        self,
+        c_gen,
+        c_rev,
+        c_syn,
+        messages: list[dict],
+        effective_prompt: str,
+        sys_prompt: str,
+        is_admin_mode: bool,
+    ) -> str:
+        """
+        3 talik komanda (Pod Klaster) orqali chuqur tahlil qilingan xatosiz javob generatsiya qilish:
+        1-Agent: Draft / Coder (Dastlabki yechim)
+        2-Agent: Senior Reviewer (Xatolik va kamchiliklarni sinchkovlik bilan tekshirish)
+        3-Agent: Master Mentor (Yakuniy mukammal, toza, 100% to'g'ri javobni sayqallash)
+        """
+        # 1. Generator
+        res_gen = await c_gen.chat.completions.create(
+            model=config.groq_model,
+            messages=messages,
+            temperature=0.6 if is_admin_mode else 0.4,
+            max_tokens=2500 if is_admin_mode else 1500,
+        )
+        draft = res_gen.choices[0].message.content.strip()
+
+        # Agar qisqa javob bo'lsa yoki salomlashuv bo'lsa, ortiqcha cho'zmasdan qaytarish
+        if len(draft.split()) < 30:
+            return draft
+
+        # 2. Reviewer
+        try:
+            rev_prompt = (
+                f"Siz CoddyCamp IT akademiyasining Senior Code Reviewer mutaxassisisiz.\n"
+                f"Foydalanuvchi so'rovi: «{effective_prompt[:800]}»\n\n"
+                f"Dasturchi taklif qilgan dastlabki yechim:\n```\n{draft[:2000]}\n```\n\n"
+                f"Vazifangiz: Ushbu yechimni sinchiklab tekshiring:\n"
+                f"1. Kodda sintaksis, mantiqiy xatolar yoki cheksiz sikllar (infinite loops) bormi?\n"
+                f"2. Savolga to'liq, to'g'ri va eng maqbul yo'l bilan javob berilganmi?\n"
+                f"3. Nimalarni to'g'rilash yoki yaxshilash kerak? Qisqa punktlarda ayting (agar hammasi mukammal bo'lsa, 'KOD TO'G'RI' deb yozing)."
+            )
+            res_rev = await c_rev.chat.completions.create(
+                model=config.groq_model,
+                messages=[
+                    {"role": "system", "content": "Siz Senior Code Reviewer mutaxassisisiz. Kod xatolarini tekshirasiz."},
+                    {"role": "user", "content": rev_prompt},
+                ],
+                temperature=0.2,
+                max_tokens=800,
+            )
+            review = res_rev.choices[0].message.content.strip()
+        except Exception as rev_err:
+            logger.debug("Reviewer qadamida ogohlantirish (draft qaytariladi): %s", rev_err)
+            return draft
+
+        # 3. Master Mentor Synthesizer
+        try:
+            syn_messages = [
+                {"role": "system", "content": sys_prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        f"{effective_prompt}\n\n"
+                        f"[Ichki tahlil - Dastlabki yechim]:\n{draft}\n\n"
+                        f"[Ichki tahlil - Senior Reviewer xulosasi]:\n{review}\n\n"
+                        f"Ko'rsatma: Ikkala tahlilni birlashtirib, foydalanuvchiga eng mukammal, toza, 100% to'g'ri va samimiy yakuniy javobni taqdim eting. "
+                        f"Ichki tahlil jarayonini (review so'zlarini) ko'rsatmasdan, to'g'ridan-to'g'ri tayyor mukammal javobni bering."
+                    ),
+                },
+            ]
+            res_syn = await c_syn.chat.completions.create(
+                model=config.groq_model,
+                messages=syn_messages,
+                temperature=0.5 if is_admin_mode else 0.3,
+                max_tokens=3000 if is_admin_mode else 2000,
+            )
+            final_reply = res_syn.choices[0].message.content.strip()
+            return final_reply if final_reply else draft
+        except Exception as syn_err:
+            logger.debug("Synthesizer qadamida ogohlantirish (draft qaytariladi): %s", syn_err)
+            return draft
+
     async def _generate_with_groq(
         self,
         chat_id: int,
@@ -449,7 +530,7 @@ class AIService:
         image_bytes: bytes | None = None,
         is_admin_mode: bool = False,
     ) -> str:
-        """Groq orqali javob generatsiya qilish (avtomatik kalit almashtirish va model tanlash)."""
+        history = memory_service.get_history(chat_id)
         if image_bytes:
             opt_image = optimize_image_for_vision(image_bytes, max_dim=960, quality=80)
             img_b64 = base64.b64encode(opt_image).decode("utf-8")
@@ -492,8 +573,47 @@ class AIService:
             messages.append({"role": "user", "content": effective_prompt})
             model_to_use = config.groq_model
 
+        # 3 talik komanda (Pod Klaster) orqali murakkab savollarga xatosiz javob berish
+        is_complex = (
+            not image_bytes
+            and len(self._groq_clients) >= 3
+            and (
+                any(k in effective_prompt.lower() for k in (
+                    "kod", "xato", "error", "exception", "yoz", "tuz", "funksiya", "function",
+                    "def ", "class ", "for ", "if ", "while", "import ", "tushuntir", "qanday",
+                    "masala", "vazifa", "lms", "python", "javascript", "sql", "bug", "yordam",
+                    "ishlamayapti", "chiqmayapti", "tekshir", "tahlil"
+                ))
+                or len(effective_prompt.split()) >= 6
+                or is_admin_mode
+            )
+        )
+
+        if is_complex:
+            idx1 = self._groq_idx % len(self._groq_clients)
+            idx2 = (self._groq_idx + 1) % len(self._groq_clients)
+            idx3 = (self._groq_idx + 2) % len(self._groq_clients)
+            self._groq_idx = (self._groq_idx + 3) % len(self._groq_clients)
+
+            team_num = (idx1 // 3) + 1
+            logger.info("⚡ 3 talik komanda (Pod #%d) ishga tushirildi: [Kalit %d, %d, %d]", team_num, idx1+1, idx2+1, idx3+1)
+            try:
+                pod_result = await self._generate_with_groq_pod(
+                    self._groq_clients[idx1],
+                    self._groq_clients[idx2],
+                    self._groq_clients[idx3],
+                    messages,
+                    effective_prompt,
+                    sys_prompt,
+                    is_admin_mode,
+                )
+                if pod_result and pod_result.strip():
+                    return pod_result
+            except Exception as pod_err:
+                logger.warning("Pod klasterida xatolik, oddiy bitta kalitli rejimga o'tilmoqda: %s", pod_err)
+
         last_error = None
-        # Zaxiradagi kalitlar bo'yicha ketma-ket urinib ko'rish
+        # Zaxiradagi kalitlar bo'yicha ketma-ket urinib ko'rish (oddiy xabarlar yoki pod fallback)
         for _ in range(len(self._groq_clients)):
             client = self._groq_clients[self._groq_idx]
             self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
