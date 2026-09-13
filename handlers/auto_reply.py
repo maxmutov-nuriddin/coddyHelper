@@ -246,6 +246,44 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         clean_msg = message_text.strip().lower()
         if clean_msg in ("panel", "app", "admin", "webapp", ".panel", ".app", ".admin", "/panel", "/app", "/admin"):
             return
+
+        # 🛡 XAVFSIZLIK: Telegram hisobini buzish, tasdiqlash kodi so'rash va phishing urinishlari
+        phishing_patterns = [
+            "kod keldi", "kodni ayt", "kodini ayt", "kodni ber", "kodini ber",
+            "kodni tashla", "tasdiqlash kodi", "tasdiqlash kodini",
+            "sms kod", "sms kodi", "sms keldi", "kelgan kod",
+            "telegramingizga kod", "telegramingizga kelgan", "telegramga kod",
+            "ulab ber", "ulab bering", "telegramini ulab", "telegramingizni ulab",
+            "akkauntni ulab", "profilni ulab", "login code", "login kodi",
+            "kirish kodi", "session fayl", "string_session"
+        ]
+        if any(pat in clean_msg for pat in phishing_patterns):
+            s_name = getattr(sender, "first_name", "") or "Noma'lum"
+            if getattr(sender, "last_name", None):
+                s_name += f" {sender.last_name}"
+            s_user = f"@{sender.username}" if getattr(sender, "username", None) else "Mavjud emas"
+            
+            memory_service.ignore_user(sender_id, getattr(sender, "username", "") or "", reason="Telegram kodi so'rash / hisobni buzish urinishi")
+            log_activity(f"🚨 BUZIB KIRISH URINISHI! {s_name} ({s_user}) ID:{sender_id} butunlay bloklandi.")
+            logger.warning("🚨 Phishing / Hisobni buzish urinishi aniqlandi! Foydalanuvchi %s bloklandi.", sender_id)
+            
+            alert = (
+                "🚨 **XAVFSIZLIK OGOHLANTIRISHI: HISOBGA HUJUM / KOD SO'RASH ANIQLANDI!**\n\n"
+                f"👤 **Foydalanuvchi:** {s_name} ({s_user})\n"
+                f"🆔 **ID:** `{sender_id}`\n\n"
+                f"💬 **Xabari:** \"{message_text}\"\n\n"
+                "🛡 **Ko'rilgan chora:** Ushbu foydalanuvchi **butunlay va abadiy bloklandi** (ignored_users). Chatni o'chirgan taqdirda ham baza uni unutmaydi va bot unga boshqa aslo javob bermaydi."
+            )
+            try:
+                target = config.escalation_chat
+                if str(target).isdigit() or (str(target).startswith("-") and str(target)[1:].isdigit()):
+                    target = int(target)
+                await client.send_message(target, alert)
+            except Exception as esc_err:
+                logger.error("Xavfsizlik ogohlantirishini yuborishda xatolik: %s", esc_err)
+
+            await event.reply("⛔️ **Xavfsizlik tizimi:** Xavfsizlik qoidalariga ko'ra hisob ma'lumotlari, tasdiqlash kodlari yoki sessiyalarni so'rash qat'iyan man etiladi. Hisobingiz butunlay bloklandi.")
+            return
         has_photo = bool(
             event.message.photo
             or (
@@ -531,6 +569,38 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         )
                     except Exception as st_err:
                         logger.debug("Student faolligini yozishda ogohlantirish: %s", st_err)
+
+                # 3-Strike Off-topic tekshiruvi (Mavzudan tashqari noo'rin savollar)
+                raw_ans = str(answer)
+                if "<<<OFF_TOPIC>>>" in raw_ans:
+                    clean_ans = raw_ans.replace("<<<OFF_TOPIC>>>", "").strip()
+                    strikes = memory_service.increment_user_strikes(sender_id)
+                    s_name = getattr(sender, "first_name", "") or "Noma'lum"
+                    s_user = f"@{sender.username}" if getattr(sender, "username", None) else "Mavjud emas"
+                    if strikes == 1:
+                        answer = clean_ans + "\n\n⚠️ _Eslatma: Men faqat CoddyCamp dasturlash darslari bo'yicha yordam beraman. Mavzudan tashqari savollar berish taqiqlangan (Ogohlantirish 1/3)._"
+                    elif strikes == 2:
+                        answer = clean_ans + "\n\n⚠️ _Qat'iy ogohlantirish: Mavzudan tashqari savollar taqiqlangan (Ogohlantirish 2/3). Yana bitta noo'rin savoldan so'ng hisobingiz butunlay bloklanadi!_"
+                    else:
+                        memory_service.ignore_user(sender_id, getattr(sender, "username", "") or "", reason="3 marta mavzudan tashqari savol")
+                        answer = "⛔️ **Bloklandingiz:** Bir necha bor mavzudan tashqari va noo'rin savollar berganingiz sababli tizim tomonidan butunlay bloklandingiz. Sizga boshqa javob berilmaydi."
+                        log_activity(f"Foydalanuvchi {s_name} ({s_user}) 3 ta strike bilan bloklandi.")
+                        try:
+                            alert_off = (
+                                "⚠️ **Foydalanuvchi 3 marta mavzudan tashqari savol bergani sababli doimiy bloklandi:**\n\n"
+                                f"👤 {s_name} ({s_user})\n"
+                                f"🆔 ID: `{sender_id}`\n"
+                                f"💬 Oxirgi xabari: \"{input_text}\""
+                            )
+                            target = config.escalation_chat
+                            if str(target).isdigit() or (str(target).startswith("-") and str(target)[1:].isdigit()):
+                                target = int(target)
+                            await client.send_message(target, alert_off)
+                        except Exception:
+                            pass
+                else:
+                    if sender_id and sender_id != config.mentor_user_id and sender_id != 8105823872:
+                        memory_service.reset_user_strikes(sender_id)
 
                 # Javobni yuborish (reply tarzida, Voice-to-Voice va fallback bilan)
                 sent_reply = None

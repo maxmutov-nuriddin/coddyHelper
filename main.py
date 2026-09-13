@@ -88,42 +88,74 @@ async def start_backup_worker(client: TelegramClient):
         except Exception as e:
             logger.error("Auto-backup workerda kutilmagan xatolik: %s", e)
 
-        await asyncio.sleep(86400)  # Har 24 soatda bir marta
+        await asyncio.sleep(3600)  # Har 1 soatda bir marta avto-backup
 
 
 async def auto_restore_database_on_startup(client: TelegramClient):
     """
-    Render qayta ishga tushganda bo'sh database hosil bo'lsa,
-    bot chatidagi eng so'nggi zaxira (coddy_memory.db) faylini avtomatik topib, tiklaydi.
+    Render qayta ishga tushganda yoki yangi commit push bo'lganda,
+    bot chatidagi va 'me' (Saved Messages) dagi eng so'nggi zaxira (coddy_memory.db)
+    faylini avtomatik topib, barcha eski ma'lumotlarni joriy bazaga to'liq tiklaydi va birlashtiradi.
     """
     from services.memory_service import memory_service
-    if not memory_service.is_database_empty():
-        return
-
-    logger.info("⏳ SQLite bazasi bo'sh yoki yangi. Zaxira xotirasini qidirish...")
+    logger.info("⏳ Avto-tiklash: So'nggi zaxira xotirasini qidirish...")
     try:
         from pathlib import Path
         import tempfile
-        bot_target = config.bot_username or config.mentor_user_id
-        if not bot_target:
-            return
+        targets = []
+        if config.bot_username:
+            targets.append(config.bot_username)
+        if config.mentor_user_id:
+            targets.append(config.mentor_user_id)
+        targets.append("me")
 
-        async for message in client.iter_messages(bot_target, limit=30):
-            if message.document and getattr(message.file, "name", "") == "coddy_memory.db":
-                logger.info("🔍 Bot chatidan so'nggi coddy_memory.db topildi (ID: %d). Tiklanmoqda...", message.id)
-                tmp_dir = Path(tempfile.gettempdir()) / "coddy_restore"
-                tmp_dir.mkdir(parents=True, exist_ok=True)
-                tmp_file = tmp_dir / f"restore_{message.id}.db"
+        restored = False
+        for target in targets:
+            try:
+                async for message in client.iter_messages(target, limit=20):
+                    if message.document and getattr(message.file, "name", "") == "coddy_memory.db":
+                        logger.info("🔍 '%s' chatidan so'nggi coddy_memory.db topildi (ID: %d). Tiklanmoqda...", target, message.id)
+                        tmp_dir = Path(tempfile.gettempdir()) / "coddy_restore"
+                        tmp_dir.mkdir(parents=True, exist_ok=True)
+                        tmp_file = tmp_dir / f"restore_{message.id}.db"
 
-                await message.download_media(file=str(tmp_file))
-                if tmp_file.exists() and tmp_file.stat().st_size > 0:
-                    ok, msg = memory_service.merge_database(tmp_file)
-                    if ok:
-                        logger.info("🎉 Baza startupda muvaffaqiyatli tiklandi: %s", msg)
-                    tmp_file.unlink(missing_ok=True)
-                    break
+                        await message.download_media(file=str(tmp_file))
+                        if tmp_file.exists() and tmp_file.stat().st_size > 0:
+                            ok, msg = memory_service.merge_database(tmp_file)
+                            if ok:
+                                logger.info("🎉 Baza muvaffaqiyatli tiklandi va birlashtirildi: %s", msg)
+                                restored = True
+                            tmp_file.unlink(missing_ok=True)
+                            break
+            except Exception as target_err:
+                logger.debug("Chat %s ni tekshirishda ogohlantirish: %s", target, target_err)
+            if restored:
+                break
     except Exception as e:
         logger.warning("Startupda avto-tiklashda ogohlantirish: %s", e)
+
+
+def setup_shutdown_handlers(client: TelegramClient, loop: asyncio.AbstractEventLoop):
+    """Render to'xtash signali (SIGTERM/SIGINT) yuborganda oxirgi bazani zaxiralab chiqish."""
+    import signal
+
+    async def shutdown(sig_name):
+        logger.info("🛑 Signal %s qabul qilindi. Render o'chishi oldidan oxirgi zaxirani botga yuborish...", sig_name)
+        try:
+            from services.bot_service import send_or_update_database_backup
+            ok, err = await send_or_update_database_backup()
+            if ok:
+                logger.info("🎉 Render o'chishi oldidan oxirgi zaxira muvaffaqiyatli botga yuborildi!")
+            else:
+                logger.warning("Shutdown zaxirasida ogohlantirish: %s", err)
+        except Exception as e:
+            logger.error("Shutdown zaxirada xatolik: %s", e)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(shutdown(s.name)))
+        except (NotImplementedError, RuntimeError):
+            pass
 
 
 CURRENT_CLIENT: TelegramClient | None = None
@@ -251,6 +283,12 @@ async def main():
 
     # Render restartida bazani avtomatik zaxiradan tiklash (agar baza yangi/bo'sh bo'lsa)
     await auto_restore_database_on_startup(client)
+
+    # Render o'chishi (SIGTERM/SIGINT) oldidan oxirgi bazani zaxiraga yuborish tinglovchisi
+    try:
+        setup_shutdown_handlers(client, asyncio.get_running_loop())
+    except Exception as sh_err:
+        logger.debug("Shutdown handler sozlashda ogohlantirish: %s", sh_err)
 
     # Doimiy eslatmalar va avto-backup xizmatlarini fonda ishga tushirish
     asyncio.create_task(start_reminder_worker(client))

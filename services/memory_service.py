@@ -190,13 +190,17 @@ class SQLiteMemoryService:
             logger.error("Chatlar sonini olishda xatolik: %s", e)
             return 0
 
-    def ignore_user(self, user_id: int, username: str = "") -> None:
+    def ignore_user(self, user_id: int, username: str = "", reason: str = "") -> None:
         """Foydalanuvchini bloklanganlar (ignore) ro'yxatiga qo'shadi."""
         try:
             with self._get_connection() as conn:
+                try:
+                    conn.execute("ALTER TABLE ignored_users ADD COLUMN reason TEXT DEFAULT ''")
+                except Exception:
+                    pass
                 conn.execute(
-                    "INSERT OR REPLACE INTO ignored_users (user_id, username) VALUES (?, ?)",
-                    (user_id, username),
+                    "INSERT OR REPLACE INTO ignored_users (user_id, username, reason) VALUES (?, ?, ?)",
+                    (user_id, username, reason),
                 )
                 conn.commit()
         except Exception as e:
@@ -229,13 +233,32 @@ class SQLiteMemoryService:
         """Bloklangan barcha foydalanuvchilar ro'yxati."""
         try:
             with self._get_connection() as conn:
+                try:
+                    conn.execute("ALTER TABLE ignored_users ADD COLUMN reason TEXT DEFAULT ''")
+                except Exception:
+                    pass
                 cursor = conn.cursor()
-                cursor.execute("SELECT user_id, username, created_at FROM ignored_users ORDER BY created_at DESC")
+                cursor.execute("SELECT user_id, username, created_at, COALESCE(reason, '') FROM ignored_users ORDER BY created_at DESC")
                 rows = cursor.fetchall()
-                return [{"user_id": r[0], "username": r[1], "created_at": r[2]} for r in rows]
+                return [{"user_id": r[0], "username": r[1], "created_at": r[2], "reason": r[3]} for r in rows]
         except Exception as e:
             logger.error("Ignore ro'yxatini olishda xatolik: %s", e)
             return []
+
+    def get_user_strikes(self, user_id: int) -> int:
+        """Foydalanuvchining mavzudan tashqari savollari sonini oladi."""
+        val = self.get_setting(f"strike_{user_id}", "0")
+        return int(val) if val and str(val).isdigit() else 0
+
+    def increment_user_strikes(self, user_id: int) -> int:
+        """Foydalanuvchining ogohlantirishlar (strikes) sonini 1 taga oshiradi."""
+        current = self.get_user_strikes(user_id) + 1
+        self.set_setting(f"strike_{user_id}", str(current))
+        return current
+
+    def reset_user_strikes(self, user_id: int) -> None:
+        """Foydalanuvchining ogohlantirishlar sonini nollaydi."""
+        self.set_setting(f"strike_{user_id}", "0")
 
     def get_recent_user_questions(self, limit: int = 50) -> list[str]:
         """Tahlil uchun o'quvchilar tomonidan yozilgan so'nggi savollarni oladi."""
