@@ -281,43 +281,59 @@ def is_relevant_group_message(
 
 
 def get_smart_reaction(text: str) -> str | None:
-    """Xabar mazmuniga qarab mos Telegram emodzi reaksiyasini aniqlaydi."""
+    """Xabar mazmuniga qarab mos Telegram emodzi reaksiyasini aniqlaydi.
+    Faqat qisqa tasdiq, minnatdorchilik va natija xabarlariga (1-4 ta so'z) ishlaydi.
+    Har qanday savol yoki topshiriqda AI to'liq javob berishi uchun None qaytaradi.
+    """
     t = text.lower().strip().rstrip("!?.,~ ")
     if not t:
         return None
 
-    # Agar savol belgisi yoki savol so'zlari bo'lsa, reaksiya bosilmaydi, AI to'liq javob berishi kerak!
-    question_words = ["qanday", "nega", "nimaga", "qanaqa", "qayerda", "qachon", "kim", "bormi", "yordam", "xato", "tushunmadim", "как", "почему", "где", "когда", "что", "помогите"]
-    if "?" in text or any(re.search(r"\b" + w + r"\b", t) for w in question_words):
+    # 1. Agar savol belgisi yoki savol so'zlari bo'lsa, reaksiya bosilmaydi — AI to'liq javob berishi shart!
+    if "?" in text:
         return None
 
-    # Faqat qisqa tasdiq, minnatdorchilik va natija xabarlariga (maksimal 80 belgi yoki 10 ta so'z)
+    question_words = [
+        "qaysi", "qaysilar", "nima", "nimani", "nimaga", "nega", "qanday", "qanaqa", "qanaqangi",
+        "qayerda", "qayerga", "qayerdan", "qachon", "kim", "kimga", "kimda", "kimdan",
+        "nechta", "nechi", "nechanchi", "bormi", "mumkinmi", "boladimi", "bo'ladimi",
+        "kerakmi", "kerak", "yordam", "xato", "xatolik", "tushunmadim", "tushuntir", "aytvor",
+        "aytib", "какой", "какая", "какие", "какое", "что", "куда", "где", "когда",
+        "почему", "зачем", "как", "сколько", "можно", "нужно", "помогите", "ошибка"
+    ]
+    if any(re.search(r"\b" + w, t) for w in question_words):
+        return None
+
+    # 2. Savol shaklidagi harakatlar: "ishlatsa bo'ladi", "qilsa bo'ladimi" va h.k.
+    if re.search(r"\b(?:ishlatsa|ishaltsa|qilsa|yozsa|ochsa|bog['’`]?lasa)\s+bo['’`]?ladi\b", t):
+        return None
+
+    # 3. Faqat o'ta qisqa tasdiq va minnatdorchilik xabarlariga (maksimal 4 ta so'z va 30 ta belgi)
     words = t.split()
-    if len(words) > 10 and len(t) > 80:
+    if len(words) > 4 or len(t) > 30:
         return None
 
-    # 1. Kod ishladi / Super natija -> 🔥
+    # 4. Kod ishladi / Super natija -> 🔥
     fire_triggers = [
-        r"\b(?:ishladi|ishlab\s+ketdi|ishlayapti|kod\s+ishladi|boldi\s+ishladi)\b",
-        r"\b(?:zo['’`]?r|zor|ajoyib|yondirdi|super|daxshat|dahshat|bomba|klass|ura)\b",
-        r"\b(?:получилось|заработало|отлично|супер|огонь|ура)\b",
+        r"^(?:(?:ustoz|aka)\s+)?(?:(?:kod\w*\s+)?(?:ishladi|ishlab\s+ketdi|ishlayapti|boldi\s+ishladi)|(?:zo['’`]?r|zor|ajoyib|yondirdi|super|daxshat|dahshat|bomba|klass|ura)(?:\s+(?:chiqdi|boldi|bo['’`]?ldi))?)(?:\s+(?:rahmat|ustoz|aka))?$",
+        r"^(?:получилось|заработало|отлично|супер|огонь|ура)$",
     ]
     if any(re.search(pat, t, re.I) for pat in fire_triggers):
         return "🔥"
 
-    # 2. Minnatdorchilik / Rahmat -> ❤️
+    # 5. Minnatdorchilik / Rahmat -> ❤️
     heart_triggers = [
-        r"\b(?:rahmat\w*|raxmat\w*|katta\s+rahmat|tashakkur|minnatdorman|sog['’`]?\s+bo['’`]?ling|salomat\s+bo['’`]?ling)\b",
-        r"\b(?:спасибо\w*|благодарю|от\s+души)\b",
-        r"\b(?:thanks\w*|thank\s+you)\b",
+        r"^(?:(?:ustoz|aka)\s+)?(?:(?:katta\s+)?(?:rahmat\w*|raxmat\w*|tashakkur)|minnatdorman|sog['’`]?\s+bo['’`]?ling|salomat\s+bo['’`]?ling)(?:\s+(?:katta|ustoz|aka))?$",
+        r"^(?:спасибо\w*|благодарю|от\s+души)(?:\s+большое)?$",
+        r"^(?:thanks\w*|thank\s+you)(?:\s+so\s+much)?$",
     ]
     if any(re.search(pat, t, re.I) for pat in heart_triggers):
         return "❤️"
 
-    # 3. Tushundim / Ma'qullash / Tasdiq -> 👍
+    # 6. Tushundim / Ma'qullash / Tasdiq -> 👍
     thumbs_triggers = [
-        r"\b(?:tushundim|tushunarli|yaxshi|bo['’`]?ladi|boladi|boldi|bo['’`]?ldi|kelishdik|bopti|hop|xop|ok|okay|k)\b",
-        r"\b(?:понял|понятно|хорошо|ладно|договорились|ок)\b",
+        r"^(?:(?:ustoz|aka)\s+)?(?:ha\s+)?(?:tushundim|tushunarli|yaxshi|bo['’`]?ladi|boladi|boldi|bo['’`]?ldi|kelishdik|bopti|hop|xop|ok|okay|k)(?:\s+(?:rahmat|ustoz|aka))?$",
+        r"^(?:понял|понятно|хорошо|ладно|договорились|ок)(?:\s+спасибо)?$",
     ]
     if any(re.search(pat, t, re.I) for pat in thumbs_triggers):
         return "👍"
