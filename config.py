@@ -34,7 +34,7 @@ class Config:
     gemini_model: str
     groq_api_key: str = ""
     groq_api_keys: list[str] = None
-    groq_model: str = "openai/gpt-oss-120b"
+    groq_model: str = "llama-3.3-70b-versatile"
     groq_vision_model: str = "qwen/qwen3.8-27b"
     auto_reply_enabled: bool = True
     group_reply_enabled: bool = True
@@ -69,7 +69,7 @@ class Config:
         raw_groq_keys = os.getenv("GROQ_API_KEYS", "").strip() or os.getenv("GROQ_API_KEY", "").strip()
         groq_api_keys = [k.strip() for k in raw_groq_keys.split(",") if k.strip()]
         groq_api_key = groq_api_keys[0] if groq_api_keys else ""
-        groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+        groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
         groq_vision_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
 
         auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
