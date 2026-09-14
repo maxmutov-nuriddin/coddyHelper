@@ -144,58 +144,16 @@
       box-sizing: border-box;
     }
 
-    /* CATEGORY NAV (TOP STICKY SEGMENT BAR) */
-    .category-nav-wrapper {
-      position: sticky;
-      top: 0;
-      z-index: 45;
-      background-color: var(--secondary-bg);
-      border-bottom: 1px solid var(--border-color);
-      padding: 8px 12px;
-      user-select: none;
-      flex-shrink: 0;
-    }
-
-    .category-nav {
-      display: flex;
-      gap: 6px;
-      overflow-x: auto;
-      white-space: nowrap;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: none;
-    }
-
-    .category-nav::-webkit-scrollbar {
+    /* INDIVIDUAL PAGES / TABS */
+    .tab-pane {
       display: none;
+      width: 100%;
+      box-sizing: border-box;
+      animation: fadeIn 0.2s ease-in-out;
     }
 
-    .cat-pill {
-      background: var(--card-bg);
-      border: 1px solid var(--border-color);
-      color: var(--hint-color);
-      padding: 7px 14px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.2s ease;
-      flex-shrink: 0;
-    }
-
-    .cat-pill.active {
-      background: var(--accent);
-      color: #fff;
-      border-color: var(--accent);
-      box-shadow: 0 2px 8px rgba(46, 166, 255, 0.4);
-    }
-
-    /* SECTIONS */
-    .app-section {
-      animation: fadeIn 0.25s ease-in-out;
-      margin-bottom: 16px;
+    .tab-pane.active {
+      display: block;
     }
 
     .section-header-badge {
@@ -211,8 +169,8 @@
       background: rgba(46, 166, 255, 0.12);
       color: #2ea6ff;
       border: 1px solid rgba(46, 166, 255, 0.25);
-      margin-bottom: 10px;
-      margin-top: 4px;
+      margin-bottom: 12px;
+      margin-top: 2px;
     }
 
     @keyframes fadeIn {
@@ -859,23 +817,12 @@
     </div>
   </header>
 
-  <!-- TOP STICKY CATEGORY SEGMENT BAR -->
-  <div class="category-nav-wrapper">
-    <div class="category-nav">
-      <button class="cat-pill active" id="pill-all" onclick="switchCategory('all', this)">🌟 Barchasi</button>
-      <button class="cat-pill" id="pill-ai" onclick="switchCategory('ai', this)">🤖 AI Boshqaruv & Monitor</button>
-      <button class="cat-pill" id="pill-knowledge" onclick="switchCategory('knowledge', this)">🎓 Bilimlar & Stek</button>
-      <button class="cat-pill" id="pill-students" onclick="switchCategory('students', this)">👨‍🎓 O'quvchilar & E'lon</button>
-      <button class="cat-pill" id="pill-reminders" onclick="switchCategory('reminders', this)">⏰ Eslatma & Zaxira</button>
-    </div>
-  </div>
-
   <!-- MAIN VIEW CONTAINER -->
   <main class="container">
 
-    <!-- ==================== BO'LIM 1: AI KLASTER & BOSHQARUV ==================== -->
-    <section class="app-section" id="section-ai">
-      <div class="section-header-badge">🤖 AI Klaster & Asosiy Boshqaruv</div>
+    <!-- ==================== SAHIFA 1: AI KLASTER & BOSHQARUV ==================== -->
+    <div class="tab-pane active" id="tab-dashboard">
+      <div class="section-header-badge">🎛 AI Boshqaruv & Monitor</div>
 
       <!-- AI CLUSTER & REAL-TIME RATE LIMITS MONITOR -->
       <div class="card" id="ai-monitor-card" style="border: 1px solid rgba(46, 166, 255, 0.3); background: linear-gradient(180deg, rgba(46, 166, 255, 0.08) 0%, var(--card-bg) 100%);">
@@ -1103,11 +1050,11 @@
           </select>
         </div>
       </div>
-    </section>
+    </div> <!-- /tab-dashboard -->
 
-    <!-- ==================== BO'LIM 2: O'QUV DASTURI & BILIMLAR BAZASI ==================== -->
-    <section class="app-section" id="section-knowledge">
-      <div class="section-header-badge">🎓 O'quv Dasturi & Bilimlar Bazasi</div>
+    <!-- ==================== SAHIFA: O'QUV DASTURI & BILIMLAR BAZASI ==================== -->
+    <div class="tab-pane" id="tab-knowledge">
+      <div class="section-header-badge">🧠 Bilimlar & O'quv Steki</div>
 
       <!-- CURRICULUM TOPICS -->
       <div class="card">
@@ -1189,11 +1136,11 @@
           <!-- JS to'ldiradi -->
         </div>
       </div>
-    </section>
+    </div> <!-- /tab-knowledge -->
 
-    <!-- ==================== BO'LIM 3: O'QUVCHILAR CRM & MULOQOT ==================== -->
-    <section class="app-section" id="section-students">
-      <div class="section-header-badge">👨‍🎓 O'quvchilar CRM & Ommaviy Xabar</div>
+    <!-- ==================== SAHIFA: O'QUVCHILAR CRM & MULOQOT ==================== -->
+    <div class="tab-pane" id="tab-students">
+      <div class="section-header-badge">👨‍🎓 O'quvchilar CRM & E'lon</div>
 
       <!-- BROADCAST CARD -->
       <div class="card">
@@ -1232,35 +1179,11 @@
       <div id="students-list">
         <!-- JS to'ldiradi -->
       </div>
-    </section>
+    </div> <!-- /tab-students -->
 
-    <!-- ==================== BO'LIM 4: ESLATMALAR, ZAXIRA & XAVFSIZLIK ==================== -->
-    <section class="app-section" id="section-reminders">
-      <div class="section-header-badge">⏰ Eslatmalar, Zaxira & Xavfsizlik</div>
-
-      <!-- METRICS GRID -->
-      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));">
-        <div class="metric-box">
-          <div class="metric-value" id="metric-chats">0</div>
-          <div class="metric-label">Faol Chatlar</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-value" id="metric-students">0</div>
-          <div class="metric-label">O'quvchilar</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-value" id="metric-facts">0</div>
-          <div class="metric-label">Bilimlar</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-value" id="metric-reminders">0</div>
-          <div class="metric-label">Eslatmalar</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-value" id="metric-ignored">0</div>
-          <div class="metric-label">Bloklanganlar</div>
-        </div>
-      </div>
+    <!-- ==================== SAHIFA: ESLATMALAR MARKAZI ==================== -->
+    <div class="tab-pane" id="tab-reminders">
+      <div class="section-header-badge">⏰ Eslatmalar Markazi</div>
 
       <!-- ADD REMINDER CARD -->
       <div class="card">
@@ -1299,6 +1222,35 @@
         </div>
         <div id="reminders-list">
           <!-- JS to'ldiradi -->
+        </div>
+      </div>
+    </div> <!-- /tab-reminders -->
+
+    <!-- ==================== SAHIFA: TIZIM, ZAXIRA & XAVFSIZLIK ==================== -->
+    <div class="tab-pane" id="tab-security">
+      <div class="section-header-badge">🛡 Tizim, Zaxira & Xavfsizlik</div>
+
+      <!-- METRICS GRID -->
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));">
+        <div class="metric-box">
+          <div class="metric-value" id="metric-chats">0</div>
+          <div class="metric-label">Faol Chatlar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-students">0</div>
+          <div class="metric-label">O'quvchilar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-facts">0</div>
+          <div class="metric-label">Bilimlar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-reminders">0</div>
+          <div class="metric-label">Eslatmalar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-ignored">0</div>
+          <div class="metric-label">Bloklanganlar</div>
         </div>
       </div>
 
@@ -1349,7 +1301,7 @@
           <div class="log-item">Jurnal yuklanmoqda...</div>
         </div>
       </div>
-    </section>
+    </div> <!-- /tab-security -->
 
   </main>
 
@@ -1402,25 +1354,25 @@
 
   <!-- BOTTOM NAVIGATION BAR -->
   <nav class="bottom-nav">
-    <button class="nav-item active" id="nav-all" onclick="switchCategory('all')">
-      <span class="nav-icon">🌟</span>
-      <span>Barchasi</span>
+    <button class="nav-item active" id="nav-dashboard" onclick="switchTab('dashboard', this)">
+      <span class="nav-icon">🎛</span>
+      <span>Boshqaruv</span>
     </button>
-    <button class="nav-item" id="nav-ai" onclick="switchCategory('ai')">
-      <span class="nav-icon">🤖</span>
-      <span>AI Boshqaruv</span>
-    </button>
-    <button class="nav-item" id="nav-knowledge" onclick="switchCategory('knowledge')">
-      <span class="nav-icon">🎓</span>
-      <span>Bilimlar</span>
-    </button>
-    <button class="nav-item" id="nav-students" onclick="switchCategory('students')">
+    <button class="nav-item" id="nav-students" onclick="switchTab('students', this)">
       <span class="nav-icon">👨‍🎓</span>
       <span>O'quvchilar</span>
     </button>
-    <button class="nav-item" id="nav-reminders" onclick="switchCategory('reminders')">
+    <button class="nav-item" id="nav-reminders" onclick="switchTab('reminders', this)">
       <span class="nav-icon">⏰</span>
       <span>Eslatmalar</span>
+    </button>
+    <button class="nav-item" id="nav-knowledge" onclick="switchTab('knowledge', this)">
+      <span class="nav-icon">🧠</span>
+      <span>Bilimlar</span>
+    </button>
+    <button class="nav-item" id="nav-security" onclick="switchTab('security', this)">
+      <span class="nav-icon">🛡</span>
+      <span>Xavfsizlik</span>
     </button>
   </nav>
   </div> <!-- /app-shell -->
@@ -1488,54 +1440,53 @@
       setTimeout(() => toast.classList.remove("show"), 2500);
     }
 
-    let currentCategory = "all";
+    let currentTab = "dashboard";
 
-    function switchCategory(cat, el) {
+    function switchTab(tabId, el) {
       haptic();
       applyFullscreen();
-      currentCategory = cat;
+      currentTab = tabId;
 
-      // Update pills
-      document.querySelectorAll(".cat-pill").forEach(p => p.classList.remove("active"));
-      const pill = document.getElementById("pill-" + cat) || (el && el.classList.contains("cat-pill") ? el : null);
-      if (pill) pill.classList.add("active");
+      // Hide all pages, show target page
+      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+      const targetPage = document.getElementById("tab-" + tabId);
+      if (targetPage) targetPage.classList.add("active");
 
-      // Update bottom nav
-      document.querySelectorAll(".bottom-nav .nav-item").forEach(n => n.classList.remove("active"));
-      const nav = document.getElementById("nav-" + cat) || (el && el.classList.contains("nav-item") ? el : null);
-      if (nav) nav.classList.add("active");
+      // Update bottom navigation active state
+      document.querySelectorAll(".bottom-nav .nav-item").forEach(i => i.classList.remove("active"));
+      const navBtn = el || document.getElementById("nav-" + tabId);
+      if (navBtn) navBtn.classList.add("active");
 
-      // Toggle sections
-      const sections = ["ai", "knowledge", "students", "reminders"];
-      if (cat === "all") {
-        sections.forEach(s => {
-          const sec = document.getElementById("section-" + s);
-          if (sec) sec.style.display = "block";
-        });
-      } else {
-        sections.forEach(s => {
-          const sec = document.getElementById("section-" + s);
-          if (sec) {
-            sec.style.display = (s === cat) ? "block" : "none";
-          }
-        });
-      }
-
-      // Smooth scroll back to top of container
+      // Smooth scroll back to top of page
       const containerEl = document.querySelector(".container");
       if (containerEl) {
         containerEl.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
+
+      // Refresh / ensure data loaded for the chosen page
+      if (tabId === "dashboard") {
+        loadStatus();
+        refreshAiMetrics();
+      } else if (tabId === "students") {
+        loadStudents();
+      } else if (tabId === "reminders") {
+        loadReminders();
+      } else if (tabId === "knowledge") {
+        loadKnowledge();
+        loadTrustedSites();
+        loadCurriculumTopics();
+      } else if (tabId === "security") {
+        loadStatus();
+        loadIgnored();
+      }
     }
 
-    // Backwards compatibility for any legacy callers
-    function switchTab(tabId, el) {
-      let cat = tabId;
-      if (tabId === "dashboard") cat = "ai";
-      if (tabId === "security") cat = "reminders";
-      switchCategory(cat, el);
+    // Alias for compatibility
+    function switchCategory(cat, el) {
+      if (cat === "all" || cat === "ai") switchTab("dashboard", el);
+      else switchTab(cat, el);
     }
 
     async function apiRequest(path, method = "GET", body = null) {
@@ -2176,7 +2127,7 @@
     function filterStudentStatus(status) {
       haptic();
       currentStudentFilter = status;
-      document.querySelectorAll("#section-students .chip").forEach(c => c.classList.remove("active-chip"));
+      document.querySelectorAll("#tab-students .chip").forEach(c => c.classList.remove("active-chip"));
       const chip = document.getElementById("chip-status-" + status);
       if (chip) chip.classList.add("active-chip");
       loadStudents();
@@ -2406,7 +2357,7 @@
 
     function filterKnowledge(cat) {
       currentKnowledgeFilter = cat;
-      document.querySelectorAll("#section-knowledge .chip").forEach(c => c.classList.remove("active-chip"));
+      document.querySelectorAll("#tab-knowledge .chip").forEach(c => c.classList.remove("active-chip"));
       const activeChip = document.getElementById("chip-know-" + cat);
       if (activeChip) activeChip.classList.add("active-chip");
       renderKnowledge();
@@ -2614,9 +2565,9 @@
     // Start authentication on page load
     initAuth();
 
-    // AI bo'limi ko'ringanda metrikalarni har 10 soniyada avtomatik yangilab turish
+    // Boshqaruv (AI) sahifasi ochiq bo'lganda metrikalarni har 10 soniyada avtomatik yangilab turish
     setInterval(() => {
-      if (currentCategory === "all" || currentCategory === "ai") {
+      if (currentTab === "dashboard") {
         refreshAiMetrics();
       }
     }, 10000);
