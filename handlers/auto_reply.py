@@ -1500,6 +1500,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                 # AI javobini generatsiya qilish (35s timeout bilan himoyalangan)
                 try:
+                    lower_input = (input_text or "").lower().strip()
                     if (
                         (lower_input.startswith("tushuntir ") or lower_input.startswith(".tushuntir "))
                         and not file_text
