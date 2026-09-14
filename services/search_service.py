@@ -283,21 +283,30 @@ async def get_web_search_context(query: str, is_admin: bool = False) -> str:
     from services.memory_service import memory_service
     trusted_sites = memory_service.get_trusted_websites()
 
+    # O'quvchilar uchun umumiy so'rovlarni markaz steki (JavaScript) ga yo'naltirish
+    search_q = clean_q
+    if not is_admin:
+        lower_q = clean_q.lower()
+        if not any(lang in lower_q for lang in ("python", "c++", "c#", "php", "java", "ruby", "golang", "go", "swift", "kotlin")):
+            generic_terms = ("for", "loop", "array", "massiv", "sikl", "funksiya", "function", "object", "backend", "frontend", "api")
+            if any(term in lower_q for term in generic_terms) and "javascript" not in lower_q and "js" not in lower_q:
+                search_q = f"{clean_q} javascript"
+
     results = []
     source_label = "open_web"
 
     # 1. Avval ishonchli saytlar ichidan qidirish (Tier 1)
     if trusted_sites:
-        logger.info("Kaskad 1-pog'ona: Ishonchli saytlardan qidirilmoqda: %s (%s)", clean_q[:40], ", ".join(trusted_sites[:3]))
-        results = await search_targeted_websites(clean_q, trusted_sites, max_results=3)
+        logger.info("Kaskad 1-pog'ona: Ishonchli saytlardan qidirilmoqda: %s (%s)", search_q[:40], ", ".join(trusted_sites[:3]))
+        results = await search_targeted_websites(search_q, trusted_sites, max_results=3)
         if results:
             source_label = "trusted_sites"
             logger.info("Kaskad 1-pog'ona muvaffaqiyatli: %d ta rasmiy manba topildi.", len(results))
 
     # 2. Agar tanlangan saytlardan topilmasa, butun internetdan qidirish (Tier 2 - Fallback)
     if not results:
-        logger.info("Kaskad 2-pog'ona: Butun internet va StackOverflow'dan qidirilmoqda: %s", clean_q[:40])
-        results = await search_web(clean_q, max_results=3)
+        logger.info("Kaskad 2-pog'ona: Butun internet va StackOverflow'dan qidirilmoqda: %s", search_q[:40])
+        results = await search_web(search_q, max_results=3)
         source_label = "open_web"
 
     if not results:

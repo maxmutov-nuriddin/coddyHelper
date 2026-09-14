@@ -327,6 +327,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "ignored_users_count": len(memory_service.get_ignored_users()),
                 "learned_facts_count": len(memory_service.get_all_learned_facts(limit=100)),
                 "trusted_websites": memory_service.get_trusted_websites(),
+                "curriculum_topics": memory_service.get_curriculum_topics(),
                 "recent_activity_logs": list(reversed(RECENT_ACTIVITY_LOGS[-15:])),
                 "telegram_authorized": telegram_authorized,
                 "telegram_me": telegram_me,
@@ -801,6 +802,43 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
 
         return web.json_response({"ok": True, "sent_count": sent_count, "failed_count": failed_count})
 
+    # -----------------------------------------------------------
+    # 15. O'quv Dasturi & Mavzular Chegarasi (Curriculum Topics) API
+    # -----------------------------------------------------------
+    async def handle_api_get_curriculum_topics(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        topics = memory_service.get_curriculum_topics()
+        return web.json_response({"ok": True, "topics": topics})
+
+    async def handle_api_add_curriculum_topic(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
+        topic = str(data.get("topic", "")).strip()
+        if not topic:
+            return web.json_response({"ok": False, "error": "Mavzu nomi kiritilmadi"}, status=400)
+        ok = memory_service.add_curriculum_topic(topic)
+        topics = memory_service.get_curriculum_topics()
+        return web.json_response({"ok": ok, "topics": topics, "message": "Mavzu muvaffaqiyatli qo'shildi"})
+
+    async def handle_api_delete_curriculum_topic(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
+        topic = str(data.get("topic", "")).strip()
+        if not topic:
+            return web.json_response({"ok": False, "error": "Mavzu nomi kiritilmadi"}, status=400)
+        ok = memory_service.remove_curriculum_topic(topic)
+        topics = memory_service.get_curriculum_topics()
+        return web.json_response({"ok": ok, "topics": topics, "message": "Mavzu olib tashlandi"})
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
@@ -827,6 +865,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_post("/api/learned-facts/add", handle_api_add_learned_fact)
     app.router.add_post("/api/learned-facts/delete", handle_api_delete_learned_fact)
     app.router.add_post("/api/broadcast", handle_api_broadcast)
+    app.router.add_get("/api/curriculum-topics", handle_api_get_curriculum_topics)
+    app.router.add_post("/api/curriculum-topics/add", handle_api_add_curriculum_topic)
+    app.router.add_post("/api/curriculum-topics/delete", handle_api_delete_curriculum_topic)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

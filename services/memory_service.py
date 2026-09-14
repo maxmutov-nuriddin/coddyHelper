@@ -230,6 +230,76 @@ class SQLiteMemoryService:
             s = s[4:]
         return s.strip()
 
+    DEFAULT_CURRICULUM_TOPICS = [
+        "HTML",
+        "CSS",
+        "JavaScript (JS)",
+        "Tailwind CSS",
+        "Bootstrap",
+        "React",
+        "Next.js",
+        "Node.js",
+        "Express.js",
+        "MongoDB",
+        "REST API",
+        "Asinxron dasturlash",
+        "Git & GitHub",
+        "Netlify",
+        "Vercel",
+        "Telegram Bot",
+        "Authentication & Security",
+        "Figma",
+        "AI mavzulari & vositalari",
+        "Wix",
+        "Renderforest",
+        "Scratch",
+        "Pictoblox",
+    ]
+
+    def get_curriculum_topics(self) -> list[str]:
+        """O'quv markazining rasmiy o'quv mavzulari va texnologiyalari ro'yxatini qaytaradi."""
+        import json
+        raw = self.get_setting("curriculum_topics")
+        if not raw:
+            return list(self.DEFAULT_CURRICULUM_TOPICS)
+        try:
+            topics = json.loads(raw)
+            return topics if isinstance(topics, list) and topics else list(self.DEFAULT_CURRICULUM_TOPICS)
+        except Exception:
+            return list(self.DEFAULT_CURRICULUM_TOPICS)
+
+    def set_curriculum_topics(self, topics: list[str]) -> None:
+        """O'quv mavzulari ro'yxatini saqlaydi."""
+        import json
+        clean_topics = []
+        for t in topics:
+            val = str(t).strip()
+            if val and val not in clean_topics:
+                clean_topics.append(val)
+        self.set_setting("curriculum_topics", json.dumps(clean_topics))
+
+    def add_curriculum_topic(self, topic: str) -> bool:
+        """Yangi o'quv mavzusini qo'shadi."""
+        t = str(topic).strip()
+        if not t:
+            return False
+        current = self.get_curriculum_topics()
+        if any(c.lower() == t.lower() for c in current):
+            return True
+        current.append(t)
+        self.set_curriculum_topics(current)
+        return True
+
+    def remove_curriculum_topic(self, topic: str) -> bool:
+        """O'quv mavzusini ro'yxatdan olib tashlaydi."""
+        t = str(topic).strip().lower()
+        current = self.get_curriculum_topics()
+        filtered = [c for c in current if c.lower() != t]
+        if len(filtered) == len(current):
+            return False
+        self.set_curriculum_topics(filtered)
+        return True
+
     def add_message(self, chat_id: int, role: Literal["user", "model"], content: str) -> None:
         """Yangi xabarni doimiy bazaga qo'shadi."""
         if not content or not content.strip():

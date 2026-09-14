@@ -969,6 +969,24 @@ class AIService:
             sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
 
         if not is_admin_mode:
+            # 1. O'quv markazining rasmiy o'quv dasturi va mavzular chegarasi (Curriculum Boundary)
+            curriculum_topics = memory_service.get_curriculum_topics()
+            if curriculum_topics:
+                topics_str = ", ".join(curriculum_topics)
+                curriculum_block = (
+                    f"# CODDYCAMP RASMIY O'QUV DASTURI VA TEXNOLOGIYALAR STEKI (CURRICULUM BOUNDARY):\n"
+                    f"Bizning o'quv markazimizda FAQAT quyidagi tasdiqlangan texnologiyalar va yo'nalishlar o'qitiladi:\n"
+                    f"[{topics_str}]\n\n"
+                    f"QAT'IY QOIDALAR (O'QUVCHILAR UCHUN):\n"
+                    f"1. O'quvchi umumiy dasturlash mavzusi yoki tushunchasi haqida so'rasa (masalan: 'for sikli', 'while', 'massiv/array', 'funksiya', 'backend', 'ma\\'lumotlar bazasi'), "
+                    f"uni DOIMO va so'zsiz markazimizning rasmiy steki — JavaScript / React / Node.js / Express / MongoDB bo'yicha tushuntiring!\n"
+                    f"2. Boshqa markazda o'qitilmaydigan tillarga (masalan: Python, C++, C#, PHP, Java, Ruby, Go) o'zingizdan o'zingiz aslo chalg'imang va misollarni ularda keltirmang.\n"
+                    f"3. Agar o'quvchi markazda o'tilmaydigan boshqa til haqida ataylab so'rasa (masalan: 'C++ da qanday bo'ladi?'), "
+                    f"xushmuomalalik bilan markazimizda zamonaviy Web dasturlash (Frontend: React/Next.js, Backend: Node.js/Express, Dizayn: Figma) hamda yoshlar uchun Scratch/Pictoblox o'qitilishini eslatib, "
+                    f"asosiy e'tiborni markazimiz o'quv dasturidagi texnologiyalarga qaratishni tavsiya qiling."
+                )
+                sys_prompt = f"{sys_prompt}\n\n{curriculum_block}"
+
             persona = memory_service.get_setting("ai_persona", "socratic")
             code_mode = memory_service.get_setting("ai_code_mode", "full_code")
             extras = []

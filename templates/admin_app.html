@@ -845,6 +845,25 @@
             <input type="text" id="new-trusted-site" placeholder="Masalan: react.dev yoki metanit.com" style="flex: 1; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
             <button type="button" onclick="addTrustedSite()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer;">➕ Qo'shish</button>
           </div>
+        <!-- CURRICULUM TOPICS (O'QUV DASTURI & MAVZULAR CHEGARASI) -->
+        <div class="curriculum-topics-box" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <div>
+              <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--text-color, #fff);">🎓 O'quv Dasturi & Mavzular Chegarasi</h4>
+              <p style="margin: 3px 0 0 0; font-size: 12px; color: var(--hint-color, #8e9ca8);">
+                AI faqat shu stekingiz bo'yicha javob beradi (masalan: <i>for</i> sikli so'ralsa faqat JavaScript bo'yicha tushuntiradi, Python/C++ ga chalg'imaydi).
+              </p>
+            </div>
+          </div>
+          
+          <div id="curriculum-topics-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
+            <!-- JS to'ldiradi -->
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 8px;">
+            <input type="text" id="new-curriculum-topic" placeholder="Masalan: Vue.js yoki Docker" style="flex: 1; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
+            <button type="button" onclick="addCurriculumTopic()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer;">➕ Qo'shish</button>
+          </div>
         </div>
 
         <div class="toggle-row" style="align-items: center; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
@@ -1460,6 +1479,9 @@
 
       // Load Trusted Websites for Cascade Search
       renderTrustedSites(data.trusted_websites || []);
+
+      // Load Curriculum Topics
+      renderCurriculumTopics(data.curriculum_topics || []);
     }
 
     // Trusted Websites Management
@@ -1511,6 +1533,60 @@
       if (res && res.ok) {
         showToast("🗑 Manba o'chirildi: " + domain);
         renderTrustedSites(res.sites || []);
+      } else {
+        showToast("Xatolik: " + (res?.error || "O'chirib bo'lmadi"), true);
+      }
+    }
+
+    // Curriculum Topics Management
+    function renderCurriculumTopics(topics) {
+      const container = document.getElementById("curriculum-topics-container");
+      if (!container) return;
+      if (topics && topics.length > 0) {
+        container.innerHTML = topics.map(topic => `
+          <span style="display: inline-flex; align-items: center; gap: 6px; background: rgba(76, 175, 80, 0.15); border: 1px solid rgba(76, 175, 80, 0.3); color: #81c784; padding: 4px 10px; border-radius: 16px; font-size: 12px; font-weight: 500;">
+            🎓 ${escapeHtml(topic)}
+            <span onclick="deleteCurriculumTopic('${escapeHtml(topic)}')" style="cursor: pointer; opacity: 0.7; font-weight: bold; margin-left: 2px;" title="O'chirish">✕</span>
+          </span>
+        `).join("");
+      } else {
+        container.innerHTML = '<span style="font-size: 12px; color: var(--hint-color, #8e9ca8);">Mavzular chegarasi kiritilmagan (chegarasiz rejim).</span>';
+      }
+    }
+
+    async function loadCurriculumTopics() {
+      const res = await apiRequest("/api/curriculum-topics");
+      if (res && res.ok && res.topics) {
+        renderCurriculumTopics(res.topics);
+      }
+    }
+
+    async function addCurriculumTopic() {
+      const input = document.getElementById("new-curriculum-topic");
+      if (!input) return;
+      const topic = input.value.trim();
+      if (!topic) {
+        showToast("Iltimos, mavzu yoki texnologiya nomini kiriting", true);
+        return;
+      }
+      haptic();
+      const res = await apiRequest("/api/curriculum-topics/add", "POST", { topic });
+      if (res && res.ok) {
+        input.value = "";
+        showToast("✅ Yangi mavzu qo'shildi: " + topic);
+        renderCurriculumTopics(res.topics || []);
+      } else {
+        showToast("Xatolik: " + (res?.error || "Qo'shib bo'lmadi"), true);
+      }
+    }
+
+    async function deleteCurriculumTopic(topic) {
+      if (!confirm(`Haqiqatan ham '${topic}' mavzusini o'chirmoqchimisiz?`)) return;
+      haptic();
+      const res = await apiRequest("/api/curriculum-topics/delete", "POST", { topic });
+      if (res && res.ok) {
+        showToast("🗑 Mavzu o'chirildi: " + topic);
+        renderCurriculumTopics(res.topics || []);
       } else {
         showToast("Xatolik: " + (res?.error || "O'chirib bo'lmadi"), true);
       }
