@@ -1253,12 +1253,18 @@ ACTION_WEB_SEARCH = re.compile(r'<<<ACTION:web_search\(["\'](.*?)["\']\)>>>', re
 
 
 
-async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
+async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_mode: bool = True) -> str:
     """
     AI javobidagi maxsus harakat buyruqlarini (Action Tools) yoki
     foydalanuvchining to'g'ridan-to'g'ri Telegram amallari talablarini (o'zbek va rus tillarida) bajaradi.
+    Kechiktirilgan xabarlar, fakt o'rganish va lokatsiya amallari FAQAT mentor uchun (is_admin_mode=True) ishlaydi.
     """
     is_ru = is_russian_text(orig_msg)
+
+    if not is_admin_mode:
+        if is_ru:
+            return "⛔️ Планирование сообщений и системные действия доступны исключительно для учителя Нуриддина в Центре Управления (Vazifalar)."
+        return "⛔️ Kechiktirilgan xabarlar (schedule), lokatsiya va tizim amallari faqat mentor uchun Vazifalar guruhida ruxsat etilgan!"
 
     # 0. Action: get_recent_senders (Oxirgi marta kim yozdi? Kelgan xabarlar / Кто написал?)
     m_senders = ACTION_RECENT_SENDERS.search(reply_text)

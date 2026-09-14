@@ -889,6 +889,55 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 # GitHub linkini aniqlash
                 github_match = re.search(r"https?://github\.com/[\w\-]+/[\w\-]+/?", input_text)
 
+                # 🔒 FAQAT MENTOR VA VAZIFALAR UCHUN CHEKLOVLAR (Talab: Schedule va Lokatsiya faqat mentorda ishlasin)
+                if not is_admin_chat and not is_mentor_user:
+                    # 1. Telegram geolokatsiyasi yuborilsa
+                    has_geo = bool(
+                        getattr(event.message, "geo", None)
+                        or (getattr(event.message, "media", None) and getattr(event.message.media, "geo", None))
+                    )
+                    if has_geo:
+                        is_ru_req = is_russian_text(input_text)
+                        geo_guard = (
+                            "📍 Получение и фиксация геопозиции доступна только для учителя в Центре Управления (Vazifalar). "
+                            "По всем вопросам обращайтесь к администрации @coddycamp_sergeli 😊"
+                            if is_ru_req else
+                            "📍 Geolokatsiyani qabul qilish va saqlash faqat ustoz uchun Boshqaruv Markazida (Vazifalar) mo'ljallangan. "
+                            "Barcha savollar bo'yicha ma'muriyatga (@coddycamp_sergeli) murojaat qilishingiz mumkin 😊"
+                        )
+                        sent = await event.reply(geo_guard)
+                        if sent:
+                            BOT_SENT_MESSAGE_IDS.add(sent.id)
+                        return
+
+                    # 2. Ustozning joylashuvi yoki koordinatalari so'ralsa
+                    if re.search(r"\b(?:ustoz\w*|nuriddin\w*|mentor\w*|sizning)?\s*(?:lokatsiya\w*|joylashuv\w*|manzil\w*|qayerda\s+turadi|qayerdasiz|turgan\s+joy\w*|где\s+вы\s+находитесь|ваша\s+геопозиция|где\s+учитель)\b", input_text, re.I):
+                        is_ru_req = is_russian_text(input_text)
+                        loc_guard = (
+                            "📍 Личная геопозиция и местоположение учителя не разглашаются. "
+                            "Адрес учебного центра CoddyCamp и информацию об уроках вы можете узнать у администрации @coddycamp_sergeli 😊"
+                            if is_ru_req else
+                            "📍 Ustozning shaxsiy joylashuvi va manzili berilmaydi. "
+                            "CoddyCamp o'quv markazimiz manzili va darslar bo'yicha ma'muriyatga (@coddycamp_sergeli) murojaat qilishingiz mumkin 😊"
+                        )
+                        sent = await event.reply(loc_guard)
+                        if sent:
+                            BOT_SENT_MESSAGE_IDS.add(sent.id)
+                        return
+
+                    # 3. Xabarni rejalashtirish yoki kechiktirib yuborish so'ralsa
+                    if re.search(r"\b(?:rejalashtir\w*|schedule\w*|kechiktir\w*|\d+\s*(?:daqiqa|minut|soat|min|sekund)\w*\s*(?:keyin|so['’`]?ng)\w*.*?(?:yubor|jo['’`]?nat)|запланируй\w*|отправь\s+(?:через\s+)?\d+)\b", input_text, re.I):
+                        is_ru_req = is_russian_text(input_text)
+                        sched_guard = (
+                            "⏳ Планирование и отложенная отправка сообщений доступны исключительно для учителя Нуриддина в Центре Управления (Vazifalar)."
+                            if is_ru_req else
+                            "⏳ Xabarlarni rejalashtirish (schedule) va kechiktirib jo'natish faqat Nuriddin ustoz uchun Boshqaruv Markazida (Vazifalar) ishlaydi."
+                        )
+                        sent = await event.reply(sched_guard)
+                        if sent:
+                            BOT_SENT_MESSAGE_IDS.add(sent.id)
+                        return
+
                 # 📋 DAVOMAT: O'quvchi darsga kelolmasligi / dars qoldirishi haqidagi xabarlar
                 if is_absence_message(input_text) and not is_admin_chat and not is_mentor_user:
                     try:
