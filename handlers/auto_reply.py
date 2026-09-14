@@ -633,6 +633,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             BOT_SENT_MESSAGE_IDS.discard(event.message.id)
             return
 
+        chat_id = event.chat_id
+        sender_id = event.sender_id or chat_id
         is_private = event.is_private
         is_group = event.is_group or event.is_channel
 
@@ -858,8 +860,6 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         ):
             return
 
-        sender_id = event.sender_id or event.chat_id
-        chat_id = event.chat_id
         message_received_time = time.time()
         debounce_key = (chat_id, sender_id) if is_group else chat_id
         log_activity(f"Kelgan xabar [{chat_id}]: {message_text[:35]}")
