@@ -848,11 +848,33 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
         return web.json_response(ai_service.get_metrics())
 
+    # -----------------------------------------------------------
+    # Agentni qayta ishga tushirish (Restart / Unfreeze)
+    # -----------------------------------------------------------
+    async def handle_api_restart(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+
+        try:
+            from handlers.auto_reply import clear_all_pending_tasks
+            cancelled = clear_all_pending_tasks()
+            ai_service.restart()
+            logger.info("Web App orqali Agent qayta ishga tushirildi (%d ta vazifa tozalandi).", cancelled)
+            return web.json_response({
+                "ok": True,
+                "message": f"Agent qayta ishga tushirildi! ({cancelled} ta qotgan vazifa tozalandi, AI ulanishlari yangilandi)",
+                "cancelled_tasks": cancelled,
+            })
+        except Exception as e:
+            logger.error("Agentni qayta ishga tushirishda xatolik: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
     app.router.add_get("/api/status", handle_api_status)
     app.router.add_get("/api/ai_metrics", handle_api_ai_metrics)
+    app.router.add_post("/api/restart", handle_api_restart)
     app.router.add_post("/api/toggle", handle_api_toggle)
     app.router.add_get("/api/reminders", handle_api_get_reminders)
     app.router.add_post("/api/reminders/add", handle_api_add_reminder)

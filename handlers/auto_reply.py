@@ -41,6 +41,22 @@ def log_activity(msg: str) -> None:
     if len(RECENT_ACTIVITY_LOGS) > 30:
         RECENT_ACTIVITY_LOGS.pop(0)
 
+
+def clear_all_pending_tasks() -> int:
+    """Agentni restart qilishda barcha qotib qolgan vazifalarni bekor qiladi va holatlarni tozalaydi."""
+    cancelled = 0
+    for k, task in list(PENDING_TASKS.items()):
+        if task and not task.done():
+            task.cancel()
+            cancelled += 1
+    PENDING_TASKS.clear()
+    CURRENT_SENDING_CHATS.clear()
+    BOT_SENT_MESSAGE_IDS.clear()
+    USER_REQUEST_TIMESTAMPS.clear()
+    log_activity(f"🔄 Agent qayta ishga tushirildi ({cancelled} ta vazifa tozalandi).")
+    logger.info("Agent tozalash: %d ta vazifa bekor qilindi, barcha bufferlar tozalandi.", cancelled)
+    return cancelled
+
 # Xavfsizlik: Spamerlar uchun limit va fayl hajmi
 USER_REQUEST_TIMESTAMPS: dict[int, list[float]] = {}
 MAX_USER_REQUESTS_PER_MINUTE = 6
@@ -657,15 +673,25 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     logger.debug("Chatlar kontekstini olishda xatolik: %s", c_err)
 
             # 5. AI Co-Pilot javobini yaratish (Admin / Co-Pilot rejimida)
-            raw_reply = await ai_service.generate_reply(
-                chat_id=config.mentor_user_id,
-                user_message=input_text,
-                reply_to_context=chats_context,
-                image_bytes=image_bytes,
-                file_name=file_name,
-                file_text=file_text,
-                is_admin_mode=True,
-            )
+            try:
+                raw_reply = await asyncio.wait_for(
+                    ai_service.generate_reply(
+                        chat_id=config.mentor_user_id,
+                        user_message=input_text,
+                        reply_to_context=chats_context,
+                        image_bytes=image_bytes,
+                        file_name=file_name,
+                        file_text=file_text,
+                        is_admin_mode=True,
+                    ),
+                    timeout=35.0,
+                )
+            except asyncio.TimeoutError:
+                logger.error("Vazifalar AI javob generatsiyasida timeout (35s) yuz berdi!")
+                raw_reply = "⚠️ Kechirasiz, AI javob berishda kechikish yuz berdi. Iltimos, qaytadan yozib ko'ring yoki Web App'da 'Agentni qayta ishga tushirish' tugmasini bosing."
+            except Exception as ai_gen_err:
+                logger.error("Vazifalar AI javobida xatolik: %s", ai_gen_err)
+                raw_reply = "⚠️ Kechirasiz, AI javob tayyorlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring."
 
             # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, xabar yuborish, lokatsiya)
             final_reply = await execute_agent_action(str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id)
@@ -701,12 +727,15 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             log_activity(f"Vazifalar AI javobi berildi: {str(final_reply)[:50]}")
 
         except Exception as e:
+            logger.error("Vazifalar xabarini qayta ishlashda xatolik: %s", e)
             if status_msg:
                 try:
-                    await status_msg.delete()
+                    await status_msg.edit("⚠️ Kechirasiz, xatolik yuz berdi. Qaytadan urinib ko'ring.")
                 except Exception:
-                    pass
-            logger.error("Vazifalar xabarini qayta ishlashda xatolik: %s", e)
+                    try:
+                        await status_msg.delete()
+                    except Exception:
+                        pass
         finally:
             CURRENT_SENDING_CHATS.discard(chat_id)
 
@@ -1468,38 +1497,50 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     except Exception as sched_err:
                         logger.exception("Dars jadvali va bayram xabarini tahlil qilishda xatolik: %s", sched_err)
 
-                # Agar mavzu tushuntirish so'ralgan bo'lsa (tushuntir <mavzu>)
-                lower_input = input_text.strip().lower()
-                if (
-                    (lower_input.startswith("tushuntir ") or lower_input.startswith(".tushuntir "))
-                    and not file_text
-                    and not has_photo
-                ):
-                    raw_topic = input_text.strip().split(maxsplit=1)[1] if len(input_text.strip().split()) > 1 else ""
-                    if raw_topic:
-                        answer = await ai_service.explain_topic(raw_topic)
+                # AI javobini generatsiya qilish (35s timeout bilan himoyalangan)
+                try:
+                    if (
+                        (lower_input.startswith("tushuntir ") or lower_input.startswith(".tushuntir "))
+                        and not file_text
+                        and not has_photo
+                    ):
+                        raw_topic = input_text.strip().split(maxsplit=1)[1] if len(input_text.strip().split()) > 1 else ""
+                        if raw_topic:
+                            answer = await asyncio.wait_for(ai_service.explain_topic(raw_topic), timeout=35.0)
+                        else:
+                            answer = await asyncio.wait_for(
+                                ai_service.generate_reply(
+                                    chat_id=chat_id,
+                                    user_message=input_text,
+                                    reply_to_context=reply_context,
+                                    image_bytes=image_bytes,
+                                    file_name=file_name,
+                                    file_text=file_text,
+                                ),
+                                timeout=35.0,
+                            )
+                    # Agar GitHub linki bo'lsa va alohida savol bo'lmasa, Auto-Review qilish
+                    elif github_match and not file_text and not has_photo and len(input_text.strip()) < 100:
+                        answer = await asyncio.wait_for(ai_service.analyze_github_link(github_match.group(0)), timeout=35.0)
                     else:
-                        answer = await ai_service.generate_reply(
-                            chat_id=chat_id,
-                            user_message=input_text,
-                            reply_to_context=reply_context,
-                            image_bytes=image_bytes,
-                            file_name=file_name,
-                            file_text=file_text,
+                        # AI javobini olish
+                        answer = await asyncio.wait_for(
+                            ai_service.generate_reply(
+                                chat_id=chat_id,
+                                user_message=input_text,
+                                reply_to_context=reply_context,
+                                image_bytes=image_bytes,
+                                file_name=file_name,
+                                file_text=file_text,
+                            ),
+                            timeout=35.0,
                         )
-                # Agar GitHub linki bo'lsa va alohida savol bo'lmasa, Auto-Review qilish
-                elif github_match and not file_text and not has_photo and len(input_text.strip()) < 100:
-                    answer = await ai_service.analyze_github_link(github_match.group(0))
-                else:
-                    # AI javobini olish
-                    answer = await ai_service.generate_reply(
-                        chat_id=chat_id,
-                        user_message=input_text,
-                        reply_to_context=reply_context,
-                        image_bytes=image_bytes,
-                        file_name=file_name,
-                        file_text=file_text,
-                    )
+                except asyncio.TimeoutError:
+                    logger.warning("AI javob kutish vaqti (timeout 35s) oshdi [%s]. Javob bekor qilindi.", chat_id)
+                    return
+                except Exception as gen_err:
+                    logger.error("AI javobini olishda xatolik [%s]: %s", chat_id, gen_err)
+                    return
 
                 # Yakuniy tekshiruv: agar shu orada mentor o'zi yozgan bo'lsa, yubormaslik
                 last_m_time = LAST_MENTOR_ACTIVITY.get(chat_id, 0.0)

@@ -842,7 +842,7 @@
               <div style="font-size: 11px; color: var(--hint-color); text-transform: uppercase; letter-spacing: 0.5px;">Ayni paytda faol model</div>
               <div id="ai-active-model-name" style="font-size: 15px; font-weight: 700; color: #2ea6ff; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
                 <span class="status-dot" style="background-color: #22c55e; box-shadow: 0 0 8px #22c55e;"></span>
-                <span id="ai-active-model-text">llama-3.3-70b-versatile</span>
+                <span id="ai-active-model-text">qwen/qwen3.8-27b</span>
               </div>
             </div>
             <div style="text-align: right;">
@@ -914,6 +914,24 @@
           <div id="ai-cascade-container" style="display: flex; flex-direction: column; gap: 5px;">
             <!-- JS to'ldiradi -->
           </div>
+        </div>
+      </div>
+
+      <!-- AGENT RESTART ACTION CARD -->
+      <div class="card" style="border: 1px solid rgba(239, 68, 68, 0.35); background: linear-gradient(180deg, rgba(239, 68, 68, 0.08) 0%, var(--card-bg) 100%);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <div style="font-size: 14px; font-weight: 700; color: #ef4444; display: flex; align-items: center; gap: 6px;">
+              <span>🔄</span> Agentni Qayta Ishga Tushirish
+            </div>
+            <div style="font-size: 11px; color: var(--hint-color); margin-top: 2px;">
+              Xabarlarga javob to'xtab qolsa yoki navbat qotib qolsa, bir marta bosish bilan barcha qotgan vazifalarni bekor qiladi va AI klasterini qayta ishga tushiradi.
+            </div>
+          </div>
+          <button id="btn-restart-agent" onclick="restartAgent()" class="btn-secondary" style="padding: 8px 16px; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.5); display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+            <span id="restart-spinner" style="display:none;">⏳</span>
+            <span>🔄 Agentni Qayta Ishga Tushirish</span>
+          </button>
         </div>
       </div>
 
@@ -1736,13 +1754,11 @@
       // Cascade Models Status
       const cascade = metrics.cascade_status || {};
       const cCont = document.getElementById('ai-cascade-container');
-      if (cCont) {
         const defaultCascade = {
-          "llama-3.3-70b-versatile": { role: "Asosiy", state: "active", context: "131k", tpm: "12k-30k" },
-          "openai/gpt-oss-120b": { role: "Zaxira 1", state: "standby", context: "128k", tpm: "120k" },
-          "llama-3.1-8b-instant": { role: "Zaxira 2", state: "standby", context: "131k", tpm: "20k" },
-          "openai/gpt-oss-20b": { role: "Zaxira 3", state: "standby", context: "8k", tpm: "8k" },
-          "Google Gemini": { role: "Temir Zaxira", state: "standby", context: "1M", tpm: "1M" }
+          "qwen/qwen3.8-27b": { role: "Asosiy (27B)", state: "active", context: "128k", tpm: "30k" },
+          "openai/gpt-oss-120b": { role: "Zaxira 1 (120B)", state: "standby", context: "128k", tpm: "120k" },
+          "openai/gpt-oss-20b": { role: "Zaxira 2 (20B)", state: "standby", context: "128k", tpm: "30k" },
+          "Google Gemini": { role: "Temir Zaxira (1M)", state: "standby", context: "1M", tpm: "1M" }
         };
         const merged = Object.assign({}, defaultCascade, cascade);
         let html = '';
@@ -1773,6 +1789,33 @@
           `;
         }
         cCont.innerHTML = html;
+      }
+    }
+
+    async function restartAgent() {
+      if (!confirm("Haqiqatan ham AI Agentni qayta ishga tushirmoqchimisiz?\n\nBu amal:\n1. Barcha qotib qolgan vazifalarni to'xtatadi.\n2. Xotira va status buferlarini tozalaydi.\n3. AI klasteri ulanishlarini qayta tiklaydi.")) {
+        return;
+      }
+      haptic();
+      const btn = document.getElementById('btn-restart-agent');
+      const spinner = document.getElementById('restart-spinner');
+      if (btn) btn.disabled = true;
+      if (spinner) spinner.style.display = 'inline';
+      showToast("⏳ Agent qayta ishga tushirilmoqda...");
+
+      try {
+        const res = await apiRequest('/api/restart', 'POST', {});
+        if (res && res.ok) {
+          showToast("✅ " + (res.message || "Agent qayta ishga tushirildi!"), 4000);
+          refreshAiMetrics(true);
+        } else {
+          showToast("❌ Xatolik: " + ((res && res.error) || "Qayta ishga tushirib bo'lmadi"), 4000);
+        }
+      } catch (err) {
+        showToast("❌ Aloqa xatosi: " + err.message, 4000);
+      } finally {
+        if (btn) btn.disabled = false;
+        if (spinner) spinner.style.display = 'none';
       }
     }
 

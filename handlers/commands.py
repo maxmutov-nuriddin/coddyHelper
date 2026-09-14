@@ -568,12 +568,23 @@ def register_command_handlers(client: TelegramClient) -> None:
             await event.edit("⏳ **AI javob tayyorlamoqda...**")
 
             user_input = prompt if prompt else "Ushbu rasm/skrinshotdagi vazifa yoki xatolikni tahlil qilib, to'liq va aniq yechim ber."
-            answer = await ai_service.generate_reply(
-                chat_id=event.chat_id,
-                user_message=user_input,
-                reply_to_context=reply_text,
-                image_bytes=image_bytes,
-            )
+            try:
+                answer = await asyncio.wait_for(
+                    ai_service.generate_reply(
+                        chat_id=event.chat_id,
+                        user_message=user_input,
+                        reply_to_context=reply_text,
+                        image_bytes=image_bytes,
+                    ),
+                    timeout=35.0,
+                )
+            except asyncio.TimeoutError:
+                await event.edit("⚠️ **Kechirasiz, AI javob berishda vaqt tugadi (timeout 35s). Iltimos, qaytadan urinib ko'ring.**")
+                return
+            except Exception as e:
+                logger.error("AI buyrug'ida xatolik: %s", e)
+                await event.edit("⚠️ **AI javob berishda kutilmagan xatolik yuz berdi.**")
+                return
 
             # Telegram xabar uzunligi chegarasi (4096 belgi)
             try:

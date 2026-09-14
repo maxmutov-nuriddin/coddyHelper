@@ -4,6 +4,7 @@ AI integratsiyasi (Groq Multi-Key va Google Gemini qo'llab-quvvatlanadi)
 
 import asyncio
 import base64
+import inspect
 import json
 import logging
 import re
@@ -699,14 +700,26 @@ class AIService:
                 "reset_requests": "0s",
             },
             "cascade_status": {
-                "llama-3.3-70b-versatile": {"role": "Asosiy", "state": "active", "context": "131k", "tpm": "12k-30k", "rpm": 30},
-                "openai/gpt-oss-120b": {"role": "Zaxira 1", "state": "standby", "context": "128k", "tpm": "120k", "rpm": 30},
-                "llama-3.1-8b-instant": {"role": "Zaxira 2", "state": "standby", "context": "131k", "tpm": "20k", "rpm": 30},
-                "openai/gpt-oss-20b": {"role": "Zaxira 3", "state": "standby", "context": "8k", "tpm": "8k", "rpm": 30},
-                "Google Gemini": {"role": "Temir Zaxira", "state": "standby", "context": "1M", "tpm": "1M", "rpm": 15},
+                "qwen/qwen3.8-27b": {"role": "Asosiy (27B)", "state": "active", "context": "128k", "tpm": "30k", "rpm": 30},
+                "openai/gpt-oss-120b": {"role": "Zaxira 1 (120B)", "state": "standby", "context": "128k", "tpm": "120k", "rpm": 30},
+                "openai/gpt-oss-20b": {"role": "Zaxira 2 (20B)", "state": "standby", "context": "128k", "tpm": "30k", "rpm": 30},
+                "Google Gemini": {"role": "Temir Zaxira (1M)", "state": "standby", "context": "1M", "tpm": "1M", "rpm": 15},
             },
         }
         self._setup_clients()
+
+    def restart(self) -> None:
+        """AI Service holatini to'liq tozalaydi, kalitlarni qayta ulaydi va barcha statuslarni tiklaydi."""
+        self._groq_idx = 0
+        if "cascade_status" in self._metrics:
+            for m in self._metrics["cascade_status"].values():
+                if m.get("role", "").startswith("Asosiy"):
+                    m["state"] = "active"
+                else:
+                    m["state"] = "standby"
+                m.pop("last_error", None)
+        self._setup_clients()
+        logger.info("🔄 AIService to'liq qayta yuklandi va ulanishlar yangilandi.")
 
     def _record_groq_metrics(self, model_name: str, response: Any, headers: Any = None, duration_ms: int = 0) -> None:
         """Groq API so'rovidan qaytgan tokenlar va x-ratelimit HTTP sarlavhalarini hisobga oladi."""
@@ -842,22 +855,32 @@ class AIService:
         """Groq API so'rovini bajaradi va avtomatik metrikalarni yig'adi."""
         t0 = time.time()
         if hasattr(client.chat.completions, "with_raw_response"):
-            raw_resp = await client.chat.completions.with_raw_response.create(
-                model=model_name,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+            raw_resp = await asyncio.wait_for(
+                client.chat.completions.with_raw_response.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                ),
+                timeout=18.0,
             )
             duration_ms = int((time.time() - t0) * 1000)
-            response = raw_resp.parse()
+            parse_res = raw_resp.parse()
+            if inspect.isawaitable(parse_res):
+                response = await parse_res
+            else:
+                response = parse_res
             self._record_groq_metrics(model_name, response, headers=raw_resp.headers, duration_ms=duration_ms)
             return response
         else:
-            response = await client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+            response = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                ),
+                timeout=18.0,
             )
             duration_ms = int((time.time() - t0) * 1000)
             self._record_groq_metrics(model_name, response, headers=None, duration_ms=duration_ms)
@@ -874,7 +897,7 @@ class AIService:
                 from groq import AsyncGroq
                 for k in keys:
                     if k:
-                        self._groq_clients.append(AsyncGroq(api_key=k, timeout=25.0, max_retries=1))
+                        self._groq_clients.append(AsyncGroq(api_key=k, timeout=15.0, max_retries=1))
                 logger.info(
                     "⚡ Groq AI muvaffaqiyatli ulandi (%d ta API kalit, Asosiy model: %s, Vision: %s)",
                     len(self._groq_clients),
@@ -968,14 +991,17 @@ class AIService:
                     f"3. Nimalarni to'g'rilash yoki yaxshilash kerak? Qisqa punktlarda ayting (agar hammasi mukammal bo'lsa, 'KOD TO'G'RI' deb yozing)."
                 )
                 rev_sys = "Siz Senior Code Reviewer mutaxassisisiz. Kod xatolarini tekshirasiz."
-            res_rev = await c_rev.chat.completions.create(
-                model=target_model,
-                messages=[
-                    {"role": "system", "content": rev_sys},
-                    {"role": "user", "content": rev_prompt},
-                ],
-                temperature=0.2,
-                max_tokens=800,
+            res_rev = await asyncio.wait_for(
+                c_rev.chat.completions.create(
+                    model=target_model,
+                    messages=[
+                        {"role": "system", "content": rev_sys},
+                        {"role": "user", "content": rev_prompt},
+                    ],
+                    temperature=0.2,
+                    max_tokens=800,
+                ),
+                timeout=12.0,
             )
             review = res_rev.choices[0].message.content.strip()
         except Exception as rev_err:
@@ -1078,7 +1104,6 @@ class AIService:
                     "ishlamayapti", "chiqmayapti", "tekshir", "tahlil"
                 ))
                 or len(effective_prompt.split()) >= 6
-                or is_admin_mode
             )
         )
 
@@ -1089,9 +1114,8 @@ class AIService:
             # Yuqori TPM va 128k kontekstli barqaror modellar
             preferred = [
                 config.groq_model,
-                "llama-3.3-70b-versatile",
+                "qwen/qwen3.8-27b",
                 "openai/gpt-oss-120b",
-                "llama-3.1-8b-instant",
                 "openai/gpt-oss-20b",
             ]
             for m in preferred:
@@ -1150,10 +1174,11 @@ class AIService:
                     logger.warning("Pod klasterida xatolik (%s): %s, bitta kalitli rejimga o'tilmoqda", model_to_use, pod_err)
                     last_error = pod_err
 
-            # 2. Ushbu model bo'yicha barcha kalitlarni ketma-ket tekshirish (oddiy xabarlar yoki pod fallback)
+            # 2. Ushbu model bo'yicha kalitlarni ketma-ket tekshirish (maksimal 3 ta kalit sinovi)
             model_success = False
             calc_max_tokens = 1000 if "20b" in model_to_use.lower() else (2500 if is_admin_mode else 1800)
-            for _ in range(len(self._groq_clients)):
+            max_attempts = min(3, len(self._groq_clients))
+            for _ in range(max_attempts):
                 client = self._groq_clients[self._groq_idx]
                 self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
                 try:
@@ -1164,7 +1189,12 @@ class AIService:
                         temperature=0.6 if is_admin_mode else 0.4,
                         max_tokens=calc_max_tokens,
                     )
-                    return response.choices[0].message.content.strip()
+                    msg_obj = response.choices[0].message
+                    content_str = (getattr(msg_obj, "content", "") or "").strip()
+                    if not content_str and hasattr(msg_obj, "reasoning") and msg_obj.reasoning:
+                        content_str = msg_obj.reasoning.strip()
+                    if content_str:
+                        return content_str
                 except Exception as e:
                     logger.warning("Groq kalitida xatolik (model: %s): %s", model_to_use, e)
                     last_error = e
@@ -1185,7 +1215,12 @@ class AIService:
                                 temperature=0.6 if is_admin_mode else 0.4,
                                 max_tokens=calc_max_tokens,
                             )
-                            return retry_resp.choices[0].message.content.strip()
+                            msg_obj = retry_resp.choices[0].message
+                            content_str = (getattr(msg_obj, "content", "") or "").strip()
+                            if not content_str and hasattr(msg_obj, "reasoning") and msg_obj.reasoning:
+                                content_str = msg_obj.reasoning.strip()
+                            if content_str:
+                                return content_str
                         except Exception as r_err:
                             logger.warning("Qisqartirilgan xotira bilan qayta urinishda ham xatolik: %s", r_err)
                             last_error = r_err
@@ -1364,8 +1399,11 @@ class AIService:
             # 1-ustuvorlik: Groq (Multi-key Cluster)
             if self._groq_clients:
                 try:
-                    answer = await self._generate_with_groq(
-                        chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode
+                    answer = await asyncio.wait_for(
+                        self._generate_with_groq(
+                            chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode
+                        ),
+                        timeout=22.0,
                     )
                 except Exception as groq_err:
                     logger.warning(
@@ -1388,8 +1426,11 @@ class AIService:
 
                     loop = asyncio.get_running_loop()
                     t_gem = time.time()
-                    answer = await loop.run_in_executor(
-                        None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode
+                    answer = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode
+                        ),
+                        timeout=15.0,
                     )
                     d_ms = int((time.time() - t_gem) * 1000)
                     self._record_gemini_metrics(
