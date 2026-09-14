@@ -853,6 +853,8 @@ class AIService:
         max_tokens: int,
     ) -> Any:
         """Groq API so'rovini bajaradi va avtomatik metrikalarni yig'adi."""
+        # Groq OTPM (Output Tokens Per Minute) chegarasi 1,000 bo'lgani uchun 800 xavfsiz chegara
+        safe_max_tokens = min(max_tokens, 800)
         t0 = time.time()
         if hasattr(client.chat.completions, "with_raw_response"):
             raw_resp = await asyncio.wait_for(
@@ -860,7 +862,7 @@ class AIService:
                     model=model_name,
                     messages=messages,
                     temperature=temperature,
-                    max_tokens=max_tokens,
+                    max_tokens=safe_max_tokens,
                 ),
                 timeout=18.0,
             )
@@ -878,7 +880,7 @@ class AIService:
                     model=model_name,
                     messages=messages,
                     temperature=temperature,
-                    max_tokens=max_tokens,
+                    max_tokens=safe_max_tokens,
                 ),
                 timeout=18.0,
             )
@@ -949,7 +951,7 @@ class AIService:
         """
         target_model = model_name or config.groq_model
         # 1. Generator
-        calc_max_tokens = 1000 if "20b" in target_model.lower() else (2000 if is_admin_mode else 1500)
+        calc_max_tokens = 800
         res_gen = await self._call_groq_with_metrics(
             c_gen,
             model_name=target_model,
@@ -999,7 +1001,7 @@ class AIService:
                         {"role": "user", "content": rev_prompt},
                     ],
                     temperature=0.2,
-                    max_tokens=800,
+                    max_tokens=600,
                 ),
                 timeout=12.0,
             )
@@ -1028,7 +1030,7 @@ class AIService:
                 model_name=target_model,
                 messages=syn_messages,
                 temperature=0.5 if is_admin_mode else 0.3,
-                max_tokens=3000 if is_admin_mode else 2000,
+                max_tokens=800,
             )
             final_reply = res_syn.choices[0].message.content.strip()
             return final_reply if final_reply else draft
@@ -1093,10 +1095,12 @@ class AIService:
             messages.append({"role": "user", "content": effective_prompt})
 
         # 3 talik komanda (Pod Klaster) orqali murakkab savollarga xatosiz javob berish
-        # DIQQAT: Guruhlarga FAQAT bitta tezkor model javob beradi (Pod klaster ortiqcha token sarflamasligi uchun)
+        # DIQQAT: O'quvchilar va guruhlar uchun tezkor 2 soniyalik to'g'ridan-to'g'ri model ishlatiladi.
+        # Pod klaster faqat admin (mentor) rejimida ortiqcha vaqt va limit yo'qotmaslik uchun qo'llaniladi.
         is_group_chat = (chat_id < 0)
         is_complex = (
-            not image_bytes
+            is_admin_mode
+            and not image_bytes
             and not is_group_chat
             and len(self._groq_clients) >= 3
             and (
@@ -1180,7 +1184,7 @@ class AIService:
 
             # 2. Ushbu model bo'yicha kalitlarni ketma-ket tekshirish (maksimal 3 ta kalit sinovi)
             model_success = False
-            calc_max_tokens = 1000 if "20b" in model_to_use.lower() else (2500 if is_admin_mode else 1800)
+            calc_max_tokens = 800
             max_attempts = min(3, len(self._groq_clients))
             for _ in range(max_attempts):
                 client = self._groq_clients[self._groq_idx]
@@ -1210,7 +1214,7 @@ class AIService:
                     if ("413" in str(e) or "rate_limit_exceeded" in str(e)) and len(active_messages) > 2:
                         logger.warning("⚠️ 413 token limiti! Xotira 2 ga bo'linib (faqat joriy so'rov) qayta urinilmoqda...")
                         active_messages = [active_messages[0], active_messages[-1]]
-                        calc_max_tokens = max(512, calc_max_tokens // 2)
+                        calc_max_tokens = max(400, calc_max_tokens // 2)
                         try:
                             retry_resp = await self._call_groq_with_metrics(
                                 client,
@@ -1245,7 +1249,7 @@ class AIService:
                             model=config.groq_vision_model,
                             messages=messages,
                             temperature=0.3,
-                            max_tokens=1024,
+                            max_tokens=800,
                         )
                         return response.choices[0].message.content.strip()
                     except Exception:
@@ -1523,7 +1527,7 @@ class AIService:
                         model=model_name,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.4,
-                        max_tokens=1200,
+                        max_tokens=800,
                     )
                     ans = response.choices[0].message.content.strip()
                     return redact_sensitive_data(ans)
@@ -1662,7 +1666,7 @@ class AIService:
                     model=config.groq_model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.5,
-                    max_tokens=1500,
+                    max_tokens=800,
                 )
                 return redact_sensitive_data(response.choices[0].message.content.strip())
             except Exception as e:
@@ -1823,7 +1827,7 @@ class AIService:
                     model=config.groq_model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.4,
-                    max_tokens=1500,
+                    max_tokens=800,
                 )
                 return redact_sensitive_data(response.choices[0].message.content.strip())
             except Exception as e:
