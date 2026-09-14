@@ -1745,9 +1745,9 @@
       const rpmReset = document.getElementById('ai-rpm-reset');
       if (rpmReset) rpmReset.innerText = `⏳ Reset: ${rl.reset_requests || '0s'}`;
 
-      // Cascade Models Status
       const cascade = metrics.cascade_status || {};
       const cCont = document.getElementById('ai-cascade-container');
+      if (cCont) {
         const defaultCascade = {
           "qwen/qwen3.8-27b": { role: "Asosiy (27B)", state: "active", context: "128k", tpm: "30k" },
           "openai/gpt-oss-120b": { role: "Zaxira 1 (120B)", state: "standby", context: "128k", tpm: "120k" },
