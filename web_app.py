@@ -957,6 +957,38 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 },
             ]
 
+            learned_facts = memory_service.get_all_learned_facts(limit=100)
+            students = memory_service.get_students(limit=100)
+
+            knowledge_items = []
+            for f in learned_facts:
+                knowledge_items.append({
+                    "id": f.get("id"),
+                    "type": "fact",
+                    "topic": f.get("topic", "Qoida / Fakt"),
+                    "content": f.get("content", ""),
+                    "category": f.get("category", "rule"),
+                    "created_at": f.get("created_at", ""),
+                })
+
+            for s in students:
+                parts = []
+                if s.get("strengths"):
+                    parts.append(f"Kuchli: {s['strengths']}")
+                if s.get("weaknesses"):
+                    parts.append(f"Bo'shliq: {s['weaknesses']}")
+                if s.get("mentor_notes"):
+                    parts.append(f"Tavsiya: {s['mentor_notes']}")
+                if parts:
+                    knowledge_items.append({
+                        "id": f"student_{s['id']}",
+                        "type": "student",
+                        "topic": f"👨‍🎓 {s['full_name']} ({s.get('group_name') or 'Coddy'})",
+                        "content": " • ".join(parts),
+                        "category": "student_insight",
+                        "created_at": s.get("last_active", "") or s.get("created_at", ""),
+                    })
+
             return web.json_response({
                 "ok": True,
                 "level": stats.get("level", 1),
@@ -969,7 +1001,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "stats": {
                     "saved_locations": len(saved_locations),
                     "today_plans": len(today_plans),
-                    "learned_knowledge": stats.get("total_learned_facts", 0),
+                    "learned_knowledge": len(knowledge_items),
                     "total_messages": stats.get("total_messages", 0),
                     "total_students": stats.get("total_students", 0),
                     "sent_reminders": stats.get("sent_reminders", 0),
@@ -977,6 +1009,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "skills": skills,
                 "saved_locations_list": saved_locations,
                 "today_plans_list": today_plans,
+                "learned_knowledge_list": knowledge_items,
             })
         except Exception as e:
             logger.error("Agent statistikasini olishda xatolik: %s", e)

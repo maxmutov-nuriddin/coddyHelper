@@ -1381,16 +1381,18 @@
 
       <!-- EMERGENCY CONTACT & SAFETY SETTINGS -->
       <div class="card">
-        <div class="card-header">
-          <span class="card-title">🚨 Favqulodda Uyg'otish Kontaktlari</span>
-          <span class="badge badge-success">Faol</span>
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="card-title" style="margin: 0; font-size: 14px; font-weight: 700;">🚨 Favqulodda Uyg'otish Kontaktlari</span>
+          <span class="badge badge-success" style="white-space: nowrap; flex-shrink: 0; margin-left: 8px;">Faol</span>
         </div>
-        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px; line-height: 1.4;">
-          Ertalab soat 08:00 dagi brifingga 10 daqiqa (08:10 gacha) "Turdim" deb javob berilmasa, agent avtomatik ushbu <strong>barcha</strong> ko'rsatilgan kontaktlarga sizni uyg'otib qo'yishni iltimos qilib xabar yuboradi. Bir nechta bo'lsa vergul bilan ajrating.
+        <p style="font-size: 12px; color: var(--hint-color); margin: 6px 0 10px 0; line-height: 1.4;">
+          Ertalab soat 08:00 dagi brifingga 10 daqiqa (08:10 gacha) "Turdim" deb javob berilmasa, agent avtomatik kiritilgan <strong>barcha</strong> kontaktlarga sizni uyg'otib qo'yishni iltimos qilib xabar yuboradi.
         </p>
-        <div style="display: flex; gap: 8px;">
-          <input type="text" id="agent-emergency-contact-input" class="form-input" placeholder="Telegram ID lar (masalan: 5023430798, 987654321)" style="flex: 1;" />
-          <button class="btn btn-primary" onclick="saveEmergencyContact()">Saqlash</button>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <input type="text" id="agent-emergency-contact-input" class="form-input" placeholder="Telegram ID lar (masalan: 5023430798, 123456789)" style="width: 100%; font-size: 13px; padding: 10px 12px;" />
+          <button class="btn btn-primary" onclick="saveEmergencyContact()" style="width: 100%; padding: 10px;">
+            💾 Kontaktlarni Saqlash
+          </button>
         </div>
       </div>
 
@@ -1402,6 +1404,20 @@
         </div>
         <div id="agent-skills-list" style="display: flex; flex-direction: column; gap: 8px;">
           <!-- JS to'ldiradi -->
+        </div>
+      </div>
+
+      <!-- AGENT KNOWLEDGE & COGNITIVE INSIGHTS -->
+      <div class="card">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="card-title" style="margin: 0; font-size: 14px; font-weight: 700;">🧠 Agent Anglagan Bilimlar & Xulosalar</span>
+          <span style="font-size: 11px; color: var(--accent); font-weight: 600;" id="agent-learned-count">0 ta</span>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin: 6px 0 10px 0; line-height: 1.4;">
+          Agent muloqot davomida sizdan, o'quvchilardan va vazifalardan nimalarni o'rgangani va qanday qoidalarni tushunib yetgani:
+        </p>
+        <div id="agent-knowledge-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 350px; overflow-y: auto; padding-right: 2px;">
+          <div style="text-align: center; color: var(--hint-color); padding: 16px; font-size: 12px;">Hozircha o'rganilgan bilimlar mavjud emas</div>
         </div>
       </div>
 
@@ -2908,6 +2924,38 @@
                 </span>
               </div>
             `).join("");
+          }
+        }
+
+        // Agent Learned Knowledge & Cognitive Insights
+        const knowContainer = document.getElementById("agent-knowledge-list");
+        const knowCount = document.getElementById("agent-learned-count");
+        if (knowContainer) {
+          const items = res.learned_knowledge_list || [];
+          if (knowCount) knowCount.innerText = items.length + " ta";
+          if (items.length === 0) {
+            knowContainer.innerHTML = '<div style="text-align: center; color: var(--hint-color); padding: 16px; font-size: 12px;">Hozircha o\'rganilgan bilimlar mavjud emas</div>';
+          } else {
+            knowContainer.innerHTML = items.map(item => {
+              const isStudent = item.type === "student" || item.category === "student_insight";
+              const icon = isStudent ? "👨‍🎓" : (item.category === "mentor_location" ? "📍" : "💡");
+              const badgeLabel = isStudent ? "O'quvchi Tahlili" : (item.category === "mentor_location" ? "Manzil" : "Qoida / Odat");
+              const badgeClass = isStudent ? "badge-info" : (item.category === "mentor_location" ? "badge-warning" : "badge-success");
+              
+              return `
+                <div style="background: var(--card-bg); border-radius: 8px; padding: 10px 12px; border: 1px solid var(--border-color); border-left: 3px solid var(--accent);">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                    <div style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                      <span>${icon}</span>
+                      <span>${escapeHtml(item.topic || "Bilim")}</span>
+                    </div>
+                    <span class="badge ${badgeClass}" style="font-size: 10px; padding: 2px 6px;">${badgeLabel}</span>
+                  </div>
+                  <div style="font-size: 12px; color: var(--text-color); line-height: 1.4; white-space: pre-wrap;">${escapeHtml(item.content || "")}</div>
+                  ${item.created_at ? `<div style="font-size: 10px; color: var(--hint-color); margin-top: 4px; text-align: right;">🕒 ${escapeHtml(item.created_at.substring(0, 16))}</div>` : ""}
+                </div>
+              `;
+            }).join("");
           }
         }
 
