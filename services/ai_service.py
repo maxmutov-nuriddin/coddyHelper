@@ -1006,7 +1006,7 @@ class AIService:
 
         # Vazifalar (Admin) guruhi yoki Mentor ekanini aniqlash
         if is_admin_mode is None:
-            is_admin_mode = is_escalation_chat(chat_id) or (chat_id in (config.mentor_user_id, 8207311790, 8105823872))
+            is_admin_mode = is_escalation_chat(chat_id) or (chat_id in (config.mentor_user_id, 8105823872))
 
         # Standart xatoliklarga (FAQ) 0.01 soniyada tezkor javob berish
         if not is_admin_mode and not file_text and not image_bytes:

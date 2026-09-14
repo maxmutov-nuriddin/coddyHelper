@@ -638,7 +638,7 @@ async def get_recent_incoming_senders(client, limit: int = 10, unread_only: bool
         return [{"error": "Telegram mijoz ulanmagan"}]
 
     from config import config
-    mentor_ids = {config.mentor_user_id, 8207311790, 8105823872}
+    mentor_ids = {config.mentor_user_id, 8105823872}
     vazifalar_target = str(config.escalation_chat).strip()
 
     try:

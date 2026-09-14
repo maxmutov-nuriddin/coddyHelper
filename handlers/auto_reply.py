@@ -284,9 +284,8 @@ async def check_is_vazifalar_chat(event) -> bool:
     """Xabar 'Vazifalar' (Mentorning Shaxsiy Boshqaruv Markazi) guruhida yoki Mentor lichkasida ekanini aniqlaydi."""
     chat_id = event.chat_id
     sender_id = event.sender_id
-    # Agar mentorning o'zi (Nuriddin / 8207311790 yoki 8105823872) shaxsiy chatda (lichkada) yozsa:
-    # Bu mentorning Co-Pilot bilan bevosita boshqaruv muloqotidir!
-    if event.is_private and (sender_id in (config.mentor_user_id, 8207311790, 8105823872) or chat_id in (config.mentor_user_id, 8207311790, 8105823872)):
+    # Faqat yagona mentor (@mentor_cc / ID: 8105823872) shaxsiy Saved Messages yoki o'z hisobidan yozsa:
+    if event.is_private and (sender_id in (config.mentor_user_id, 8105823872) or chat_id in (config.mentor_user_id, 8105823872)):
         return True
     if is_escalation_chat(chat_id):
         return True
@@ -341,8 +340,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         is_mentor = (
             event.out
             or (sender_id == my_user_id)
-            or (sender_id in (config.mentor_user_id, 8207311790, 8105823872))
-            or (event.is_private and chat_id in (config.mentor_user_id, 8207311790, 8105823872))
+            or (sender_id in (config.mentor_user_id, 8105823872))
+            or (event.is_private and chat_id in (config.mentor_user_id, 8105823872))
         )
         if not is_mentor:
             logger.info("Vazifalar guruhida (%s) begona a'zo (%s) yozdi. Faqat mentor uchun ishlashi sababli e'tiborsiz qoldirildi.", chat_id, sender_id)
@@ -711,7 +710,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         # 🛡 XAVFSIZLIK: Tokenlarni qasddan sarflash, sun'iy cheksiz so'rovlar yoki trollik urinishlari
-        is_admin_user = (sender_id in (config.mentor_user_id, 8207311790, 8105823872)) or is_escalation_chat(event.chat_id)
+        is_admin_user = (sender_id in (config.mentor_user_id, 8105823872)) or is_escalation_chat(event.chat_id)
         if not is_admin_user and is_token_abuse(clean_msg):
             s_name = getattr(sender, "first_name", "") or "Noma'lum"
             if getattr(sender, "last_name", None):
@@ -803,7 +802,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
         # Spamerlardan himoya (Rate limiting: 1 daqiqada ko'pi bilan 6 ta so'rov)
         # Mentor va Vazifalar guruhiga HECH QANDAY rate limit yoki cheklov qo'llanilmaydi!
-        is_mentor_user = (sender_id in (config.mentor_user_id, 8207311790, 8105823872)) or (is_private and chat_id in (config.mentor_user_id, 8207311790, 8105823872))
+        is_mentor_user = (sender_id in (config.mentor_user_id, 8105823872)) or (is_private and chat_id in (config.mentor_user_id, 8105823872))
         if not is_mentor_user and not is_vazifalar and not is_escalation_chat(event.chat_id):
             now_ts = time.time()
             user_times = USER_REQUEST_TIMESTAMPS.setdefault(sender_id, [])
@@ -1019,10 +1018,31 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             BOT_SENT_MESSAGE_IDS.add(sent.id)
                         return
 
-                    # 2. Ustozning joylashuvi yoki koordinatalari so'ralsa (faqat o'quvchilar ustozning manzilini surishtirganda)
-                    # Agar xabarda saqlash yoki birinchi shaxs (men turgan, saqla, eslab qol, o'zim) bo'lsa, bu himoya ishlamaydi!
-                    is_save_intent = bool(re.search(r"\b(?:saqla\w*|yozib\s+qo['’`]?y\w*|eslab\s+qol\w*|men\s+turgan|o['’`]?zim|сохрани\w*|запомни\w*)\b", input_text, re.I))
-                    if not is_save_intent and re.search(r"\b(?:ustoz\w*|nuriddin\w*|mentor\w*|sizning|siz)\s+(?:lokatsiya\w*|joylashuv\w*|manzil\w*|qayerda\s+turadi|qayerdasiz|turgan\s+joy\w*|где\s+вы\s+находитесь|ваша\s+геопозиция|где\s+учитель)\b", input_text, re.I):
+                    # 2. Foydalanuvchi o'z lokatsiyasini saqlashni so'rasa ("men turgan lokatsiyani saqlab qoy", "joyimni saqla")
+                    # Bu gapiruvchining O'ZI haqida ("meni deyapti, ustozni emas")
+                    is_save_user_loc = bool(re.search(
+                        r"\b(?:men\s+turgan\s+)?(?:joy|manzil|lokatsiya|locatsiya|geopozitsiya)\w*\s*(?:saqla\w*|yozib\s+qo['’`]?y\w*|eslab\s+qol\w*)\b|"
+                        r"\b(?:saqla\w*|yozib\s+qo['’`]?y\w*|eslab\s+qol\w*)\s+(?:joyim\w*|manzilim\w*|lokatsiyam\w*|men\s+turgan)\b|"
+                        r"\b(?:сохрани|запомни)\s+(?:мое\s+|моё\s+)?(?:местоположение|геопозицию|локацию)\b",
+                        input_text,
+                        re.I
+                    ))
+                    if is_save_user_loc:
+                        is_ru_req = is_russian_text(input_text)
+                        user_loc_guard = (
+                            "📍 Сохранение и фиксация персональной геопозиции пользователей не поддерживается. "
+                            "Я AI-ассистент CoddyCamp по урокам и программированию. Чем могу помочь по учебе? 😊"
+                            if is_ru_req else
+                            "📍 Shaxsiy lokatsiyani saqlash xizmati mavjud emas. "
+                            "Men CoddyCamp o'quv markazimiz dasturlash darslari va o'quv jarayoni bo'yicha yordamchi AI botman. Darslar bo'yicha qanday savolingiz bor? 😊"
+                        )
+                        sent = await event.reply(user_loc_guard)
+                        if sent:
+                            BOT_SENT_MESSAGE_IDS.add(sent.id)
+                        return
+
+                    # 3. Ustozning shaxsiy joylashuvi yoki koordinatalari so'ralsa (faqat ustozning o'zini surishtirganda)
+                    if re.search(r"\b(?:ustoz\w*|nuriddin\w*|mentor\w*|sizning|siz)\s+(?:lokatsiya\w*|joylashuv\w*|manzil\w*|qayerda\s+turadi|qayerdasiz|turgan\s+joy\w*|где\s+вы\s+находитесь|ваша\s+геопозиция|где\s+учитель)\b", input_text, re.I):
                         is_ru_req = is_russian_text(input_text)
                         loc_guard = (
                             "📍 Личная геопозиция и местоположение учителя не разглашаются. "
@@ -1036,13 +1056,13 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             BOT_SENT_MESSAGE_IDS.add(sent.id)
                         return
 
-                    # 3. Xabarni rejalashtirish yoki kechiktirib yuborish so'ralsa
-                    if re.search(r"\b(?:rejalashtir\w*|schedule\w*|kechiktir\w*|\d+\s*(?:daqiqa|minut|soat|min|sekund)\w*\s*(?:keyin|so['’`]?ng)\w*.*?(?:yubor|jo['’`]?nat)|запланируй\w*|отправь\s+(?:через\s+)?\d+)\b", input_text, re.I):
+                    # 4. Xabarni rejalashtirish yoki eslatma so'ralsa ("1 daqiqadan song oqatlanishim haqida eslat")
+                    if re.search(r"\b(?:rejalashtir\w*|schedule\w*|kechiktir\w*|eslat\w*|eslatma\w*|\d+\s*(?:daqiqa|minut|soat|min|sekund)\w*\s*(?:keyin|so['’`]?ng)\w*.*?(?:yubor|jo['’`]?nat|eslat)|запланируй\w*|напомни\w*|отправь\s+(?:через\s+)?\d+)\b", input_text, re.I):
                         is_ru_req = is_russian_text(input_text)
                         sched_guard = (
-                            "⏳ Планирование и отложенная отправка сообщений доступны исключительно для учителя Нуриддина в Центре Управления (Vazifalar)."
+                            "⏳ Планирование сообщений и напоминания доступны исключительно для учителя в Центре Управления (Vazifalar)."
                             if is_ru_req else
-                            "⏳ Xabarlarni rejalashtirish (schedule) va kechiktirib jo'natish faqat Nuriddin ustoz uchun Boshqaruv Markazida (Vazifalar) ishlaydi."
+                            "⏳ Xabarlarni rejalashtirish (schedule) va shaxsiy eslatmalar faqat ustoz uchun Boshqaruv Markazida (Vazifalar) ishlaydi."
                         )
                         sent = await event.reply(sched_guard)
                         if sent:
@@ -1342,7 +1362,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 LAST_REPLY_TIME[chat_id] = time.time()
 
                 # O'quvchi profiliga faollikni yozib qo'yish (Student CRM)
-                if sender_id and sender_id not in (config.mentor_user_id, 8207311790, 8105823872):
+                if sender_id and sender_id != config.mentor_user_id and sender_id != 8105823872:
                     try:
                         s_name = getattr(sender, "first_name", "") or "O'quvchi"
                         if getattr(sender, "last_name", None):

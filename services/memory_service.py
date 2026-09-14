@@ -268,14 +268,14 @@ class SQLiteMemoryService:
     def ignore_user(self, user_id: int, username: str = "", reason: str = "") -> None:
         """Foydalanuvchini bloklanganlar (ignore) ro'yxatiga qo'shadi."""
         # 🛡 MENTOR DAXILSIZLIGI (IMMUNITY GUARD):
-        # Mentorni (Nuriddin aka / 8207311790 / 8105823872) hech qanday holatda bloklab yoki ignore qilib bo'lmaydi!
+        # Mentorni (Yagona mentor / 8105823872) hech qanday holatda bloklab yoki ignore qilib bo'lmaydi!
         try:
             from config import config
-            if user_id in (config.mentor_user_id, 8207311790, 8105823872):
+            if user_id in (config.mentor_user_id, 8105823872):
                 logger.warning("Xavfsizlik: Mentorni (ID: %s) ignore ro'yxatiga qo'shish qat'iyan man etiladi!", user_id)
                 return
         except Exception:
-            if user_id in (8207311790, 8105823872):
+            if user_id == 8105823872:
                 return
 
         try:
