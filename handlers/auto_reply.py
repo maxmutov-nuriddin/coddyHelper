@@ -280,6 +280,74 @@ def is_relevant_group_message(
     return True
 
 
+def get_smart_reaction(text: str) -> str | None:
+    """Xabar mazmuniga qarab mos Telegram emodzi reaksiyasini aniqlaydi."""
+    t = text.lower().strip().rstrip("!?.,~ ")
+    if not t:
+        return None
+
+    # Agar savol belgisi yoki savol so'zlari bo'lsa, reaksiya bosilmaydi, AI to'liq javob berishi kerak!
+    question_words = ["qanday", "nega", "nimaga", "qanaqa", "qayerda", "qachon", "kim", "bormi", "yordam", "xato", "tushunmadim", "как", "почему", "где", "когда", "что", "помогите"]
+    if "?" in text or any(re.search(r"\b" + w + r"\b", t) for w in question_words):
+        return None
+
+    # Faqat qisqa tasdiq, minnatdorchilik va natija xabarlariga (maksimal 80 belgi yoki 10 ta so'z)
+    words = t.split()
+    if len(words) > 10 and len(t) > 80:
+        return None
+
+    # 1. Kod ishladi / Super natija -> 🔥
+    fire_triggers = [
+        r"\b(?:ishladi|ishlab\s+ketdi|ishlayapti|kod\s+ishladi|boldi\s+ishladi)\b",
+        r"\b(?:zo['’`]?r|zor|ajoyib|yondirdi|super|daxshat|dahshat|bomba|klass|ura)\b",
+        r"\b(?:получилось|заработало|отлично|супер|огонь|ура)\b",
+    ]
+    if any(re.search(pat, t, re.I) for pat in fire_triggers):
+        return "🔥"
+
+    # 2. Minnatdorchilik / Rahmat -> ❤️
+    heart_triggers = [
+        r"\b(?:rahmat\w*|raxmat\w*|katta\s+rahmat|tashakkur|minnatdorman|sog['’`]?\s+bo['’`]?ling|salomat\s+bo['’`]?ling)\b",
+        r"\b(?:спасибо\w*|благодарю|от\s+души)\b",
+        r"\b(?:thanks\w*|thank\s+you)\b",
+    ]
+    if any(re.search(pat, t, re.I) for pat in heart_triggers):
+        return "❤️"
+
+    # 3. Tushundim / Ma'qullash / Tasdiq -> 👍
+    thumbs_triggers = [
+        r"\b(?:tushundim|tushunarli|yaxshi|bo['’`]?ladi|boladi|boldi|bo['’`]?ldi|kelishdik|bopti|hop|xop|ok|okay|k)\b",
+        r"\b(?:понял|понятно|хорошо|ладно|договорились|ок)\b",
+    ]
+    if any(re.search(pat, t, re.I) for pat in thumbs_triggers):
+        return "👍"
+
+    return None
+
+
+async def send_smart_reaction(client: TelegramClient, event: events.NewMessage.Event, reaction_emoji: str) -> bool:
+    """Telegram xabariga chiroyli emodzi reaksiya (👍, ❤️, 🔥) bosadi."""
+    try:
+        from telethon.tl.functions.messages import SendReactionRequest
+        from telethon.tl.types import ReactionEmoji
+        try:
+            peer = await event.get_input_chat()
+        except Exception:
+            peer = await client.get_input_entity(event.chat_id)
+
+        await client(SendReactionRequest(
+            peer=peer,
+            msg_id=event.message.id,
+            reaction=[ReactionEmoji(emoticon=reaction_emoji)]
+        ))
+        log_activity(f"Reaksiya bosildi ({reaction_emoji}) [{event.chat_id}]")
+        logger.info("Chat [%s] xabariga (%s) reaksiyasi qo'yildi.", event.chat_id, reaction_emoji)
+        return True
+    except Exception as e:
+        logger.debug("Reaksiya qo'yishda ogohlantirish [%s]: %s", event.chat_id, e)
+        return False
+
+
 async def check_is_vazifalar_chat(event) -> bool:
     """Xabar 'Vazifalar' (Mentorning Shaxsiy Boshqaruv Markazi) guruhida yoki Mentor lichkasida ekanini aniqlaydi."""
     chat_id = event.chat_id
@@ -537,6 +605,23 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             if not input_text and not file_text and not image_bytes:
                 return
 
+            # 💡 Vazifalar guruhida jonli indikator:
+            # 1. "👀 Assistent xabarni o'qidi..." yuboriladi
+            status_msg = None
+            try:
+                status_msg = await event.reply("👀 Assistent xabarni o'qidi...")
+                if status_msg:
+                    BOT_SENT_MESSAGE_IDS.add(status_msg.id)
+            except Exception as s_err:
+                logger.debug("Vazifalar status xabarida ogohlantirish: %s", s_err)
+
+            # 2. Keyin "✍️ Assistent javob tayyorlamoqda..." ga edit qilinadi
+            if status_msg:
+                try:
+                    await status_msg.edit("✍️ Assistent javob tayyorlamoqda...")
+                except Exception:
+                    pass
+
             # 4. Telegram kontaktlar va guruhlar kontekstini olish (faqat zarur bo'lganda)
             chats_context = None
             lower_in = input_text.lower()
@@ -582,12 +667,24 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 except Exception as v_send_err:
                     logger.warning("Vazifalarda ovozli javob yuborishda ogohlantirish: %s", v_send_err)
 
+            # 3. Javob tayyor bo'lgach, "yozmoqda" xabari o'chib ketadi va to'liq javob yuboriladi
+            if status_msg:
+                try:
+                    await status_msg.delete()
+                except Exception:
+                    pass
+
             sent_msg = await event.reply(final_reply)
             if sent_msg:
                 BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
             log_activity(f"Vazifalar AI javobi berildi: {str(final_reply)[:50]}")
 
         except Exception as e:
+            if status_msg:
+                try:
+                    await status_msg.delete()
+                except Exception:
+                    pass
             logger.error("Vazifalar xabarini qayta ishlashda xatolik: %s", e)
         finally:
             CURRENT_SENDING_CHATS.discard(chat_id)
@@ -834,6 +931,15 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         is_mentioned = bool(getattr(event.message, "mentioned", False))
         if "ustoz" in message_text.lower() or "mentor" in message_text.lower():
             is_mentioned = True
+
+        # Aqlli Reaksiyalar (Telegram Reactions — 👍, ❤️, 🔥)
+        # O'quvchi "Rahmat", "Tushundim", "Kodim ishladi" kabi qisqa xabar yozsa:
+        # Chatni ortiqcha matn bilan to'ldirmasdan, xabariga mos emodzi bosiladi.
+        smart_rx = get_smart_reaction(message_text)
+        if smart_rx and not has_photo and not has_voice and not has_doc_file:
+            if is_private or (is_group and (reply_to_me or is_mentioned)):
+                await send_smart_reaction(client, event, smart_rx)
+                return
 
         # Qisqa tasdiq va loqayd so'zlar (AI jim turishi shart, bot aralashmaydi)
         clean_text = message_text.lower().strip().rstrip("!?.,~ ")

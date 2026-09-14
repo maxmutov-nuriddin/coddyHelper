@@ -828,6 +828,25 @@
           </label>
         </div>
 
+        <!-- TARGET WEBSITES (KASKADLI QIDIRUV UCHUN MANBALAR) -->
+        <div class="trusted-sites-box" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <div>
+              <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--text-color, #fff);">🎯 Ishonchli Manbalar (Kaskadli Qidiruv)</h4>
+              <p style="margin: 3px 0 0 0; font-size: 12px; color: var(--hint-color, #8e9ca8);">Savollarga avval shu saytlardan rasmiy fakt olinadi, topilmasa ochiq internetdan qidiriladi.</p>
+            </div>
+          </div>
+          
+          <div id="trusted-sites-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
+            <!-- JS to'ldiradi -->
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 8px;">
+            <input type="text" id="new-trusted-site" placeholder="Masalan: react.dev yoki metanit.com" style="flex: 1; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
+            <button type="button" onclick="addTrustedSite()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer;">➕ Qo'shish</button>
+          </div>
+        </div>
+
         <div class="toggle-row" style="align-items: center; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
           <div class="toggle-info">
             <h3>⏱ Lichkada AI Kutish Vaqti</h3>
@@ -1308,6 +1327,63 @@
           .join("");
       } else {
         logList.innerHTML = '<div class="log-item">Hozircha yangi faoliyat qayd etilmadi.</div>';
+      }
+
+      // Load Trusted Websites for Cascade Search
+      renderTrustedSites(data.trusted_websites || []);
+    }
+
+    // Trusted Websites Management
+    function renderTrustedSites(sites) {
+      const container = document.getElementById("trusted-sites-container");
+      if (!container) return;
+      if (sites && sites.length > 0) {
+        container.innerHTML = sites.map(site => `
+          <span style="display: inline-flex; align-items: center; gap: 6px; background: rgba(51,144,236,0.15); border: 1px solid rgba(51,144,236,0.3); color: #64b5f6; padding: 4px 10px; border-radius: 16px; font-size: 12px; font-weight: 500;">
+            🌐 ${escapeHtml(site)}
+            <span onclick="deleteTrustedSite('${escapeHtml(site)}')" style="cursor: pointer; opacity: 0.7; font-weight: bold; margin-left: 2px;" title="O'chirish">✕</span>
+          </span>
+        `).join("");
+      } else {
+        container.innerHTML = '<span style="font-size: 12px; color: var(--hint-color, #8e9ca8);">Ishonchli saytlar kiritilmagan.</span>';
+      }
+    }
+
+    async function loadTrustedSites() {
+      const res = await apiRequest("/api/trusted-sites");
+      if (res && res.ok && res.sites) {
+        renderTrustedSites(res.sites);
+      }
+    }
+
+    async function addTrustedSite() {
+      const input = document.getElementById("new-trusted-site");
+      if (!input) return;
+      const domain = input.value.trim();
+      if (!domain) {
+        showToast("Iltimos, domen nomini kiriting", true);
+        return;
+      }
+      haptic();
+      const res = await apiRequest("/api/trusted-sites/add", "POST", { domain });
+      if (res && res.ok) {
+        input.value = "";
+        showToast("✅ Yangi manba qo'shildi: " + domain);
+        renderTrustedSites(res.sites || []);
+      } else {
+        showToast("Xatolik: " + (res?.error || "Qo'shib bo'lmadi"), true);
+      }
+    }
+
+    async function deleteTrustedSite(domain) {
+      if (!confirm(`Haqiqatan ham '${domain}' manbasini o'chirmoqchimisiz?`)) return;
+      haptic();
+      const res = await apiRequest("/api/trusted-sites/delete", "POST", { domain });
+      if (res && res.ok) {
+        showToast("🗑 Manba o'chirildi: " + domain);
+        renderTrustedSites(res.sites || []);
+      } else {
+        showToast("Xatolik: " + (res?.error || "O'chirib bo'lmadi"), true);
       }
     }
 

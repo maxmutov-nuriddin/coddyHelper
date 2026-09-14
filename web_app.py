@@ -318,6 +318,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "active_chats_count": memory_service.total_active_chats(),
                 "active_reminders_count": len(memory_service.get_active_reminders(100)),
                 "ignored_users_count": len(memory_service.get_ignored_users()),
+                "trusted_websites": memory_service.get_trusted_websites(),
                 "recent_activity_logs": list(reversed(RECENT_ACTIVITY_LOGS[-15:])),
                 "telegram_authorized": telegram_authorized,
                 "telegram_me": telegram_me,
@@ -639,6 +640,43 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             logger.error("Baza yuklashda xatolik: %s", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+    # -----------------------------------------------------------
+    # Ishonchli Saytlar (Trusted Websites / Target RAG) API
+    # -----------------------------------------------------------
+    async def handle_api_get_trusted_sites(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        sites = memory_service.get_trusted_websites()
+        return web.json_response({"ok": True, "sites": sites})
+
+    async def handle_api_add_trusted_site(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
+        domain = str(data.get("domain", "")).strip()
+        if not domain:
+            return web.json_response({"ok": False, "error": "Domen nomi kiritilmadi"}, status=400)
+        ok = memory_service.add_trusted_website(domain)
+        sites = memory_service.get_trusted_websites()
+        return web.json_response({"ok": ok, "sites": sites, "message": "Sayt muvaffaqiyatli qo'shildi"})
+
+    async def handle_api_delete_trusted_site(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
+        domain = str(data.get("domain", "")).strip()
+        if not domain:
+            return web.json_response({"ok": False, "error": "Domen nomi kiritilmadi"}, status=400)
+        ok = memory_service.remove_trusted_website(domain)
+        sites = memory_service.get_trusted_websites()
+        return web.json_response({"ok": ok, "sites": sites, "message": "Sayt ro'yxatdan olib tashlandi"})
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
@@ -658,6 +696,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_post("/api/students", handle_api_upsert_student)
     app.router.add_post("/api/students/delete", handle_api_delete_student)
     app.router.add_post("/api/upload_db", handle_api_upload_db)
+    app.router.add_get("/api/trusted-sites", handle_api_get_trusted_sites)
+    app.router.add_post("/api/trusted-sites/add", handle_api_add_trusted_site)
+    app.router.add_post("/api/trusted-sites/delete", handle_api_delete_trusted_site)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

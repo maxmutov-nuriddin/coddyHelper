@@ -161,6 +161,75 @@ class SQLiteMemoryService:
         """Lichka sokinlik/kutish vaqtini yangilaydi."""
         self.set_setting("private_quiet_window", str(max(0, int(seconds))))
 
+    DEFAULT_TRUSTED_WEBSITES = [
+        "w3schools.com",
+        "docs.python.org",
+        "developer.mozilla.org",
+        "metanit.com",
+        "geeksforgeeks.org",
+    ]
+
+    def get_trusted_websites(self) -> list[str]:
+        """Ishonchli ta'limiy va dasturlash saytlari ro'yxatini qaytaradi."""
+        import json
+        raw = self.get_setting("trusted_websites")
+        if not raw:
+            return list(self.DEFAULT_TRUSTED_WEBSITES)
+        try:
+            sites = json.loads(raw)
+            return sites if isinstance(sites, list) and sites else list(self.DEFAULT_TRUSTED_WEBSITES)
+        except Exception:
+            return list(self.DEFAULT_TRUSTED_WEBSITES)
+
+    def set_trusted_websites(self, sites: list[str]) -> None:
+        """Ishonchli saytlar ro'yxatini to'liq yangilaydi."""
+        import json
+        clean_sites = []
+        for s in sites:
+            clean = self._clean_domain(s)
+            if clean and clean not in clean_sites:
+                clean_sites.append(clean)
+        self.set_setting("trusted_websites", json.dumps(clean_sites))
+
+    def add_trusted_website(self, domain: str) -> bool:
+        """Yangi ishonchli saytni ro'yxatga qo'shadi."""
+        clean = self._clean_domain(domain)
+        if not clean:
+            return False
+        current = self.get_trusted_websites()
+        if clean in current:
+            return True
+        current.append(clean)
+        self.set_trusted_websites(current)
+        return True
+
+    def remove_trusted_website(self, domain: str) -> bool:
+        """Ishonchli saytni ro'yxatdan o'chiradi."""
+        clean = self._clean_domain(domain)
+        current = self.get_trusted_websites()
+        if clean not in current:
+            return False
+        current.remove(clean)
+        self.set_trusted_websites(current)
+        return True
+
+    @staticmethod
+    def _clean_domain(raw_url: str) -> str:
+        """URL yoki domenni toza domen ko'rinishiga keltiradi (masalan: https://w3schools.com/python -> w3schools.com)."""
+        import urllib.parse
+        s = raw_url.strip().lower()
+        if not s:
+            return ""
+        if "://" in s:
+            parsed = urllib.parse.urlparse(s)
+            s = parsed.netloc or parsed.path
+        elif "/" in s:
+            s = s.split("/")[0]
+        s = s.split(":")[0]
+        if s.startswith("www."):
+            s = s[4:]
+        return s.strip()
+
     def add_message(self, chat_id: int, role: Literal["user", "model"], content: str) -> None:
         """Yangi xabarni doimiy bazaga qo'shadi."""
         if not content or not content.strip():

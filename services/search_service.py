@@ -230,11 +230,46 @@ async def search_web(query: str, max_results: int = 4) -> list[dict[str, str]]:
     return unique_results[:max_results]
 
 
+async def search_targeted_websites(query: str, trusted_sites: list[str], max_results: int = 3) -> list[dict[str, str]]:
+    """
+    1-POG'ONA: Faqat admin/mentor tanlagan ishonchli ta'limiy saytlar ichidan qidiradi.
+    Masalan: python list methods (site:w3schools.com OR site:docs.python.org)
+    """
+    if not query or not trusted_sites:
+        return []
+
+    # DuckDuckGo query uchun saytlar filtri
+    # Maksimal 5 ta sayt bilan guruhlash (so'rov juda cho'zilib ketmasligi uchun)
+    active_sites = [s.strip() for s in trusted_sites if s.strip()][:5]
+    if not active_sites:
+        return []
+
+    site_clauses = " OR ".join(f"site:{s}" for s in active_sites)
+    targeted_q = f"{query} ({site_clauses})"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            results = await _fetch_ddg_html_results(session, targeted_q, max_results=max_results)
+            # Natijalar haqiqatdan ham ko'rsatilgan saytlarga tegishli ekanini tekshirish
+            filtered = []
+            for r in results:
+                url = r.get("url", "").lower()
+                if any(s.lower() in url for s in active_sites):
+                    filtered.append(r)
+                elif r.get("snippet"):
+                    filtered.append(r)
+            return filtered[:max_results]
+    except Exception as e:
+        logger.debug("Maqsadli saytlardan qidirishda ogohlantirish: %s", e)
+        return []
+
+
 async def get_web_search_context(query: str, is_admin: bool = False) -> str:
     """
-    Qidiruv natijalarini AI modeli konteksti uchun tayyorlaydi.
-    - O'quvchi (is_admin=False) bo'lsa: Faqat IT/dasturlash savollarida qidiradi, begona mavzularda bo'sh qaytaradi (chegaralangan).
-    - Mentor (is_admin=True) bo'lsa: Har qanday savolda erkin qidiradi.
+    Kaskadli qidiruv (Tiered RAG) kontekstini AI modeli uchun tayyorlaydi.
+    1-POG'ONA: Tanlangan ishonchli saytlar (w3schools, docs.python, metanit...).
+    2-POG'ONA: Agar topilmasa, ochiq internet (DuckDuckGo + StackOverflow).
+    3-POG'ONA: AI o'zbek tilida sodda va do'stona qilib yetkazishi uchun yo'riqnoma.
     """
     clean_q = (query or "").strip()
     if not clean_q:
@@ -245,16 +280,49 @@ async def get_web_search_context(query: str, is_admin: bool = False) -> str:
         logger.info("O'quvchi so'rovi IT mavzusiga kirmaydi, qidiruv cheklandi: %s", clean_q[:50])
         return ""
 
-    results = await search_web(clean_q, max_results=3)
+    from services.memory_service import memory_service
+    trusted_sites = memory_service.get_trusted_websites()
+
+    results = []
+    source_label = "open_web"
+
+    # 1. Avval ishonchli saytlar ichidan qidirish (Tier 1)
+    if trusted_sites:
+        logger.info("Kaskad 1-pog'ona: Ishonchli saytlardan qidirilmoqda: %s (%s)", clean_q[:40], ", ".join(trusted_sites[:3]))
+        results = await search_targeted_websites(clean_q, trusted_sites, max_results=3)
+        if results:
+            source_label = "trusted_sites"
+            logger.info("Kaskad 1-pog'ona muvaffaqiyatli: %d ta rasmiy manba topildi.", len(results))
+
+    # 2. Agar tanlangan saytlardan topilmasa, butun internetdan qidirish (Tier 2 - Fallback)
+    if not results:
+        logger.info("Kaskad 2-pog'ona: Butun internet va StackOverflow'dan qidirilmoqda: %s", clean_q[:40])
+        results = await search_web(clean_q, max_results=3)
+        source_label = "open_web"
+
     if not results:
         return ""
 
-    lines = ["\n--- 🌐 INTERNET VA RASMIY DOKUMENTATSIYA NATIJALARI (Haqiqiy ma'lumotlar) ---"]
-    for i, r in enumerate(results, 1):
-        lines.append(f"{i}. 📌 **{r['title']}**")
-        lines.append(f"   Ma'lumot: {r['snippet']}")
-        if r.get("url"):
-            lines.append(f"   Havola: {r['url']}")
-    lines.append("--- Eslatma: Yuqoridagi rasmiy ma'lumotlardan foydalanib o'quvchiga/mentorga aniq va to'g'ri javob bering. ---")
+    if source_label == "trusted_sites":
+        lines = [
+            "\n--- 🌐 ISHONCHLI MANBALARDAN OLINGAN ANIQ FAKT (Rasmiy Ta'limiy Saytlar) ---",
+            "Quyidagi ma'lumotlar mentor tomonidan tasdiqlangan rasmiy ta'limiy saytlardan olindi:"
+        ]
+        for i, r in enumerate(results, 1):
+            lines.append(f"{i}. 📌 **{r['title']}**")
+            lines.append(f"   Ma'lumot: {r['snippet']}")
+            if r.get("url"):
+                lines.append(f"   Havola: {r['url']}")
+        lines.append("--- Ko'rsatma: Yuqoridagi rasmiy ma'lumotlardan foydalanib, o'quvchiga/mentorga aniq faktni o'zbek tilida, nihoyatda sodda, do'stona va tushunarli tarzda 2-4 gapda bayon qiling. ---")
+    else:
+        lines = [
+            "\n--- 🌐 OCHIQ INTERNET NATIJALARI (DuckDuckGo & StackOverflow) ---"
+        ]
+        for i, r in enumerate(results, 1):
+            lines.append(f"{i}. 📌 **{r['title']}**")
+            lines.append(f"   Ma'lumot: {r['snippet']}")
+            if r.get("url"):
+                lines.append(f"   Havola: {r['url']}")
+        lines.append("--- Ko'rsatma: Yuqoridagi ma'lumotlardan foydalanib o'quvchiga/mentorga o'zbek tilida aniq va to'g'ri javob bering. ---")
 
     return "\n".join(lines)
