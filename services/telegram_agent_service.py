@@ -638,7 +638,7 @@ async def get_recent_incoming_senders(client, limit: int = 10, unread_only: bool
         return [{"error": "Telegram mijoz ulanmagan"}]
 
     from config import config
-    mentor_ids = {config.mentor_user_id, 8105823872}
+    mentor_ids = {config.mentor_user_id, 8207311790, 8105823872}
     vazifalar_target = str(config.escalation_chat).strip()
 
     try:
@@ -1451,21 +1451,65 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
             lines.append(f"{i}. 📍 **{chat_name}** | 👤 *{sender}* ({date}):\n   «{snippet}»{link_md}\n")
         return "\n".join(lines)
 
-    # 3.5 Lokatsiyani saqlash so'rovi (lekin xabarda koordinata bo'lmasa)
-    loc_save_pattern = r"\b(?:joyimni|manzilimni|locatsiyamni|lokatsiyamni|koordinatamni)\b.*?\b(?:saqla\w*|eslab\s+qol\w*)\b"
+    # 3.5 Lokatsiyani saqlash so'rovi (masalan: "men turgan lokatsiyani saqlab qoy", "joyimni saqla")
+    loc_save_pattern = (
+        r"\b(?:men\s+turgan\s+)?(?:joy|manzil|lokatsiya|locatsiya|geopozitsiya|koordinata)\w*\s*(?:saqla\w*|eslab\s+qol\w*|yozib\s+qo['’`]?y\w*)\b|"
+        r"\b(?:joyimni|manzilimni|locatsiyamni|lokatsiyamni|koordinatamni)\b.*?\b(?:saqla\w*|eslab\s+qol\w*|yozib\s+qo['’`]?y\w*)\b|"
+        r"\b(?:saqla\w*|yozib\s+qo['’`]?y\w*|eslab\s+qol\w*)\b.*?\b(?:men\s+turgan\s+)?(?:joy|manzil|lokatsiya|locatsiya|geopozitsiya|koordinata)\w*\b|"
+        r"\b(?:сохрани|запомни|зафиксируй)\s+(?:мое\s+|моё\s+)?(?:местоположение|геопозицию|локацию|координаты)\b"
+    )
     if re.search(loc_save_pattern, orig_msg, re.I):
         has_coord_in_text = bool(re.search(r"\b\d{1,2}\.\d{4,}\b", orig_msg))
         if not has_coord_in_text:
+            # Agar chat_id va client bo'lsa, chatdagi oxirgi xabarlardan geolokatsiyani tekshiramiz
+            found_geo = None
+            if client and chat_id:
+                try:
+                    past_m = await client.get_messages(chat_id, limit=20)
+                    for pm in past_m:
+                        pg = getattr(pm, "geo", None) or (getattr(pm, "media", None) and getattr(pm.media, "geo", None))
+                        if pg and getattr(pg, "lat", None) is not None and getattr(pg, "long", None) is not None:
+                            found_geo = pg
+                            break
+                except Exception as g_err:
+                    logger.debug("Oxirgi xabarlardan geo qidirishda: %s", g_err)
+
+            if found_geo:
+                lat = float(found_geo.lat)
+                long = float(found_geo.long)
+                from zoneinfo import ZoneInfo
+                now_t = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%d.%m.%Y %H:%M")
+                gmaps_link = f"https://www.google.com/maps?q={lat},{long}"
+                yandex_link = f"https://yandex.com/maps/?pt={long},{lat}&z=16&l=map"
+                loc_content = (
+                    f"📍 **Nuriddin ustozning joylashuvi** (saqlangan vaqt: {now_t}):\n"
+                    f"• Kenglik (Lat): `{lat:.6f}`\n"
+                    f"• Uzunlik (Long): `{long:.6f}`\n"
+                    f"• 🗺 [Google Maps orqali ochish]({gmaps_link})\n"
+                    f"• 🗺 [Yandex Maps orqali ochish]({yandex_link})"
+                )
+                memory_service.add_learned_fact("mentor_lokatsiyasi", loc_content, category="mentor_location")
+                try:
+                    from telethon.tl.types import InputMediaGeoPoint, InputGeoPoint
+                    media = InputMediaGeoPoint(InputGeoPoint(lat=lat, long=long))
+                    await client.send_file(chat_id, media)
+                except Exception as pe:
+                    logger.warning("Location pin jo'natishda: %s", pe)
+
+                if is_ru:
+                    return f"📍 **Геопозиция успешно найдена в чате и сохранена! (Карта отправлена выше):**\n\n{loc_content}"
+                return f"📍 **Nuriddin ustoz, oxirgi yuborgan geolokatsiyangiz topildi va xotiraga saqlandi! (Xaritadagi lokatsiya yuqorida yuborildi):**\n\n{loc_content}"
+
             if is_ru:
                 return (
-                    "📍 **Учитель, координаты или геопозиция не получены.**\n\n"
-                    "Пожалуйста, отправьте вашу **Геопозицию (📍 Location)** через Telegram или напишите точный адрес. "
-                    "Я сразу же сохраню его в память!"
+                    "📍 **Учитель, текущие координаты или геопозиция не получены.**\n\n"
+                    "Пожалуйста, нажмите **📎 (Скрепка)** -> **📍 Геопозиция (Location)** в Telegram "
+                    "и отправьте ваше текущее местоположение. Я сразу же сохраню его и смогу отправлять вам полноценную геопозицию на карте!"
                 )
             return (
                 "📍 **Ustoz, hozir turgan joyingiz koordinatasi yoki geolokatsiyasi kelmadi.**\n\n"
-                "Iltimos, Telegram orqali **Geolokatsiyangizni (📍 Location)** yuboring yoki manzilni yozing (masalan: *Sergeli 4-mavze, CoddyCamp*). "
-                "Uni darhol xotiraga aniq saqlab qo'yaman!"
+                "Iltimos, Telegram orqali **📎 (Skrepka)** -> **📍 Geopozitsiya (Location)** tugmasini bosib, "
+                "joriy joylashuvingizni yuboring. Uni darhol xotiraga saqlab, to'liq Telegram xarita lokatsiyasi (Location Pin) qilib jo'natib beraman! 🚀"
             )
 
     # Lokatsiyani ko'rish / jo'natish so'rovi (Qayerdaligimni ko'rsat, lokatsiyamni tashla, to'liq location jo'nat)
@@ -1548,13 +1592,98 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
                 return f"🌐 По запросу «{web_query}» информации в интернете не найдено или превышено время ожидания."
             return f"🌐 «{web_query}» bo'yicha internetdan ma'lumot topilmadi yoki tarmoqqa ulanishda vaqt tugadi."
 
-    # 4. Action: find_contact (O'quvchi, kontakt yoki guruh a'zolarini qidirish / Поиск контакта)
+    # 4. Action: schedule_message & reminders (Eslatmalar va rejalashtirilgan xabarlar)
+    # DIQQAT: Eslatmalar va vaqtli xabarlar kontakt qidirishdan OLDIN bajarilishi shart!
+    # Shunda "1 daqiqadan song oqatlanishim haqida eslat" kontakt qidirishga tushib ketmaydi.
+    m_sched = ACTION_SCHEDULE_MSG.search(reply_text)
+    sched_target = None
+    sched_text = None
+    sched_time = None
+
+    if m_sched:
+        sched_target = m_sched.group(1).strip()
+        sched_text = m_sched.group(2).strip()
+        sched_time = m_sched.group(3).strip() if len(m_sched.groups()) >= 3 and m_sched.group(3) else orig_msg
+    else:
+        # 1. "X daqiqadan so'ng / keyin ... haqida eslat"
+        remind_pattern_1 = re.search(
+            r"(?:menga\s+)?(?:(\d+)\s*(?:daqiqa\w*|minut\w*|sekund\w*|soniya\w*|soat\w*|kun\w*)\s*(?:keyin|so['’`]?ng|song|dan\s+keyin|dan\s+so['’`]?ng)|(?:bugun|ertaga)\s+(?:soat\s+)?\d+[:.]\d+)\s*(?:(?:menga|o['’`]?zimga)\s+)?(.+?)\s*(?:haqida\s+)?eslat\w*",
+            orig_msg,
+            re.I
+        )
+        # 2. "eslat: X daqiqadan so'ng ..." yoki "menga X daqiqadan keyin ... deb eslat"
+        remind_pattern_2 = re.search(
+            r"\b(?:eslat\w*|eslatma\w*)\b\s*[:\-]?\s*(?:menga\s+)?(?:(\d+)\s*(?:daqiqa\w*|minut\w*|soat\w*|kun\w*)\s*(?:keyin|so['’`]?ng|song))\s*(?:deb\s+|haqida\s+)?(.+)",
+            orig_msg,
+            re.I
+        )
+        # 3. Ruscha: "напомни через 1 минуту пообедать"
+        remind_pattern_ru = re.search(
+            r"\bнапомни(?:ть)?\s+(?:мне\s+)?(?:через\s+(\d+)\s*(?:минут\w*|мин\w*|час\w*|сек\w*))\s*(?:о\s+|об\s+|про\s+)?(.+)",
+            orig_msg,
+            re.I
+        )
+        # 4. Boshqa shaxsga rejalashtirilgan xabar: "Aliga '...' deb 5 daqiqadan keyin yubor"
+        remind_pattern_other = re.search(
+            r"^(.+?)(?:ga|da)\s+['\"](.+?)['\"]\s+.*?(?:(\d+\s*(?:daqiqa|minut|soat|kun).*?(?:so['’`]?ng|keyin))|ertaga|bugun)",
+            orig_msg,
+            re.I
+        )
+
+        if remind_pattern_1:
+            time_part = remind_pattern_1.group(1) or ""
+            subj = remind_pattern_1.group(2).strip()
+            sched_target = "me"
+            sched_text = f"🔔 Eslatma: {subj}"
+            sched_time = f"{time_part} daqiqa" if time_part.isdigit() else orig_msg
+        elif remind_pattern_2:
+            time_part = remind_pattern_2.group(1) or ""
+            subj = remind_pattern_2.group(2).strip()
+            sched_target = "me"
+            sched_text = f"🔔 Eslatma: {subj}"
+            sched_time = f"{time_part} daqiqa" if time_part.isdigit() else orig_msg
+        elif remind_pattern_ru:
+            time_part = remind_pattern_ru.group(1) or ""
+            subj = remind_pattern_ru.group(2).strip()
+            sched_target = "me"
+            sched_text = f"🔔 Напоминание: {subj}"
+            sched_time = f"{time_part} минут" if time_part.isdigit() else orig_msg
+        elif remind_pattern_other:
+            sched_target = remind_pattern_other.group(1).strip()
+            sched_text = remind_pattern_other.group(2).strip()
+            sched_time = remind_pattern_other.group(3).strip() if len(remind_pattern_other.groups()) >= 3 and remind_pattern_other.group(3) else orig_msg
+
+    if sched_target and sched_text:
+        res = await schedule_telegram_message(client, sched_target, sched_text, sched_time or orig_msg, chat_id=chat_id or 0)
+        if res.get("ok"):
+            if is_ru:
+                return (
+                    f"⏳ **Сообщение успешно запланировано!**\n\n"
+                    f"• **Получатель:** {res.get('target_name')}\n"
+                    f"• **Время отправки:** `{res.get('remind_at')}` (через {res.get('delay_human')})\n"
+                    f"• **Текст сообщения:** «{res.get('text')}»\n\n"
+                    f"✅ В назначенное время сообщение будет отправлено автоматически!"
+                )
+            return (
+                f"⏳ **Xabar muvaffaqiyatli rejalashtirildi!**\n\n"
+                f"• **Qabul qiluvchi:** {res.get('target_name')}\n"
+                f"• **Yuborilish vaqti:** `{res.get('remind_at')}` ({res.get('delay_human')}dan so'ng)\n"
+                f"• **Xabar matni:** «{res.get('text')}»\n\n"
+                f"✅ Belgilangan vaqtda xabar avtomatik yuboriladi!"
+            )
+        else:
+            if is_ru:
+                return f"❌ **Не удалось запланировать сообщение:** {res.get('error')}"
+            return f"❌ **Xabarni rejalashtirib bo'lmadi:** {res.get('error')}"
+
+    # 5. Action: find_contact (O'quvchi, kontakt yoki guruh a'zolarini qidirish / Поиск контакта)
     m_contact = ACTION_FIND_CONTACT.search(reply_text)
-    if not m_contact:
+    is_reminder_msg = bool(re.search(r"\b(?:eslat\w*|eslatma\w*|rejalashtir\w*|schedule\w*|remind\w*|напомни\w*|напоминание\w*|запланируй\w*)\b", orig_msg, re.I))
+    if not m_contact and not is_reminder_msg:
         fb = (
             re.search(r"^(?:top|qidir|izla|aniqla)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
             re.search(r"^(?:найди|найти|поищи|поиск|где|кто\s+такой)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
-            re.search(r"^(.+?)\s+(?:haqida|kim\b|qayerda\b|где\s+находится|кто\s+такой)", orig_msg, re.I) or
+            re.search(r"^(.+?)\s+(?:haqida\s+(?:ma['’`]?lumot|bilmoqchiman|gapir)|kim\b|qayerda\b|где\s+находится|кто\s+такой)", orig_msg, re.I) or
             re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|odamni|bolani|uydagilarini|lichkasini|kontaktini|chatini)\s+\b(?:top|qidir|aniqla|izla)\b", orig_msg, re.I) or
             re.search(r"(?:найди|поищи|пробей)\s+(?:ученика|контакт|личку|чат)\s*[:\-]?\s*(.+)", orig_msg, re.I) or
             re.search(r"(?:chatlar\s+ismi\s+bilan\s+)?(?:odamlarni|chatlarni|o'quvchilarni|kontaktlarni)\s+(?:ham\s+)?\b(?:top|qidir|aniqla|izla)\b\s*[:\-]?(?:\s+)?(.+)", orig_msg, re.I) or
@@ -1661,40 +1790,6 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
                 lines.append(f"'{query}' bo'yicha na CRM dan, na Telegram chatlari yoki guruh a'zolaridan hech kim topilmadi.")
 
         return "\n".join(lines)
-
-    # 5.0 Action: schedule_message (Kechiktirilgan yoki rejalashtirilgan xabar)
-    m_sched = ACTION_SCHEDULE_MSG.search(reply_text)
-    if not m_sched:
-        # To'g'ridan-to'g'ri matndan rejalashtirishni aniqlash
-        fb_sched = re.search(r"^(.+?)(?:ga|da)\s+['\"](.+?)['\"]\s+.*?(?:(\d+\s*(?:daqiqa|minut|soat|kun).*?(?:so['’`]?ng|keyin))|ertaga|bugun)", orig_msg, re.I)
-        if fb_sched:
-            m_sched = fb_sched
-
-    if m_sched:
-        target = m_sched.group(1).strip()
-        text = m_sched.group(2).strip()
-        time_arg = m_sched.group(3).strip() if len(m_sched.groups()) >= 3 and m_sched.group(3) else orig_msg
-        res = await schedule_telegram_message(client, target, text, time_arg)
-        if res.get("ok"):
-            if is_ru:
-                return (
-                    f"⏳ **Сообщение успешно запланировано!**\n\n"
-                    f"• **Получатель:** {res.get('target_name')}\n"
-                    f"• **Время отправки:** `{res.get('remind_at')}` (через {res.get('delay_human')})\n"
-                    f"• **Текст сообщения:** «{res.get('text')}»\n\n"
-                    f"✅ В назначенное время сообщение будет отправлено автоматически!"
-                )
-            return (
-                f"⏳ **Xabar muvaffaqiyatli rejalashtirildi!**\n\n"
-                f"• **Qabul qiluvchi:** {res.get('target_name')}\n"
-                f"• **Yuborilish vaqti:** `{res.get('remind_at')}` ({res.get('delay_human')}dan so'ng)\n"
-                f"• **Xabar matni:** «{res.get('text')}»\n\n"
-                f"✅ Belgilangan vaqtda xabar avtomatik yuboriladi!"
-            )
-        else:
-            if is_ru:
-                return f"❌ **Не удалось запланировать сообщение:** {res.get('error')}"
-            return f"❌ **Xabarni rejalashtirib bo'lmadi:** {res.get('error')}"
 
     # 5. Action: send_message
     m_send = ACTION_SEND_MSG.search(reply_text)

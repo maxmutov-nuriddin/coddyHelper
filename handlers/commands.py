@@ -667,7 +667,7 @@ def register_command_handlers(client: TelegramClient) -> None:
             return
 
         sender_id = event.sender_id or 0
-        if sender_id != config.mentor_user_id and sender_id != 8105823872:
+        if sender_id not in (config.mentor_user_id, 8207311790, 8105823872):
             await event.reply("🚫 **Kechirasiz, ushbu buyruq va Admin Panel faqat mentor (@mentor_cc) uchun ochiq.**")
             return
 

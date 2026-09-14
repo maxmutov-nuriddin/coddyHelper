@@ -35,7 +35,7 @@ def is_admin(user_id: int | None) -> bool:
     """Faqat belgilangan mentor ID si ruxsat etilganini tekshiradi."""
     if not user_id:
         return False
-    return user_id == config.mentor_user_id or user_id == 8105823872
+    return user_id in (config.mentor_user_id, 8207311790, 8105823872)
 
 
 def get_private_keyboard(user_id: int) -> InlineKeyboardMarkup:

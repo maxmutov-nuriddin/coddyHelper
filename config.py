@@ -52,7 +52,7 @@ class Config:
     secret_group_start_word: str = "guruh start"
     mentor_wait_seconds: float = 5.0
     web_app_url: str = "https://coddyhelper.onrender.com"
-    mentor_user_id: int = 8105823872
+    mentor_user_id: int = 8207311790
 
     @classmethod
     def load(cls) -> "Config":
@@ -93,8 +93,8 @@ class Config:
         memory_limit = int(raw_memory_limit) if raw_memory_limit.isdigit() else 10
 
         web_app_url = os.getenv("RENDER_EXTERNAL_URL", os.getenv("WEB_APP_URL", "https://coddyhelper.onrender.com")).strip().rstrip("/")
-        raw_mentor_id = os.getenv("MENTOR_USER_ID", "8105823872").strip()
-        mentor_user_id = int(raw_mentor_id) if raw_mentor_id.isdigit() else 8105823872
+        raw_mentor_id = os.getenv("MENTOR_USER_ID", "8207311790").strip()
+        mentor_user_id = int(raw_mentor_id) if raw_mentor_id.isdigit() else 8207311790
 
         return cls(
             api_id=api_id,
@@ -139,15 +139,31 @@ class Config:
 # Global konfiguratsiya obyekti
 config = Config.load()
 
+# Mentor va tizim egalari ID to'plami (8207311790: Nuriddin, 8105823872: Teacher userbot)
+MENTOR_IDS: set[int] = {8207311790, 8105823872, config.mentor_user_id}
+
+
+def is_mentor(user_id: int | str | None) -> bool:
+    """Foydalanuvchi mentor (Nuriddin aka yoki uning hisoblari) ekanini tekshiradi."""
+    if not user_id:
+        return False
+    try:
+        uid = int(user_id)
+        return uid in MENTOR_IDS or uid in (8207311790, 8105823872, config.mentor_user_id)
+    except (ValueError, TypeError):
+        return str(user_id).strip().lower() in ("me", "self", "mentor_cc", "makhmutov_n")
+
 
 def is_escalation_chat(chat_id: int | str) -> bool:
-    """Chat ID 'Vazifalar' (Admin/Eskalyatsiya) guruhi ekanini tekshiradi."""
+    """Chat ID 'Vazifalar' (Admin/Eskalyatsiya) guruhi yoki Mentor bilan lichka ekanini tekshiradi."""
     c_id = str(chat_id).strip()
     if "5388159517" in c_id:
         return True
+    if c_id in ("8207311790", "8105823872", str(config.mentor_user_id)):
+        return True
     target = str(config.escalation_chat).strip()
     if target.lower() in ("me", "self"):
-        if c_id.lower() in ("me", "self") or c_id in (str(config.mentor_user_id), "8105823872"):
+        if c_id.lower() in ("me", "self") or c_id in (str(config.mentor_user_id), "8207311790", "8105823872"):
             return True
     if c_id == target:
         return True

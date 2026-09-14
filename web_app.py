@@ -223,7 +223,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         telegram_user = data.get("user") or {}
         tg_id = telegram_user.get("id") or user_id
 
-        allowed_mentor_ids = {config.mentor_user_id, 8105823872}
+        allowed_mentor_ids = {config.mentor_user_id, 8207311790, 8105823872}
         client = get_client_func()
         if client:
             try:
