@@ -809,10 +809,21 @@
         <div class="toggle-row">
           <div class="toggle-info">
             <h3>🎙 Ovozli Xabarga Ovozli Javob</h3>
-            <p>Ovozli savolga o'zbekcha ovoz (Voice Note) bilan javob qaytarish</p>
+            <p>Ovozli savolga o'zbekcha/ruscha ovoz (Voice Note) bilan javob qaytarish</p>
           </div>
           <label class="switch">
             <input type="checkbox" id="switch-voice-reply" onchange="toggleFeature('voice_reply', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <h3>🌐 Web Search & IT Dokumentatsiya</h3>
+            <p>Eng yangi kutubxonalar, versiyalar va xatoliklarni internetdan qidirish</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="switch-web-search" onchange="toggleFeature('web_search', this.checked)">
             <span class="slider"></span>
           </label>
         </div>
@@ -1266,6 +1277,8 @@
       document.getElementById("switch-group-reply").checked = data.group_reply_enabled;
       const vSwitch = document.getElementById("switch-voice-reply");
       if (vSwitch) vSwitch.checked = data.voice_reply_enabled !== false;
+      const wsSwitch = document.getElementById("switch-web-search");
+      if (wsSwitch) wsSwitch.checked = data.web_search_enabled !== false;
       const qSelect = document.getElementById("select-quiet-window");
       if (qSelect) qSelect.value = String(data.private_quiet_window !== undefined ? data.private_quiet_window : 180);
 
@@ -1307,6 +1320,7 @@
         if (feature === "auto_reply") name = "Lichka avto-javobi";
         else if (feature === "group_reply") name = "Guruhlar avto-javobi";
         else if (feature === "voice_reply") name = "Ovozli javob (Voice Reply)";
+        else if (feature === "web_search") name = "Web Search & IT Dokumentatsiya";
         showToast(name + " " + (enabled ? "yoqildi ✅" : "to'xtatildi ⏸"));
         loadStatus();
       } else {

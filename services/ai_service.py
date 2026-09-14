@@ -1025,6 +1025,43 @@ class AIService:
         if reply_to_context:
             effective_prompt = f"[Javob berilayotgan xabar: \"{reply_to_context}\"]\n{effective_prompt}"
 
+        # Web Search & Rasmiy IT Dokumentatsiyalardan qidiruv (Real-time docs)
+        web_search_enabled = memory_service.get_setting("web_search_enabled", "true").lower() == "true"
+        if web_search_enabled and not image_bytes and user_message:
+            clean_text = user_message.lower()
+            from services.search_service import get_web_search_context, is_programming_query
+
+            should_search = False
+            if is_admin_mode:
+                # Mentor (Vazifalar): mutlaq erkin, har qanday mavzuda
+                search_triggers = [
+                    "qidir", "search", "internet", "google", "top", "yangilik",
+                    "versiya", "nima yangi", "ob-havo", "kurs", "dokumentatsiya",
+                    "docs", "kutubxona", "yangi funksiya", "qanday ishlaydi"
+                ]
+                if any(tr in clean_text for tr in search_triggers) or (len(user_message.split()) >= 3 and "?" in user_message):
+                    should_search = True
+            else:
+                # O'quvchilar: Chegaradan chiqmasdan - FAQAT dasturlash/IT bo'lsa
+                if is_programming_query(user_message):
+                    student_triggers = [
+                        "kutubxona", "library", "versiya", "version", "yangi",
+                        "dokumentatsiya", "docs", "documentation", "qanday ishlaydi",
+                        "error", "xatolik", "o'rnatish", "install", "pip", "npm",
+                        "qanday qilsa", "metod", "funksiya", "nimaga kerak"
+                    ]
+                    if any(st in clean_text for st in student_triggers):
+                        should_search = True
+
+            if should_search:
+                try:
+                    search_ctx = await get_web_search_context(user_message, is_admin=is_admin_mode)
+                    if search_ctx:
+                        effective_prompt = f"{search_ctx}\n\n[Foydalanuvchi so'rovi]:\n{effective_prompt}"
+                        logger.info("Web Search natijalari AI promptiga qo'shildi [%s]", chat_id)
+                except Exception as s_err:
+                    logger.warning("Web search qo'shishda ogohlantirish: %s", s_err)
+
         try:
             # 1-ustuvorlik: Groq (Multi-key)
             if self._groq_clients:

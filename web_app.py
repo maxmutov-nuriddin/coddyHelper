@@ -309,6 +309,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "auto_reply_enabled": config.auto_reply_enabled,
                 "group_reply_enabled": config.group_reply_enabled,
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
+                "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
                 "private_quiet_window": memory_service.get_private_quiet_window(),
                 "students_count": len(memory_service.get_students(limit=1000)),
                 "active_ai": active_ai,
@@ -354,6 +355,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         elif feature == "voice_reply":
             memory_service.set_setting("voice_reply_enabled", "true" if enabled else "false")
             logger.info("Admin Panel orqali voice_reply_enabled o'zgartirildi: %s", enabled)
+        elif feature == "web_search":
+            memory_service.set_setting("web_search_enabled", "true" if enabled else "false")
+            logger.info("Admin Panel orqali web_search_enabled o'zgartirildi: %s", enabled)
         elif feature == "private_quiet_window":
             try:
                 val = int(data.get("value", 180))

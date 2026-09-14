@@ -5,9 +5,10 @@ Telethon mijozi orqali xabarlarni qidirish, o'quvchi va ota-onalar kontaktlarini
 hamda to'g'ridan-to'g'ri xabar yuborish amallarini bajaradi.
 """
 
+import asyncio
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Any
 from services.memory_service import memory_service
@@ -404,8 +405,13 @@ async def send_telegram_message(client, target_query: str, message_text: str) ->
     target_name = target
 
     try:
+        # Mentorning o'ziga yo'naltirilgan xabarlar (Nuriddin, ustoz, me, o'zimga)
+        if target.lower() in ("nuriddin", "nuriddinga", "ustoz", "teacher", "me", "o'zim", "ozim", "menga", "o'zimga"):
+            resolved_entity = "me"
+            target_name = "Nuriddin (Saved Messages)"
+
         # 1. Agar @username yoki telefon yoki to'g'ridan-to'g'ri chat ID bo'lsa
-        if target.startswith("@") or target.startswith("+") or re.match(r"^-?\d+$", target):
+        if not resolved_entity and (target.startswith("@") or target.startswith("+") or re.match(r"^-?\d+$", target)):
             parse_target = int(target) if re.match(r"^-?\d+$", target) else target
             try:
                 resolved_entity = await client.get_entity(parse_target)
@@ -457,6 +463,124 @@ async def send_telegram_message(client, target_query: str, message_text: str) ->
     except Exception as e:
         logger.error("Telegram xabar yuborishda xatolik: %s", e)
         return {"ok": False, "error": str(e)}
+
+
+async def schedule_telegram_message(
+    client,
+    target_query: str,
+    message_text: str,
+    delay_or_time: str,
+    chat_id: int = 0
+) -> dict[str, Any]:
+    """
+    Xabarni ma'lum vaqtdan so'ng (masalan '2 daqiqadan so'ng', '10 minutdan keyin', 'ertaga 07:00 da')
+    avtomatik yuborish uchun rejalashtiradi.
+    """
+    if not client:
+        return {"ok": False, "error": "Telegram mijoz ulanmagan"}
+
+    target = (target_query or "").strip()
+    text = (message_text or "").strip()
+    time_str = (delay_or_time or "").strip()
+
+    if not target or not text:
+        return {"ok": False, "error": "Qabul qiluvchi va xabar matni ko'rsatilishi shart"}
+
+    # 1. Qabul qiluvchini aniqlash
+    resolved_entity = None
+    target_name = target
+    if target.lower() in ("nuriddin", "nuriddinga", "ustoz", "teacher", "me", "o'zim", "ozim", "menga", "o'zimga"):
+        resolved_entity = "me"
+        target_name = "Nuriddin (Saved Messages)"
+    else:
+        try:
+            if target.startswith("@") or target.startswith("+") or re.match(r"^-?\d+$", target):
+                parse_target = int(target) if re.match(r"^-?\d+$", target) else target
+                resolved_entity = await client.get_entity(parse_target)
+            else:
+                dialogs = await client.get_dialogs(limit=80)
+                for d in dialogs:
+                    if match_text(target, d.name or "") or (getattr(d.entity, "username", None) and match_text(target, d.entity.username)):
+                        resolved_entity = d.entity
+                        target_name = d.name
+                        break
+        except Exception as ent_err:
+            logger.debug("Entity qidirishda ogohlantirish: %s", ent_err)
+
+    if not resolved_entity:
+        resolved_entity = "me"
+        target_name = f"{target} (eslatma sifatida)"
+
+    # 2. Vaqtni aniqlash
+    tashkent_tz = ZoneInfo("Asia/Tashkent")
+    now = datetime.now(tashkent_tz)
+    delay_sec = None
+    remind_at_dt = None
+
+    rel_match = re.search(r"(\d+)\s*(daqiqa|minut|sekund|soniya|soat|kun)", time_str.lower())
+    if rel_match:
+        val = int(rel_match.group(1))
+        unit = rel_match.group(2)
+        if "sekund" in unit or "soniya" in unit:
+            delay_sec = float(val)
+        elif "soat" in unit:
+            delay_sec = float(val * 3600)
+        elif "kun" in unit:
+            delay_sec = float(val * 86400)
+        else:
+            delay_sec = float(val * 60)
+        remind_at_dt = now + timedelta(seconds=delay_sec)
+    else:
+        from services.ai_service import extract_smart_reminder
+        parsed = extract_smart_reminder(time_str, current_tashkent_time=now.strftime("%Y-%m-%d %H:%M:%S"))
+        if parsed and parsed.get("remind_at"):
+            try:
+                remind_at_dt = datetime.strptime(parsed["remind_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tashkent_tz)
+                diff = (remind_at_dt - now).total_seconds()
+                delay_sec = max(5.0, diff)
+            except Exception:
+                pass
+
+    if not delay_sec or delay_sec < 5:
+        delay_sec = 120.0
+        remind_at_dt = now + timedelta(seconds=120)
+
+    remind_at_str = remind_at_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    if delay_sec < 60:
+        delay_human = f"{int(delay_sec)} soniya"
+    elif delay_sec < 3600:
+        delay_human = f"{int(delay_sec // 60)} daqiqa"
+    else:
+        delay_human = f"{delay_sec / 3600:.1f} soat"
+
+    # 3. Yuborish vazifasi:
+    if delay_sec <= 7200:
+        async def _do_send():
+            try:
+                await asyncio.sleep(delay_sec)
+                await client.send_message(resolved_entity, text)
+                logger.info("⏳ Rejalashtirilgan xabar muvaffaqiyatli yetkazildi [%s]: %s", target_name, text[:30])
+            except Exception as se:
+                logger.error("Rejalashtirilgan xabarni yuborishda xatolik: %s", se)
+
+        asyncio.create_task(_do_send())
+
+    rem_chat_id = chat_id or (getattr(resolved_entity, "id", 0) if hasattr(resolved_entity, "id") else 0)
+    memory_service.add_reminder(
+        chat_id=rem_chat_id,
+        reminder_text=f"[{target_name} ga xabar]: {text}",
+        remind_at=remind_at_str,
+    )
+
+    return {
+        "ok": True,
+        "target_name": target_name,
+        "remind_at": remind_at_str,
+        "delay_human": delay_human,
+        "text": text,
+    }
+
 
 
 async def list_recent_chats(client, limit: int = 15) -> list[dict[str, Any]]:
@@ -814,6 +938,140 @@ async def get_student_common_groups(client, user_id: int) -> list[str]:
         return []
 
 
+WEEKDAY_NAMES_UZ = {
+    0: "Dushanba",
+    1: "Seshanba",
+    2: "Chorshanba",
+    3: "Payshanba",
+    4: "Juma",
+    5: "Shanba",
+    6: "Yakshanba",
+}
+
+WEEKDAY_NAMES_RU = {
+    0: "Понедельник",
+    1: "Вторник",
+    2: "Среда",
+    3: "Четверг",
+    4: "Пятница",
+    5: "Суббота",
+    6: "Воскресенье",
+}
+
+
+def parse_group_schedule(group_title: str) -> dict[str, Any]:
+    """
+    Guruh nomidan dars kunlari (toq/juft) va dars soatini aniqlaydi.
+    Masalan:
+      - 'Backend Python Toq 16:00' -> Toq kunlar (Du-Chor-Ju), soat 16:00
+      - 'Frontend Juft 14:00' -> Juft kunlar (Se-Pay-Sha), soat 14:00
+      - 'Python Du-Chor-Ju 18:30' -> Toq kunlar (Du-Chor-Ju), soat 18:30
+    """
+    title_raw = group_title or ""
+    title_lower = title_raw.lower()
+
+    # Dars vaqtini qidirish (masalan: 16:00, 14.30, 09:00)
+    time_match = re.search(r"\b([01]?\d|2[0-3])[:.]([0-5]\d)\b", title_raw)
+    lesson_time = f"{int(time_match.group(1)):02d}:{time_match.group(2)}" if time_match else None
+
+    # Toq kunlar: Du-Chor-Ju (Dushanba, Chorshanba, Juma) -> 0, 2, 4
+    toq_patterns = [
+        r"\btoq\b",
+        r"\bodd\b",
+        r"\bdu(?:shanba)?[- /_]?chor(?:shanba)?[- /_]?ju(?:ma)?\b",
+        r"\bпн[- /_]?ср[- /_]?пт\b",
+        r"\bпонедельник[- /_]?среда[- /_]?пятница\b",
+        r"\b1[-.,/_]3[-.,/_]5\b",
+    ]
+
+    # Juft kunlar: Se-Pay-Sha (Seshanba, Payshanba, Shanba) -> 1, 3, 5
+    juft_patterns = [
+        r"\bjuft\b",
+        r"\beven\b",
+        r"\bse(?:shanba)?[- /_]?pay(?:shanba)?[- /_]?sha(?:nba)?\b",
+        r"\bвт[- /_]?чт[- /_]?сб\b",
+        r"\bвторник[- /_]?четверг[- /_]?суббота\b",
+        r"\b2[-.,/_]4[-.,/_]6\b",
+    ]
+
+    # Weekend: Shanba-Yakshanba yoki Yakshanba -> 5, 6
+    weekend_patterns = [
+        r"\bshanba[- /_]?yakshanba\b",
+        r"\bсб[- /_]?вс\b",
+        r"\byakshanba\b",
+        r"\bвоскресенье\b",
+    ]
+
+    is_toq = any(re.search(p, title_lower) for p in toq_patterns)
+    is_juft = any(re.search(p, title_lower) for p in juft_patterns)
+    is_weekend = any(re.search(p, title_lower) for p in weekend_patterns)
+
+    if is_toq and not is_juft:
+        return {
+            "has_schedule": True,
+            "schedule_type": "toq",
+            "weekdays": [0, 2, 4],
+            "days_uz": "Toq kunlar (Dushanba, Chorshanba, Juma)",
+            "days_ru": "Нечётные дни (Понедельник, Среда, Пятница)",
+            "lesson_time": lesson_time,
+        }
+    elif is_juft and not is_toq:
+        return {
+            "has_schedule": True,
+            "schedule_type": "juft",
+            "weekdays": [1, 3, 5],
+            "days_uz": "Juft kunlar (Seshanba, Payshanba, Shanba)",
+            "days_ru": "Чётные дни (Вторник, Четверг, Суббота)",
+            "lesson_time": lesson_time,
+        }
+    elif is_weekend:
+        is_both = "shanba" in title_lower or "сб" in title_lower
+        return {
+            "has_schedule": True,
+            "schedule_type": "weekend",
+            "weekdays": [5, 6] if is_both else [6],
+            "days_uz": "Dam olish kunlari (Shanba, Yakshanba)" if is_both else "Yakshanba kunlari",
+            "days_ru": "Выходные дни (Суббота, Воскресенье)" if is_both else "Воскресенье",
+            "lesson_time": lesson_time,
+        }
+
+    return {
+        "has_schedule": False,
+        "schedule_type": None,
+        "weekdays": [],
+        "days_uz": "Odatiy jadval bo'yicha",
+        "days_ru": "По обычному расписанию",
+        "lesson_time": lesson_time,
+    }
+
+
+def _calc_next_lesson(now_tashkent: datetime, weekdays: list[int], current_weekday: int) -> tuple[str | None, str | None]:
+    """Keyingi dars kunini va sanasini UZ/RU formatida hisoblaydi."""
+    if not weekdays:
+        return None, None
+    future_diffs = []
+    for d in weekdays:
+        diff = (d - current_weekday) % 7
+        if diff == 0:
+            diff = 7  # keyingi galgi dars kuni
+        future_diffs.append((diff, d))
+    if not future_diffs:
+        return None, None
+    future_diffs.sort(key=lambda x: x[0])
+    min_diff, next_day_idx = future_diffs[0]
+    next_date = now_tashkent + timedelta(days=min_diff)
+    date_str = next_date.strftime("%d.%m.%Y")
+    day_uz = WEEKDAY_NAMES_UZ.get(next_day_idx, "")
+    day_ru = WEEKDAY_NAMES_RU.get(next_day_idx, "")
+    if min_diff == 1:
+        next_uz = f"ertaga ({day_uz}, {date_str})"
+        next_ru = f"завтра ({day_ru}, {date_str})"
+    else:
+        next_uz = f"{day_uz} ({date_str})"
+        next_ru = f"{day_ru} ({date_str})"
+    return next_uz, next_ru
+
+
 async def check_group_schedule_and_announcements(
     client,
     chat_id: int,
@@ -822,17 +1080,25 @@ async def check_group_schedule_and_announcements(
 ) -> dict[str, Any]:
     """
     O'quvchi guruhi va undagi @coddycamp_sergeli ma'muriyati e'lonlarini (bayram, dars qoldirilishi)
-    avtomatik tahlil qiladi.
-    Qaytaradi:
-    {
-        "status": "found_cancellation" | "normal_schedule" | "unknown_group",
-        "group_name": str,
-        "announcement_text": str | None,
-        "announcement_date": str | None,
-    }
+    hamda guruh nomidan toq/juft dars jadvalini avtomatik tahlil qiladi.
     """
     if not client:
-        return {"status": "unknown_group", "group_name": None, "announcement_text": None, "announcement_date": None}
+        return {
+            "status": "unknown_group",
+            "group_name": None,
+            "announcement_text": None,
+            "announcement_date": None,
+            "has_schedule": False,
+            "schedule_type": None,
+            "days_uz": "",
+            "days_ru": "",
+            "lesson_time": None,
+            "is_today_lesson": None,
+            "today_name_uz": "",
+            "today_name_ru": "",
+            "next_lesson_uz": None,
+            "next_lesson_ru": None,
+        }
 
     target_groups = []
 
@@ -858,7 +1124,22 @@ async def check_group_schedule_and_announcements(
         logger.warning("Guruhlarni aniqlashda xatolik: %s", err)
 
     if not target_groups:
-        return {"status": "unknown_group", "group_name": None, "announcement_text": None, "announcement_date": None}
+        return {
+            "status": "unknown_group",
+            "group_name": None,
+            "announcement_text": None,
+            "announcement_date": None,
+            "has_schedule": False,
+            "schedule_type": None,
+            "days_uz": "",
+            "days_ru": "",
+            "lesson_time": None,
+            "is_today_lesson": None,
+            "today_name_uz": "",
+            "today_name_ru": "",
+            "next_lesson_uz": None,
+            "next_lesson_ru": None,
+        }
 
     # Bayram yoki dars qoldirilishi haqidagi regex qoliplari
     cancellation_patterns = [
@@ -878,8 +1159,11 @@ async def check_group_schedule_and_announcements(
 
     tashkent_tz = ZoneInfo("Asia/Tashkent")
     now_tashkent = datetime.now(tashkent_tz)
+    current_weekday = now_tashkent.weekday()
 
-    for chat_obj, g_title in target_groups[:2]:  # Ko'pi bilan 2 ta guruhni tekshiramiz
+    # 1. Avval guruhdagi so'nggi e'lonlarni tekshiramiz
+    for chat_obj, g_title in target_groups[:2]:
+        sched_info = parse_group_schedule(g_title)
         try:
             messages = await client.get_messages(chat_obj, limit=25)
             for m in messages:
@@ -905,21 +1189,50 @@ async def check_group_schedule_and_announcements(
                     if len(clean_announcement) > 300:
                         clean_announcement = clean_announcement[:297] + "..."
                     date_str = m_date.strftime("%d.%m.%Y") if m_date else "Yaqinda"
+                    
+                    weekdays = sched_info["weekdays"]
+                    next_uz, next_ru = _calc_next_lesson(now_tashkent, weekdays, current_weekday)
                     return {
                         "status": "found_cancellation",
                         "group_name": g_title,
                         "announcement_text": clean_announcement,
                         "announcement_date": date_str,
+                        "has_schedule": sched_info["has_schedule"],
+                        "schedule_type": sched_info["schedule_type"],
+                        "days_uz": sched_info["days_uz"],
+                        "days_ru": sched_info["days_ru"],
+                        "lesson_time": sched_info["lesson_time"],
+                        "is_today_lesson": (current_weekday in weekdays) if weekdays else None,
+                        "today_name_uz": WEEKDAY_NAMES_UZ.get(current_weekday, ""),
+                        "today_name_ru": WEEKDAY_NAMES_RU.get(current_weekday, ""),
+                        "next_lesson_uz": next_uz,
+                        "next_lesson_ru": next_ru,
                     }
         except Exception as msg_err:
             logger.warning("Guruh [%s] xabarlarini tahlil qilishda ogohlantirish: %s", g_title, msg_err)
 
+    # 2. E'lon topilmadi - asosiy guruh nomidan dars jadvalini aniqlaymiz
     primary_group = target_groups[0][1]
+    sched_info = parse_group_schedule(primary_group)
+    weekdays = sched_info["weekdays"]
+    is_today_lesson = (current_weekday in weekdays) if weekdays else None
+    next_uz, next_ru = _calc_next_lesson(now_tashkent, weekdays, current_weekday)
+
     return {
         "status": "normal_schedule",
         "group_name": primary_group,
         "announcement_text": None,
         "announcement_date": None,
+        "has_schedule": sched_info["has_schedule"],
+        "schedule_type": sched_info["schedule_type"],
+        "days_uz": sched_info["days_uz"],
+        "days_ru": sched_info["days_ru"],
+        "lesson_time": sched_info["lesson_time"],
+        "is_today_lesson": is_today_lesson,
+        "today_name_uz": WEEKDAY_NAMES_UZ.get(current_weekday, ""),
+        "today_name_ru": WEEKDAY_NAMES_RU.get(current_weekday, ""),
+        "next_lesson_uz": next_uz,
+        "next_lesson_ru": next_ru,
     }
 
 
@@ -929,12 +1242,14 @@ ACTION_STUDENTS_SUM = re.compile(r'<<<ACTION:get_students_summary\(\)>>>', re.IG
 ACTION_SEARCH = re.compile(r'<<<ACTION:search_telegram\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
 ACTION_FIND_CONTACT = re.compile(r'<<<ACTION:find_contact\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
 ACTION_SEND_MSG = re.compile(r'<<<ACTION:send_message\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
+ACTION_SCHEDULE_MSG = re.compile(r'<<<ACTION:schedule_message\(["\'](.*?)["\'],\s*["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
 ACTION_RECENT_SENDERS = re.compile(r'<<<ACTION:get_recent_senders\((.*?)\)>>>', re.IGNORECASE)
 ACTION_LEARN_FACT = re.compile(r'<<<ACTION:learn_fact\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
 ACTION_GET_LEARNED = re.compile(r'<<<ACTION:get_learned_facts\(\)>>>', re.IGNORECASE)
 ACTION_FORGET_FACT = re.compile(r'<<<ACTION:forget_fact\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
 ACTION_SET_PRIVATE_DELAY = re.compile(r'<<<ACTION:set_private_delay\((\d+)\)>>>', re.IGNORECASE)
 ACTION_GET_PRIVATE_DELAY = re.compile(r'<<<ACTION:get_private_delay\(\)>>>', re.IGNORECASE)
+ACTION_WEB_SEARCH = re.compile(r'<<<ACTION:web_search\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
 
 
 
@@ -1130,6 +1445,69 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
             lines.append(f"{i}. 📍 **{chat_name}** | 👤 *{sender}* ({date}):\n   «{snippet}»{link_md}\n")
         return "\n".join(lines)
 
+    # 3.5 Lokatsiyani saqlash so'rovi (lekin xabarda koordinata bo'lmasa)
+    loc_save_pattern = r"\b(?:joyimni|manzilimni|locatsiyamni|lokatsiyamni|koordinatamni)\b.*?\b(?:saqla\w*|eslab\s+qol\w*)\b"
+    if re.search(loc_save_pattern, orig_msg, re.I):
+        has_coord_in_text = bool(re.search(r"\b\d{1,2}\.\d{4,}\b", orig_msg))
+        if not has_coord_in_text:
+            if is_ru:
+                return (
+                    "📍 **Учитель, координаты или геопозиция не получены.**\n\n"
+                    "Пожалуйста, отправьте вашу **Геопозицию (📍 Location)** через Telegram или напишите точный адрес. "
+                    "Я сразу же сохраню его в память!"
+                )
+            return (
+                "📍 **Ustoz, hozir turgan joyingiz koordinatasi yoki geolokatsiyasi kelmadi.**\n\n"
+                "Iltimos, Telegram orqali **Geolokatsiyangizni (📍 Location)** yuboring yoki manzilni yozing (masalan: *Sergeli 4-mavze, CoddyCamp*). "
+                "Uni darhol xotiraga aniq saqlab qo'yaman!"
+            )
+
+    # Lokatsiyani ko'rish so'rovi (Qayerdaligimni ko'rsat, lokatsiyamni top, turgan joyim)
+    loc_query = re.search(r"\b(?:joyim|lokatsiyam|locatsiyam|manzilim|qayerdaman)\b.*?\b(?:qayerda|ko['’`]?rsat|top|qani)\b", orig_msg, re.I)
+    if loc_query:
+        facts = memory_service.get_all_learned_facts(limit=50)
+        loc_fact = next((f for f in facts if any(k in f.get("topic", "").lower() for k in ("lokatsiya", "joylashuv", "joy"))), None)
+        if loc_fact:
+            if is_ru:
+                return f"📍 **Ваше сохранённое местоположение:**\n\n{loc_fact.get('content')}"
+            return f"📍 **Sizning saqlangan joylashuvingiz:**\n\n{loc_fact.get('content')}"
+        else:
+            if is_ru:
+                return "⚠️ **В памяти пока нет сохранённой геопозиции.** Отправьте геопозицию (📍 Location), чтобы я её сохранил."
+            return "⚠️ **Xotirada hali saqlangan geolokatsiya mavjud emas.** Geolokatsiyangizni (📍 Location) yuborsangiz, uni darhol saqlab qo'yaman."
+
+    # 3.5. Action: web_search (Internet va IT hujjatlaridan qidirish / Поиск в интернете)
+    m_web = ACTION_WEB_SEARCH.search(reply_text)
+    if not m_web:
+        fb_web = (
+            re.search(r"(?:internetdan|google(?:dan)?|vebdan|webdan)\s+(?:'|\")?([^'\"]+?)(?:'|\")?\s+(?:ni\s+)?(?:qidir|top|izla)", orig_msg, re.I) or
+            re.search(r"^(?:internetdan\s+qidir|google\s+qidir|web\s+search)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
+            re.search(r"(?:поищи|найди|поиск)\s+в\s+(?:интернет[еа]?|гугл[еа]?)\s*[:\-]?\s*(.+)", orig_msg, re.I)
+        )
+        if fb_web:
+            m_web = fb_web
+
+    if m_web:
+        web_query = m_web.group(1).strip()
+        from services.search_service import search_web
+        results = await search_web(web_query, max_results=4)
+        if results:
+            if is_ru:
+                lines = [f"🌐 **Результаты поиска в интернете и IT документации: «{web_query}»**\n"]
+            else:
+                lines = [f"🌐 **Internet va IT dokumentatsiyadan qidiruv natijalari: «{web_query}»**\n"]
+            for i, r in enumerate(results, 1):
+                lines.append(f"{i}. 📌 **{r['title']}**")
+                lines.append(f"   {r['snippet']}")
+                if r.get('url'):
+                    lines.append(f"   🔗 {r['url']}")
+                lines.append("")
+            return "\n".join(lines).strip()
+        else:
+            if is_ru:
+                return f"🌐 По запросу «{web_query}» информации в интернете не найдено или превышено время ожидания."
+            return f"🌐 «{web_query}» bo'yicha internetdan ma'lumot topilmadi yoki tarmoqqa ulanishda vaqt tugadi."
+
     # 4. Action: find_contact (O'quvchi, kontakt yoki guruh a'zolarini qidirish / Поиск контакта)
     m_contact = ACTION_FIND_CONTACT.search(reply_text)
     if not m_contact:
@@ -1244,6 +1622,40 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
 
         return "\n".join(lines)
 
+    # 5.0 Action: schedule_message (Kechiktirilgan yoki rejalashtirilgan xabar)
+    m_sched = ACTION_SCHEDULE_MSG.search(reply_text)
+    if not m_sched:
+        # To'g'ridan-to'g'ri matndan rejalashtirishni aniqlash
+        fb_sched = re.search(r"^(.+?)(?:ga|da)\s+['\"](.+?)['\"]\s+.*?(?:(\d+\s*(?:daqiqa|minut|soat|kun).*?(?:so['’`]?ng|keyin))|ertaga|bugun)", orig_msg, re.I)
+        if fb_sched:
+            m_sched = fb_sched
+
+    if m_sched:
+        target = m_sched.group(1).strip()
+        text = m_sched.group(2).strip()
+        time_arg = m_sched.group(3).strip() if len(m_sched.groups()) >= 3 and m_sched.group(3) else orig_msg
+        res = await schedule_telegram_message(client, target, text, time_arg)
+        if res.get("ok"):
+            if is_ru:
+                return (
+                    f"⏳ **Сообщение успешно запланировано!**\n\n"
+                    f"• **Получатель:** {res.get('target_name')}\n"
+                    f"• **Время отправки:** `{res.get('remind_at')}` (через {res.get('delay_human')})\n"
+                    f"• **Текст сообщения:** «{res.get('text')}»\n\n"
+                    f"✅ В назначенное время сообщение будет отправлено автоматически!"
+                )
+            return (
+                f"⏳ **Xabar muvaffaqiyatli rejalashtirildi!**\n\n"
+                f"• **Qabul qiluvchi:** {res.get('target_name')}\n"
+                f"• **Yuborilish vaqti:** `{res.get('remind_at')}` ({res.get('delay_human')}dan so'ng)\n"
+                f"• **Xabar matni:** «{res.get('text')}»\n\n"
+                f"✅ Belgilangan vaqtda xabar avtomatik yuboriladi!"
+            )
+        else:
+            if is_ru:
+                return f"❌ **Не удалось запланировать сообщение:** {res.get('error')}"
+            return f"❌ **Xabarni rejalashtirib bo'lmadi:** {res.get('error')}"
+
     # 5. Action: send_message
     m_send = ACTION_SEND_MSG.search(reply_text)
     if not m_send:
@@ -1257,6 +1669,35 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
     if m_send:
         target = m_send.group(1).strip()
         text = m_send.group(2).strip()
+
+        # 🧠 AQLLI TAHLIL (SMART FALLBACK):
+        # Agar mentorning asl xabarida vaqt yoki muddat bo'lsa (masalan '2daqiqadan son jonat', '5 minutdan keyin', 'ertaga soat 7 da'):
+        # Xabarni HOZIR OTIB YUBORMASDAN, avtomatik schedule_telegram_message ga yo'naltirish!
+        time_indicators = (
+            r"\b\d+\s*(?:daqiqa\w*|minut\w*|sekund\w*|soniya\w*|soat\w*|kun\w*)\s*(?:so['’`]?ng|song|son|keyin|o['’`]?tib)\b",
+            r"\b(?:so['’`]?ng|song|son|keyin)\s+(?:jo['’`]?nat|yubor|tashla)\b",
+            r"\b(?:ertaga|bugun)\s+(?:soat\s+)?\d+\b.*?(?:yubor|jo['’`]?nat|xabar)",
+            r"\b(?:через|спустя)\s+\d+\s*(?:минут|мин|сек|секунд|час|дня)\b",
+        )
+        if any(re.search(pat, orig_msg, re.I) for pat in time_indicators):
+            res = await schedule_telegram_message(client, target, text, orig_msg)
+            if res.get("ok"):
+                if is_ru:
+                    return (
+                        f"⏳ **Сообщение успешно запланировано!**\n\n"
+                        f"• **Получатель:** {res.get('target_name')}\n"
+                        f"• **Время отправки:** `{res.get('remind_at')}` (через {res.get('delay_human')})\n"
+                        f"• **Текст сообщения:** «{res.get('text')}»\n\n"
+                        f"✅ В назначенное время сообщение будет отправлено автоматически!"
+                    )
+                return (
+                    f"⏳ **Xabar muvaffaqiyatli rejalashtirildi!**\n\n"
+                    f"• **Qabul qiluvchi:** {res.get('target_name')}\n"
+                    f"• **Yuborilish vaqti:** `{res.get('remind_at')}` ({res.get('delay_human')}dan so'ng)\n"
+                    f"• **Xabar matni:** «{res.get('text')}»\n\n"
+                    f"✅ Belgilangan vaqtda xabar avtomatik yuboriladi!"
+                )
+
         res = await send_telegram_message(client, target, text)
         if res.get("ok"):
             if is_ru:
@@ -1280,6 +1721,22 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str) -> str:
     if m_learn:
         topic = m_learn.group(1).strip()
         content = m_learn.group(2).strip()
+
+        # 🛡 Anti-Hallucination: Soxta qoliplarni rad etish
+        bad_placeholders = ("MANZIL_YOKI_KOORDINATALAR", "KOORDINATA", "MANZIL", "PLACEHOLDER", "TODO", "[MANZIL]")
+        if any(bad in content.upper() for bad in bad_placeholders):
+            if is_ru:
+                return (
+                    "📍 **Учитель, координаты или геопозиция не получены.**\n\n"
+                    "Пожалуйста, отправьте вашу **Геопозицию (📍 Location)** через Telegram или напишите точный адрес. "
+                    "Я сразу же сохраню его в память!"
+                )
+            return (
+                "📍 **Ustoz, hozir turgan joyingiz koordinatasi yoki geolokatsiyasi kelmadi.**\n\n"
+                "Iltimos, Telegram orqali **Geolokatsiyangizni (📍 Location)** yuboring yoki manzilni yozing (masalan: *Sergeli 4-mavze, CoddyCamp*). "
+                "Uni darhol xotiraga aniq saqlab qo'yaman!"
+            )
+
         memory_service.add_learned_fact(topic, content, category="mentor_rule")
         return format_learning_report(topic, content, is_ru=is_ru)
 

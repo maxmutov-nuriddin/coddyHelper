@@ -340,6 +340,40 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
         CURRENT_SENDING_CHATS.add(chat_id)
         try:
+            # 0. Telegram Geolokatsiyasi (📍 Location) bormi?
+            geo = getattr(event.message, "geo", None) or (
+                getattr(event.message, "media", None) and getattr(event.message.media, "geo", None)
+            )
+            if geo and getattr(geo, "lat", None) is not None and getattr(geo, "long", None) is not None:
+                lat = float(geo.lat)
+                long = float(geo.long)
+                from zoneinfo import ZoneInfo
+                now_t = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%d.%m.%Y %H:%M")
+                gmaps_link = f"https://www.google.com/maps?q={lat},{long}"
+                yandex_link = f"https://yandex.com/maps/?pt={long},{lat}&z=16&l=map"
+
+                loc_content = (
+                    f"📍 **Nuriddin ustozning joylashuvi** (saqlangan vaqt: {now_t}):\n"
+                    f"• Kenglik (Lat): `{lat:.6f}`\n"
+                    f"• Uzunlik (Long): `{long:.6f}`\n"
+                    f"• 🗺 [Google Maps orqali ochish]({gmaps_link})\n"
+                    f"• 🗺 [Yandex Maps orqali ochish]({yandex_link})"
+                )
+                memory_service.add_learned_fact("mentor_lokatsiyasi", loc_content, category="mentor_location")
+
+                reply_geo = (
+                    "📍 **Geolokatsiya muvaffaqiyatli qabul qilindi va xotiraga saqlandi!**\n\n"
+                    f"• 🌐 **Koordinatalar:** `{lat:.6f}, {long:.6f}`\n"
+                    f"• 🗺 [Google Maps orqali ochish]({gmaps_link})\n"
+                    f"• 🗺 [Yandex Maps orqali ochish]({yandex_link})\n\n"
+                    "✅ _Ushbu joylashuv xotiraga saqlandi. Istalgan payt 'turgan joyim qayerda' yoki 'lokatsiyamni ko'rsat' desangiz, uni chiqarib beraman!_"
+                )
+                sent_msg = await event.reply(reply_geo)
+                if sent_msg:
+                    BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+                log_activity(f"📍 Mentor geolokatsiyasi saqlandi: {lat:.4f}, {long:.4f}")
+                return
+
             message_text = event.raw_text or event.message.message or ""
             has_voice = bool(
                 event.message.voice
@@ -959,43 +993,123 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         grp_name = sched_res.get("group_name") or "CoddyCamp guruhi"
                         ann_text = sched_res.get("announcement_text")
                         ann_date = sched_res.get("announcement_date") or "Yaqinda"
+                        has_sched = sched_res.get("has_schedule", False)
+                        days_uz = sched_res.get("days_uz") or ""
+                        days_ru = sched_res.get("days_ru") or ""
+                        l_time = sched_res.get("lesson_time")
+                        is_today = sched_res.get("is_today_lesson")
+                        today_uz = sched_res.get("today_name_uz") or "Bugun"
+                        today_ru = sched_res.get("today_name_ru") or "Сегодня"
+                        next_uz = sched_res.get("next_lesson_uz")
+                        next_ru = sched_res.get("next_lesson_ru")
 
                         is_ru_sched = is_russian_text(clean_raw)
 
                         if status == "found_cancellation":
                             if is_ru_sched:
-                                sched_reply = (
-                                    "📢 **По объявлению администрации CoddyCamp (@coddycamp_sergeli):**\n\n"
-                                    f"📚 Группа: **{grp_name}**\n"
-                                    f"📅 Дата объявления: {ann_date}\n\n"
-                                    f"💬 *Текст объявления:*\n\"{ann_text}\"\n\n"
-                                    "В связи с праздником / выходным днём занятий сегодня не будет. "
-                                    "Следующий урок состоится по обычному расписанию. Хорошего отдыха! 😊"
-                                )
+                                sched_lines = [
+                                    "📢 **По объявлению администрации CoddyCamp (@coddycamp_sergeli):**\n",
+                                    f"📚 Группа: **{grp_name}**",
+                                ]
+                                if has_sched and days_ru:
+                                    sched_lines.append(f"🗓 Расписание: **{days_ru}**")
+                                if l_time:
+                                    sched_lines.append(f"⏰ Время урока: **{l_time}**")
+                                sched_lines.append(f"📅 Дата объявления: {ann_date}\n")
+                                sched_lines.append(f"💬 *Текст объявления:*\n\"{ann_text}\"\n")
+                                sched_lines.append("⚠️ **Обратите внимание:** По сообщению администрации, в связи с праздником / выходным днём занятий сегодня не будет.")
+                                if next_ru:
+                                    t_part = f" в {l_time}" if l_time else ""
+                                    sched_lines.append(f"Следующее занятие состоится **{next_ru}**{t_part}.")
+                                sched_lines.append("Хорошего отдыха! 😊")
+                                sched_reply = "\n".join(sched_lines)
                             else:
-                                sched_reply = (
-                                    "📢 **CoddyCamp ma'muriyati (@coddycamp_sergeli) e'loni bo'yicha:**\n\n"
-                                    f"📚 Guruh: **{grp_name}**\n"
-                                    f"📅 E'lon sanasi: {ann_date}\n\n"
-                                    f"💬 *E'lon matni:*\n\"{ann_text}\"\n\n"
-                                    "Bayram / dam olish kuni munosabati bilan bugun guruhingizda darslar bo'lmaydi. "
-                                    "Keyingi dars odatiy dars jadvalingiz bo'yicha davom etadi. Maroqli dam oling! 😊"
-                                )
+                                sched_lines = [
+                                    "📢 **CoddyCamp ma'muriyati (@coddycamp_sergeli) e'loni bo'yicha:**\n",
+                                    f"📚 Guruh: **{grp_name}**",
+                                ]
+                                if has_sched and days_uz:
+                                    sched_lines.append(f"🗓 Odatiy jadval: **{days_uz}**")
+                                if l_time:
+                                    sched_lines.append(f"⏰ Dars vaqti: **{l_time}**")
+                                sched_lines.append(f"📅 E'lon sanasi: {ann_date}\n")
+                                sched_lines.append(f"💬 *E'lon matni:*\n\"{ann_text}\"\n")
+                                sched_lines.append("⚠️ **E'tibor bering:** Ma'muriyat e'loniga ko'ra bayram / dam olish kuni munosabati bilan bugun dars bo'lmaydi.")
+                                if next_uz:
+                                    t_part = f" soat {l_time} da" if l_time else ""
+                                    sched_lines.append(f"Keyingi darsingiz **{next_uz}**{t_part} bo'lib o'tadi.")
+                                sched_lines.append("Maroqli dam oling! 😊")
+                                sched_reply = "\n".join(sched_lines)
+
                         elif status == "normal_schedule":
-                            if is_ru_sched:
-                                sched_reply = (
-                                    "🗓 **Информация о расписании:**\n\n"
-                                    f"📚 Ваша группа: **{grp_name}**\n\n"
-                                    "✅ Администрация (@coddycamp_sergeli) не публиковала объявлений об отмене занятий или праздниках.\n\n"
-                                    "Сегодня урок пройдет в обычное время по утвержденному расписанию! Ждем вас на занятии 😊"
-                                )
+                            if has_sched:
+                                if is_today:
+                                    if is_ru_sched:
+                                        t_part = f" в **{l_time}**" if l_time else ""
+                                        time_row = f"⏰ Время урока: **{l_time}**\n\n" if l_time else "\n"
+                                        sched_reply = (
+                                            "🗓 **Информация о расписании:**\n\n"
+                                            f"📚 Ваша группа: **{grp_name}**\n"
+                                            f"🗓 Дни занятий: **{days_ru}**\n"
+                                            f"{time_row}"
+                                            f"✅ **Сегодня у вашей группы день занятий!** Урок пройдет по расписанию{t_part}.\n\n"
+                                            "Администрация CoddyCamp (@coddycamp_sergeli) не публиковала объявлений об отмене занятий или праздниках.\n\n"
+                                            "Ждем вас на занятии 😊"
+                                        )
+                                    else:
+                                        t_part = f" soat **{l_time}** da" if l_time else ""
+                                        time_row = f"⏰ Dars vaqti: **{l_time}**\n\n" if l_time else "\n"
+                                        sched_reply = (
+                                            "🗓 **Dars jadvali ma'lumoti:**\n\n"
+                                            f"📚 Guruhingiz: **{grp_name}**\n"
+                                            f"🗓 Dars kunlari: **{days_uz}**\n"
+                                            f"{time_row}"
+                                            f"✅ **Bugun guruhingizda dars kuni!** Dars o'z vaqtida{t_part} bo'lib o'tadi.\n\n"
+                                            "CoddyCamp ma'muriyati (@coddycamp_sergeli) tomonidan hech qanday dars qoldirilishi yoki bayram e'loni berilmagan.\n\n"
+                                            "Darsda kutib qolamiz 😊"
+                                        )
+                                else:
+                                    if is_ru_sched:
+                                        t_part = f" в **{l_time}**" if l_time else ""
+                                        time_row = f"⏰ Время урока: **{l_time}**\n\n" if l_time else "\n"
+                                        next_str = f"Ваше следующее занятие: **{next_ru}**{t_part}!\n\n" if next_ru else ""
+                                        sched_reply = (
+                                            "🗓 **Информация о расписании:**\n\n"
+                                            f"📚 Ваша группа: **{grp_name}**\n"
+                                            f"🗓 Дни занятий: **{days_ru}**\n"
+                                            f"{time_row}"
+                                            f"ℹ️ **Сегодня у вашей группы нет занятий.** (Сегодня — {today_ru})\n\n"
+                                            f"{next_str}"
+                                            "Администрация CoddyCamp (@coddycamp_sergeli) не публиковала изменений в расписании. 😊"
+                                        )
+                                    else:
+                                        t_part = f" soat **{l_time}** da" if l_time else ""
+                                        time_row = f"⏰ Dars vaqti: **{l_time}**\n\n" if l_time else "\n"
+                                        next_str = f"Keyingi darsingiz: **{next_uz}**{t_part} bo'lib o'tadi!\n\n" if next_uz else ""
+                                        sched_reply = (
+                                            "🗓 **Dars jadvali ma'lumoti:**\n\n"
+                                            f"📚 Guruhingiz: **{grp_name}**\n"
+                                            f"🗓 Dars kunlari: **{days_uz}**\n"
+                                            f"{time_row}"
+                                            f"ℹ️ **Bugun guruhingiz uchun dars kuni emas.** (Bugun — {today_uz})\n\n"
+                                            f"{next_str}"
+                                            "CoddyCamp ma'muriyati (@coddycamp_sergeli) tomonidan boshqa o'zgarishlar e'lon qilinmagan. 😊"
+                                        )
                             else:
-                                sched_reply = (
-                                    "🗓 **Dars jadvali ma'lumoti:**\n\n"
-                                    f"📚 Sizning guruhingiz: **{grp_name}**\n\n"
-                                    "✅ CoddyCamp ma'muriyati (@coddycamp_sergeli) tomonidan dars bekor qilinishi yoki bayram e'loni berilmagan.\n\n"
-                                    "Bugun dars odatiy vaqtda va jadval bo'yicha bo'lib o'tadi! Darsda kutib qolamiz 😊"
-                                )
+                                if is_ru_sched:
+                                    sched_reply = (
+                                        "🗓 **Информация о расписании:**\n\n"
+                                        f"📚 Ваша группа: **{grp_name}**\n\n"
+                                        "✅ Администрация (@coddycamp_sergeli) не публиковала объявлений об отмене занятий или праздниках.\n\n"
+                                        "Сегодня урок пройдет в обычное время по утвержденному расписанию! Ждем вас на занятии 😊"
+                                    )
+                                else:
+                                    sched_reply = (
+                                        "🗓 **Dars jadvali ma'lumoti:**\n\n"
+                                        f"📚 Sizning guruhingiz: **{grp_name}**\n\n"
+                                        "✅ CoddyCamp ma'muriyati (@coddycamp_sergeli) tomonidan dars bekor qilinishi yoki bayram e'loni berilmagan.\n\n"
+                                        "Bugun dars odatiy vaqtda va jadval bo'yicha bo'lib o'tadi! Darsda kutib qolamiz 😊"
+                                    )
                         else:
                             if is_ru_sched:
                                 sched_reply = (
@@ -1095,8 +1209,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 try:
                     voice_reply_enabled = memory_service.get_setting("voice_reply_enabled", "true").lower() == "true"
 
-                    # Agar ovozli xabar bo'lsa va voice_reply_enabled yoqilgan bo'lsa
-                    if has_voice and voice_reply_enabled:
+                    # Agar ovozli xabar bo'lsa yoki foydalanuvchi ovozli so'ragan bo'lsa va voice_reply_enabled yoqilgan bo'lsa
+                    is_voice_requested = any(w in input_text.lower() for w in ["ovozli", "ovoz bilan", "голосом", "голос", "audio", "audioda"])
+                    if (has_voice or is_voice_requested) and voice_reply_enabled:
                         try:
                             from services.tts_service import generate_voice_message
                             voice_path = await generate_voice_message(str(answer))
