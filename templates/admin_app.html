@@ -63,57 +63,76 @@
       flex: 0 0 auto;
       background-color: var(--secondary-bg);
       border-bottom: 1px solid var(--border-color);
-      padding: 14px 16px;
-      padding-top: max(14px, env(safe-area-inset-top));
+      padding: 12px 14px;
+      padding-top: max(12px, env(safe-area-inset-top));
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 8px;
       z-index: 50;
       user-select: none;
+      min-width: 0;
     }
 
     .profile-info {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      min-width: 0;
+      flex: 1;
     }
 
     .avatar {
-      width: 44px;
-      height: 44px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       background: linear-gradient(135deg, #2ea6ff, #0072c6);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 18px;
+      font-size: 16px;
       font-weight: bold;
       color: #fff;
       box-shadow: 0 2px 8px rgba(46, 166, 255, 0.4);
+      flex-shrink: 0;
+    }
+
+    .user-details {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
     }
 
     .user-details h1 {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
       letter-spacing: -0.3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .user-details p {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--hint-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .status-pill {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 5px 10px;
+      gap: 5px;
+      padding: 4px 9px;
       border-radius: 20px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       background: rgba(34, 197, 94, 0.15);
       color: var(--success);
       border: 1px solid rgba(34, 197, 94, 0.3);
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     .status-pill.offline {
@@ -128,6 +147,7 @@
       border-radius: 50%;
       background-color: currentColor;
       box-shadow: 0 0 6px currentColor;
+      flex-shrink: 0;
     }
 
     /* MAIN CONTAINER */
@@ -142,6 +162,7 @@
       margin: 0 auto;
       width: 100%;
       box-sizing: border-box;
+      min-width: 0;
     }
 
     /* INDIVIDUAL PAGES / TABS */
@@ -197,18 +218,22 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
       margin-bottom: 12px;
     }
 
     .card-title {
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: var(--hint-color);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
+      flex-wrap: wrap;
+      min-width: 0;
     }
 
     /* SWITCH TOGGLE */
@@ -216,8 +241,10 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 10px;
       padding: 12px 0;
       border-bottom: 1px solid var(--border-color);
+      min-width: 0;
     }
 
     .toggle-row:last-child {
@@ -225,15 +252,29 @@
       padding-bottom: 0;
     }
 
+    .toggle-row select {
+      max-width: 150px;
+      flex-shrink: 0;
+      min-width: 0;
+    }
+
+    .toggle-info {
+      flex: 1;
+      min-width: 0;
+    }
+
     .toggle-info h3 {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
       margin-bottom: 2px;
+      word-break: break-word;
     }
 
     .toggle-info p {
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--hint-color);
+      line-height: 1.35;
+      word-break: break-word;
     }
 
     .switch {
@@ -662,16 +703,58 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* GENERAL BADGES & STATUS BADGES */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap !important;
+      flex-shrink: 0 !important;
+      line-height: 1.2;
+    }
+
+    .badge-success {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .badge-warning {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .badge-danger {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .badge-info {
+      background: rgba(46, 166, 255, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(46, 166, 255, 0.3);
     }
 
     .student-badge {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 2px 8px;
+      padding: 3px 8px;
       border-radius: 12px;
       font-size: 11px;
       font-weight: 600;
+      white-space: nowrap !important;
+      flex-shrink: 0 !important;
     }
 
     .badge-yaxshi {
@@ -702,35 +785,150 @@
       border-top: 1px solid var(--border-color);
       display: flex;
       justify-content: space-around;
-      padding: 5px 0;
-      padding-bottom: calc(max(6px, env(safe-area-inset-bottom)) + 5px);
+      padding: 4px 2px;
+      padding-bottom: calc(max(6px, env(safe-area-inset-bottom)) + 4px);
       z-index: 100;
       touch-action: none;
       user-select: none;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
 
     .nav-item {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 2px;
+      justify-content: center;
+      gap: 1px;
       background: none;
       border: none;
       color: var(--hint-color);
-      font-size: 10px;
       cursor: pointer;
-      padding: 3px 2px;
+      padding: 3px 1px;
       transition: color 0.2s ease;
-      flex: 1;
+      flex: 1 1 0;
       min-width: 0;
+      text-align: center;
     }
 
     .nav-item.active {
       color: var(--accent);
     }
 
+    .nav-item span:last-child {
+      font-size: 9.5px;
+      line-height: 1.15;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      display: block;
+      font-weight: 500;
+    }
+
     .nav-icon {
-      font-size: 18px;
+      font-size: 17px;
+      line-height: 1.1;
+    }
+
+    /* COMPREHENSIVE RESPONSIVE MEDIA QUERIES */
+    @media (max-width: 480px) {
+      .container {
+        padding: 10px 10px calc(76px + max(10px, env(safe-area-inset-bottom))) 10px;
+      }
+      .card {
+        padding: 12px 10px;
+        margin-bottom: 10px;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .container {
+        padding: 8px 8px calc(74px + max(8px, env(safe-area-inset-bottom))) 8px;
+      }
+      .card {
+        padding: 10px 8px;
+        border-radius: 10px;
+      }
+      .card-title {
+        font-size: 12.5px;
+      }
+      .grid {
+        gap: 6px;
+      }
+      .metric-box {
+        padding: 8px 4px;
+      }
+      .metric-value {
+        font-size: 18px;
+      }
+      .metric-label {
+        font-size: 9.5px;
+      }
+      .btn {
+        padding: 10px 12px;
+        font-size: 13px;
+      }
+      .nav-item {
+        padding: 2px 0;
+      }
+      .nav-item span:last-child {
+        font-size: 8.5px;
+        letter-spacing: -0.2px;
+      }
+      .nav-icon {
+        font-size: 16px;
+      }
+      .toggle-row select {
+        max-width: 125px;
+        font-size: 11px;
+        padding: 6px 4px;
+      }
+    }
+
+    @media (max-width: 340px) {
+      .header {
+        padding: 8px 8px;
+        padding-top: max(8px, env(safe-area-inset-top));
+      }
+      .avatar {
+        width: 34px;
+        height: 34px;
+        font-size: 13px;
+      }
+      .user-details h1 {
+        font-size: 13px;
+      }
+      .user-details p {
+        font-size: 10px;
+      }
+      .status-pill {
+        padding: 3px 6px;
+        font-size: 10px;
+      }
+      .nav-item span:last-child {
+        font-size: 8px;
+        letter-spacing: -0.3px;
+      }
+      .nav-icon {
+        font-size: 15px;
+      }
+      .toggle-row {
+        flex-wrap: wrap;
+      }
+      .toggle-row select {
+        max-width: 100%;
+        width: 100%;
+        margin-top: 6px;
+      }
+      .reminder-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .reminder-item button {
+        width: 100% !important;
+      }
     }
 
     /* TOAST */
@@ -1090,9 +1288,9 @@
         <div id="curriculum-topics-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
           <!-- JS to'ldiradi -->
         </div>
-        <div style="display: flex; gap: 8px; margin-top: 8px;">
-          <input type="text" id="new-curriculum-topic" placeholder="Masalan: Vue.js yoki Docker" style="flex: 1; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
-          <button type="button" onclick="addCurriculumTopic()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer; width: auto;">➕ Qo'shish</button>
+        <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+          <input type="text" id="new-curriculum-topic" placeholder="Masalan: Vue.js yoki Docker" style="flex: 1; min-width: 140px; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
+          <button type="button" onclick="addCurriculumTopic()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer; width: auto; flex-shrink: 0;">➕ Qo'shish</button>
         </div>
       </div>
 
@@ -1107,9 +1305,9 @@
         <div id="trusted-sites-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
           <!-- JS to'ldiradi -->
         </div>
-        <div style="display: flex; gap: 8px; margin-top: 8px;">
-          <input type="text" id="new-trusted-site" placeholder="Masalan: react.dev yoki metanit.com" style="flex: 1; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
-          <button type="button" onclick="addTrustedSite()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer; width: auto;">➕ Qo'shish</button>
+        <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+          <input type="text" id="new-trusted-site" placeholder="Masalan: react.dev yoki metanit.com" style="flex: 1; min-width: 140px; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
+          <button type="button" onclick="addTrustedSite()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer; width: auto; flex-shrink: 0;">➕ Qo'shish</button>
         </div>
       </div>
 
@@ -1289,11 +1487,11 @@
           <button class="btn btn-primary" onclick="sendBackupToBot()">
             🚀 Baza Zaxirasini Yangilash (Botga Yuborish)
           </button>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary" onclick="downloadBackup()" style="flex: 1;">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-secondary" onclick="downloadBackup()" style="flex: 1; min-width: 130px;">
               📥 Yuklab Olish
             </button>
-            <button class="btn btn-secondary" onclick="document.getElementById('db-file-input').click()" style="flex: 1;">
+            <button class="btn btn-secondary" onclick="document.getElementById('db-file-input').click()" style="flex: 1; min-width: 130px;">
               📤 Baza Yuklash (Merge)
             </button>
             <input type="file" id="db-file-input" accept=".db,.sqlite,.sqlite3" style="display:none;" onchange="uploadDatabase(event)" />
@@ -1330,12 +1528,12 @@
     <div class="tab-pane" id="tab-agent">
       <!-- LEVEL & XP HERO CARD -->
       <div class="card" style="background: linear-gradient(135deg, rgba(36, 129, 204, 0.15), rgba(74, 222, 128, 0.1)); border: 1px solid rgba(36, 129, 204, 0.3);">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-          <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; flex-wrap: wrap;">
+          <div style="min-width: 0; flex: 1;">
             <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--hint-color);">Avtonom AI Yordamchi</div>
-            <h2 style="font-size: 20px; font-weight: 700; margin: 2px 0 0 0;" id="agent-title-display">Coddy Executive Co-Pilot</h2>
+            <h2 style="font-size: clamp(15px, 4vw, 20px); font-weight: 700; margin: 2px 0 0 0; min-width: 0; word-break: break-word;" id="agent-title-display">Coddy Executive Co-Pilot</h2>
           </div>
-          <div style="background: var(--accent); color: #fff; font-weight: 800; font-size: 14px; padding: 6px 12px; border-radius: 20px; box-shadow: 0 2px 8px rgba(36, 129, 204, 0.4);" id="agent-level-badge">
+          <div style="background: var(--accent); color: #fff; font-weight: 800; font-size: 13px; padding: 5px 12px; border-radius: 20px; box-shadow: 0 2px 8px rgba(36, 129, 204, 0.4); flex-shrink: 0; white-space: nowrap;" id="agent-level-badge">
             LVL 1
           </div>
         </div>
@@ -1350,32 +1548,32 @@
             <div id="agent-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #2481cc, #4ade80); border-radius: 4px; transition: width 0.4s ease;"></div>
           </div>
         </div>
-        <p style="font-size: 11px; color: var(--hint-color); margin: 6px 0 0 0;">
+        <p style="font-size: 11px; color: var(--hint-color); margin: 6px 0 0 0; line-height: 1.35;">
           * Agent har bir muloqot, saqlangan lokatsiya, reja va o'quvchilar tahlili orqali avtomatik aqllashib boradi.
         </p>
       </div>
 
       <!-- METRICS GRID -->
-      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px;">
-        <div class="card" style="padding: 12px; margin: 0; text-align: center;">
+      <div class="grid" style="margin-bottom: 12px;">
+        <div class="metric-box">
           <div style="font-size: 18px;">📍</div>
-          <div style="font-size: 18px; font-weight: 700; margin-top: 4px;" id="agent-stat-locations">0</div>
-          <div style="font-size: 11px; color: var(--hint-color);">Saqlangan Lokatsiyalar</div>
+          <div class="metric-value" style="font-size: 18px; margin-top: 2px;" id="agent-stat-locations">0</div>
+          <div class="metric-label">Saqlangan Lokatsiyalar</div>
         </div>
-        <div class="card" style="padding: 12px; margin: 0; text-align: center;">
+        <div class="metric-box">
           <div style="font-size: 18px;">📅</div>
-          <div style="font-size: 18px; font-weight: 700; margin-top: 4px;" id="agent-stat-plans">0</div>
-          <div style="font-size: 11px; color: var(--hint-color);">Bugungi Rejalar</div>
+          <div class="metric-value" style="font-size: 18px; margin-top: 2px;" id="agent-stat-plans">0</div>
+          <div class="metric-label">Bugungi Rejalar</div>
         </div>
-        <div class="card" style="padding: 12px; margin: 0; text-align: center;">
+        <div class="metric-box">
           <div style="font-size: 18px;">🧠</div>
-          <div style="font-size: 18px; font-weight: 700; margin-top: 4px;" id="agent-stat-knowledge">0</div>
-          <div style="font-size: 11px; color: var(--hint-color);">O'rganilgan Bilimlar</div>
+          <div class="metric-value" style="font-size: 18px; margin-top: 2px;" id="agent-stat-knowledge">0</div>
+          <div class="metric-label">O'rganilgan Bilimlar</div>
         </div>
-        <div class="card" style="padding: 12px; margin: 0; text-align: center;">
+        <div class="metric-box">
           <div style="font-size: 18px;">💬</div>
-          <div style="font-size: 18px; font-weight: 700; margin-top: 4px;" id="agent-stat-messages">0</div>
-          <div style="font-size: 11px; color: var(--hint-color);">Tahlil qilingan Xabarlar</div>
+          <div class="metric-value" style="font-size: 18px; margin-top: 2px;" id="agent-stat-messages">0</div>
+          <div class="metric-label">Tahlil qilingan Xabarlar</div>
         </div>
       </div>
 
@@ -1450,8 +1648,8 @@
   </main>
 
   <!-- STUDENT MODAL -->
-  <div id="student-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; padding: 16px;">
-    <div style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: var(--radius); width: 100%; max-width: 450px; max-height: 90vh; overflow-y: auto; padding: 20px; box-shadow: var(--shadow);">
+  <div id="student-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; padding: 12px; box-sizing: border-box;">
+    <div style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: var(--radius); width: 100%; max-width: 450px; max-height: 90vh; overflow-y: auto; padding: 16px; box-shadow: var(--shadow); box-sizing: border-box;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <h3 id="student-modal-title" style="font-size: 16px; font-weight: 600;">👨‍🎓 O'quvchi Profili</h3>
         <button onclick="closeStudentModal()" style="background: none; border: none; color: var(--hint-color); font-size: 20px; cursor: pointer;">✕</button>
@@ -2652,12 +2850,12 @@
         const dateStr = f.created_at ? f.created_at.slice(0, 16) : "";
         return `
           <div class="card" style="margin-bottom: 10px; border-left: 3px solid #3390ec;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
-              <div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 8px; flex-wrap: wrap;">
+              <div style="min-width: 0; flex: 1;">
                 <span style="display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; background: rgba(51,144,236,0.15); color: #64b5f6; padding: 2px 6px; border-radius: 4px; margin-bottom: 4px;">${escapeHtml(catLabel)}</span>
-                <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: #fff;">${escapeHtml(f.topic)}</h4>
+                <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: #fff; word-break: break-word;">${escapeHtml(f.topic)}</h4>
               </div>
-              <button class="btn btn-secondary" onclick="deleteKnowledge(${f.id}, '${escapeHtml(f.topic)}')" style="padding: 4px 8px; font-size: 11px; width: auto; color: #ef5350;" title="O'chirish">🗑 O'chirish</button>
+              <button class="btn btn-secondary" onclick="deleteKnowledge(${f.id}, '${escapeHtml(f.topic)}')" style="padding: 4px 8px; font-size: 11px; width: auto; color: #ef5350; flex-shrink: 0; white-space: nowrap;" title="O'chirish">🗑 O'chirish</button>
             </div>
             <p style="font-size: 13px; color: var(--text-color); margin: 0 0 6px 0; line-height: 1.4; white-space: pre-wrap;">${escapeHtml(f.content)}</p>
             <div style="font-size: 11px; color: var(--hint-color); text-align: right;">${escapeHtml(dateStr)}</div>
@@ -2886,14 +3084,14 @@
             locContainer.innerHTML = '<div style="text-align: center; color: var(--hint-color); padding: 12px; font-size: 12px;">Hozircha saqlangan lokatsiyalar yo\'q</div>';
           } else {
             locContainer.innerHTML = locs.map(l => `
-              <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: var(--card-bg); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--border-color);">
-                <div>
-                  <div style="font-weight: 600; font-size: 13px;">📍 ${escapeHtml(l.name)}</div>
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: var(--card-bg); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--border-color); gap: 8px; flex-wrap: wrap;">
+                <div style="min-width: 0; flex: 1;">
+                  <div style="font-weight: 600; font-size: 13px; word-break: break-word;">📍 ${escapeHtml(l.name)}</div>
                   <div style="font-size: 11px; color: var(--hint-color); margin-top: 2px;">
                     ${l.latitude.toFixed(4)}, ${l.longitude.toFixed(4)} ${l.created_at ? '• ' + l.created_at.substring(0, 10) : ''}
                   </div>
                 </div>
-                <a href="https://maps.google.com/?q=${l.latitude},${l.longitude}" target="_blank" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; text-decoration: none;">
+                <a href="https://maps.google.com/?q=${l.latitude},${l.longitude}" target="_blank" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; text-decoration: none; width: auto; flex-shrink: 0; white-space: nowrap;">
                   Xarita ↗
                 </a>
               </div>
@@ -2911,15 +3109,15 @@
             plansContainer.innerHTML = '<div style="text-align: center; color: var(--hint-color); padding: 12px; font-size: 12px;">Bugun uchun kiritilgan rejalar mavjud emas</div>';
           } else {
             plansContainer.innerHTML = plans.map(p => `
-              <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--card-bg); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--border-color);">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="font-size: 16px;">${p.status === 'completed' ? '✅' : '⏳'}</span>
-                  <div>
-                    <div style="font-size: 13px; ${p.status === 'completed' ? 'text-decoration: line-through; opacity: 0.7;' : 'font-weight: 500;'}">${escapeHtml(p.plan_text)}</div>
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--card-bg); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--border-color); gap: 8px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                  <span style="font-size: 16px; flex-shrink: 0;">${p.status === 'completed' ? '✅' : '⏳'}</span>
+                  <div style="min-width: 0; flex: 1;">
+                    <div style="font-size: 13px; word-break: break-word; ${p.status === 'completed' ? 'text-decoration: line-through; opacity: 0.7;' : 'font-weight: 500;'}">${escapeHtml(p.plan_text)}</div>
                     ${p.plan_time ? `<div style="font-size: 11px; color: var(--accent);">⏰ ${escapeHtml(p.plan_time)}</div>` : ''}
                   </div>
                 </div>
-                <span class="badge ${p.status === 'completed' ? 'badge-success' : 'badge-warning'}" style="font-size: 10px;">
+                <span class="badge ${p.status === 'completed' ? 'badge-success' : 'badge-warning'}" style="font-size: 10px; flex-shrink: 0; white-space: nowrap;">
                   ${p.status === 'completed' ? 'Bajarildi' : 'Kutilmoqda'}
                 </span>
               </div>
@@ -2944,14 +3142,14 @@
               
               return `
                 <div style="background: var(--card-bg); border-radius: 8px; padding: 10px 12px; border: 1px solid var(--border-color); border-left: 3px solid var(--accent);">
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                    <div style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                      <span>${icon}</span>
-                      <span>${escapeHtml(item.topic || "Bilim")}</span>
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; gap: 8px; flex-wrap: wrap;">
+                    <div style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; min-width: 0; word-break: break-word;">
+                      <span style="flex-shrink: 0;">${icon}</span>
+                      <span style="word-break: break-word;">${escapeHtml(item.topic || "Bilim")}</span>
                     </div>
-                    <span class="badge ${badgeClass}" style="font-size: 10px; padding: 2px 6px;">${badgeLabel}</span>
+                    <span class="badge ${badgeClass}" style="font-size: 10px; padding: 2px 6px; flex-shrink: 0; white-space: nowrap;">${badgeLabel}</span>
                   </div>
-                  <div style="font-size: 12px; color: var(--text-color); line-height: 1.4; white-space: pre-wrap;">${escapeHtml(item.content || "")}</div>
+                  <div style="font-size: 12px; color: var(--text-color); line-height: 1.4; white-space: pre-wrap; word-break: break-word;">${escapeHtml(item.content || "")}</div>
                   ${item.created_at ? `<div style="font-size: 10px; color: var(--hint-color); margin-top: 4px; text-align: right;">🕒 ${escapeHtml(item.created_at.substring(0, 16))}</div>` : ""}
                 </div>
               `;
