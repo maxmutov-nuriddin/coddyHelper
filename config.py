@@ -155,16 +155,13 @@ def is_mentor(user_id: int | str | None) -> bool:
 
 
 def is_escalation_chat(chat_id: int | str) -> bool:
-    """Chat ID 'Vazifalar' guruhi yoki Mentorning shaxsiy Saved Messages ekanini tekshiradi."""
+    """Chat ID 'Vazifalar' guruhi ekanini tekshiradi (Izbrannoe / shaxsiy chat kirmaydi)."""
     c_id = str(chat_id).strip()
     if "5388159517" in c_id:
         return True
-    if c_id in ("8105823872", str(config.mentor_user_id)):
-        return True
     target = str(config.escalation_chat).strip()
-    if target.lower() in ("me", "self"):
-        if c_id.lower() in ("me", "self") or c_id in (str(config.mentor_user_id), "8105823872"):
-            return True
+    if target.lower() in ("me", "self", "8105823872", str(config.mentor_user_id)):
+        return False
     if c_id == target:
         return True
     c_norm = c_id.replace("-100", "-")

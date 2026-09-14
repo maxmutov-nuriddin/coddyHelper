@@ -706,6 +706,20 @@ class AIService:
             except Exception:
                 pass
 
+    @staticmethod
+    def _estimate_tokens(messages: list[dict]) -> int:
+        """Xabarlar to'plamining taxminiy tokenlar sonini hisoblaydi (1 token ~ 3.5 belgi)."""
+        total_chars = 0
+        for m in messages:
+            c = m.get("content", "")
+            if isinstance(c, str):
+                total_chars += len(c)
+            elif isinstance(c, list):
+                for part in c:
+                    if isinstance(part, dict) and "text" in part:
+                        total_chars += len(part["text"])
+        return int(total_chars / 3.5)
+
     async def _generate_with_groq_pod(
         self,
         c_gen,
@@ -725,11 +739,12 @@ class AIService:
         """
         target_model = model_name or config.groq_model
         # 1. Generator
+        calc_max_tokens = 1000 if "20b" in target_model.lower() else (2000 if is_admin_mode else 1500)
         res_gen = await c_gen.chat.completions.create(
             model=target_model,
             messages=messages,
             temperature=0.6 if is_admin_mode else 0.4,
-            max_tokens=2500 if is_admin_mode else 1500,
+            max_tokens=calc_max_tokens,
         )
         draft = res_gen.choices[0].message.content.strip()
 
@@ -847,7 +862,8 @@ class AIService:
             messages = [{"role": "system", "content": sys_prompt}]
 
             prev_assistant = ""
-            for msg in history:
+            recent_history = history[-6:] if not is_admin_mode else history[-8:]
+            for msg in recent_history:
                 content_clean = msg.content.strip()
                 if msg.role == "model":
                     # Agar ketma-ket bir xil assistant javobi bo'lsa, takrorlamaslik
@@ -855,7 +871,9 @@ class AIService:
                         continue
                     prev_assistant = content_clean
                 role = "user" if msg.role == "user" else "assistant"
-                messages.append({"role": role, "content": msg.content})
+                # Tokenlar hajmi 413 limitiga urilmasligi uchun eski xabarlarni ixchamlashtirish
+                compact_content = content_clean[:600] + ("..." if len(content_clean) > 600 else "")
+                messages.append({"role": role, "content": compact_content})
 
             messages.append({"role": "user", "content": effective_prompt})
 
@@ -879,14 +897,41 @@ class AIService:
             candidate_models = [config.groq_vision_model]
         else:
             candidate_models = []
-            for m in [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
+            # Yuqori TPM va 128k kontekstli barqaror modellar
+            preferred = [
+                config.groq_model,
+                "llama-3.3-70b-versatile",
+                "openai/gpt-oss-120b",
+                "llama-3.1-8b-instant",
+                "openai/gpt-oss-20b",
+            ]
+            for m in preferred:
                 if m and m not in candidate_models:
                     candidate_models.append(m)
 
         last_error = None
 
+        # -----------------------------------------------------------
+        # Tokenlar byudjetini oldindan hisoblash va boshqarish (Token Budgeting):
+        # -----------------------------------------------------------
+        active_messages = list(messages)
+        est_tokens = self._estimate_tokens(active_messages)
+
+        # 1. Proactive Halving: Agar so'rov 4,500 tokendan oshsa, limitga yetmasdan oldin xotirani 2 ga bo'lish
+        if est_tokens > 4500 and len(active_messages) > 3:
+            logger.info("⚡ So'rov hajmi katta (%d token). Xotira 2 ga bo'linib, eng muhim qismlarga qisqartirildi.", est_tokens)
+            # Tizim prompti (messages[0]) + oxirgi 2 ta xabar + joriy so'rov (messages[-1])
+            active_messages = [active_messages[0]] + active_messages[-3:]
+            est_tokens = self._estimate_tokens(active_messages)
+
         # Kaskadli zaxira modellar bo'yicha ketma-ket urinish:
         for model_to_use in candidate_models:
+            # Kichik 20b modelning 8k TPM limitiga urilmaslik uchun: agar so'rov 4,000 tokendan katta bo'lsa,
+            # uni darhol 128k lik katta modellarga yo'naltirish
+            if "20b" in model_to_use.lower() and est_tokens > 4000:
+                logger.info("Model [%s] 8k TPM limitiga to'qnashmasligi uchun o'tkazib yuborildi (%d token).", model_to_use, est_tokens)
+                continue
+
             # 1. 3 talik komanda (Pod Klaster) orqali ushbu modelda sinash
             if is_complex:
                 idx1 = self._groq_idx % len(self._groq_clients)
@@ -904,7 +949,7 @@ class AIService:
                         self._groq_clients[idx1],
                         self._groq_clients[idx2],
                         self._groq_clients[idx3],
-                        messages,
+                        active_messages,
                         effective_prompt,
                         sys_prompt,
                         is_admin_mode,
@@ -918,20 +963,38 @@ class AIService:
 
             # 2. Ushbu model bo'yicha barcha kalitlarni ketma-ket tekshirish (oddiy xabarlar yoki pod fallback)
             model_success = False
+            calc_max_tokens = 1000 if "20b" in model_to_use.lower() else (2500 if is_admin_mode else 1800)
             for _ in range(len(self._groq_clients)):
                 client = self._groq_clients[self._groq_idx]
                 self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
                 try:
                     response = await client.chat.completions.create(
                         model=model_to_use,
-                        messages=messages,
+                        messages=active_messages,
                         temperature=0.6 if is_admin_mode else 0.4,
-                        max_tokens=3000 if is_admin_mode else 2048,
+                        max_tokens=calc_max_tokens,
                     )
                     return response.choices[0].message.content.strip()
                 except Exception as e:
                     logger.warning("Groq kalitida xatolik (model: %s): %s", model_to_use, e)
                     last_error = e
+                    # Reactive Halving: Agar 413 yoki token limiti oshishi yuz bersa,
+                    # xotirani ikkiga bo'lib (faqat oxirgi savol qoldirilib) va max_tokens ni 2 ga qisqartirib darhol qayta urinish
+                    if ("413" in str(e) or "rate_limit_exceeded" in str(e)) and len(active_messages) > 2:
+                        logger.warning("⚠️ 413 token limiti! Xotira 2 ga bo'linib (faqat joriy so'rov) qayta urinilmoqda...")
+                        active_messages = [active_messages[0], active_messages[-1]]
+                        calc_max_tokens = max(512, calc_max_tokens // 2)
+                        try:
+                            retry_resp = await client.chat.completions.create(
+                                model=model_to_use,
+                                messages=active_messages,
+                                temperature=0.6 if is_admin_mode else 0.4,
+                                max_tokens=calc_max_tokens,
+                            )
+                            return retry_resp.choices[0].message.content.strip()
+                        except Exception as r_err:
+                            logger.warning("Qisqartirilgan xotira bilan qayta urinishda ham xatolik: %s", r_err)
+                            last_error = r_err
 
             # Agar bu modelda barcha kalitlar muvaffaqiyatsiz bo'lsa (masalan limit to'lsa)
             logger.warning("⚠️ Model [%s] bo'yicha limit yoki xatolik yuz berdi. Keyingi zaxira modelga o'tilmoqda...", model_to_use)
@@ -1103,21 +1166,39 @@ class AIService:
                     logger.warning("Web search qo'shishda ogohlantirish: %s", s_err)
 
         try:
-            # 1-ustuvorlik: Groq (Multi-key)
+            answer = None
+            # 1-ustuvorlik: Groq (Multi-key Cluster)
             if self._groq_clients:
-                answer = await self._generate_with_groq(
-                    chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode
-                )
-            else:
-                # 2-ustuvorlik: Gemini
-                history = memory_service.get_history(chat_id)
-                history_lines = [f"{'Foydalanuvchi' if m.role == 'user' else 'AI'}: {m.content}" for m in history]
-                history_context = "\n".join(history_lines)
+                try:
+                    answer = await self._generate_with_groq(
+                        chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode
+                    )
+                except Exception as groq_err:
+                    logger.warning(
+                        "⚠️ Groq klasterida xatolik yoki limit oshdi (%s). Google Gemini zaxira tizimiga o'tilmoqda...",
+                        groq_err,
+                    )
+                    answer = None
 
-                loop = asyncio.get_running_loop()
-                answer = await loop.run_in_executor(
-                    None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode
-                )
+            # 2-ustuvorlik: Google Gemini (Zaxira tizim - 1 million token limit)
+            if not answer and self._gemini_client:
+                try:
+                    logger.info("⚡ Google Gemini zaxira tizimi ishga tushirildi...")
+                    history = memory_service.get_history(chat_id)
+                    recent_history = history[-6:] if not is_admin_mode else history[-8:]
+                    history_lines = [
+                        f"{'Foydalanuvchi' if m.role == 'user' else 'AI'}: {m.content[:500]}"
+                        for m in recent_history
+                    ]
+                    history_context = "\n".join(history_lines)
+
+                    loop = asyncio.get_running_loop()
+                    answer = await loop.run_in_executor(
+                        None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode
+                    )
+                    logger.info("✅ Google Gemini zaxira tizimi orqali muvaffaqiyatli javob olindi.")
+                except Exception as gemini_err:
+                    logger.error("Gemini zaxira tizimida ham xatolik: %s", gemini_err)
 
             if not answer:
                 answer = "Kechirasiz, ushbu xabarga aniq javob shakllantirib bo'lmadi."

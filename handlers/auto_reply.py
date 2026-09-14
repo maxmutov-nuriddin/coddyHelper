@@ -242,6 +242,8 @@ def is_escalation_chat(chat_id: int) -> bool:
     if c_id in ("-5388159517", "-1005388159517", "5388159517"):
         return True
     target = str(config.escalation_chat).strip()
+    if target.lower() in ("me", "self", "8105823872", str(config.mentor_user_id)):
+        return False
     if c_id == target:
         return True
     c_norm = c_id.replace("-100", "-")
@@ -365,23 +367,19 @@ async def send_smart_reaction(client: TelegramClient, event: events.NewMessage.E
 
 
 async def check_is_vazifalar_chat(event) -> bool:
-    """Xabar 'Vazifalar' (Mentorning Shaxsiy Boshqaruv Markazi) guruhida yoki Mentor lichkasida ekanini aniqlaydi."""
+    """Xabar 'Vazifalar' (Mentorning Shaxsiy Boshqaruv Markazi) guruhida ekanini aniqlaydi.
+    DIQQAT: Izbrannoe (Saved Messages / shaxsiy chat) da AI mutlaqo ishlamaydi!
+    AI faqat va faqat Vazifalar guruhida ishlaydi.
+    """
+    # 1. Shaxsiy chatlar (Izbrannoe / Saved Messages yoki oddiy lichka) Vazifalar guruhi EMAS!
+    if event.is_private:
+        return False
+
     chat_id = event.chat_id
-    sender_id = event.sender_id
-    # Faqat yagona mentor (@mentor_cc / ID: 8105823872) shaxsiy Saved Messages yoki o'z hisobidan yozsa:
-    if event.is_private and (sender_id in (config.mentor_user_id, 8105823872) or chat_id in (config.mentor_user_id, 8105823872)):
-        return True
     if is_escalation_chat(chat_id):
         return True
     if str(chat_id).strip() in ("-5388159517", "-1005388159517", "5388159517"):
         return True
-    try:
-        if getattr(event, "client", None):
-            me = await event.client.get_me()
-            if chat_id == me.id:
-                return True
-    except Exception:
-        pass
     try:
         chat = await event.get_chat()
         title = (getattr(chat, "title", "") or "").lower()
@@ -399,8 +397,15 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
     async def get_my_id() -> int:
         nonlocal my_id
         if my_id is None:
-            me = await client.get_me()
-            my_id = me.id
+            try:
+                me_res = client.get_me()
+                if asyncio.iscoroutine(me_res) or hasattr(me_res, "__await__"):
+                    me = await me_res
+                else:
+                    me = me_res
+                my_id = getattr(me, "id", None) or 0
+            except Exception:
+                my_id = 0
         return my_id
 
     async def handle_vazifalar_chat(event: events.NewMessage.Event):
@@ -716,6 +721,11 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         chat_id = event.chat_id
+        my_user_id = await get_my_id()
+        # Izbrannoe (Saved Messages) — foydalanuvchi talabi: AI bu yerda mutlaqo ishlamaydi!
+        if chat_id == my_user_id or (event.is_private and chat_id in (config.mentor_user_id, 8105823872)):
+            return
+
         is_vazifalar = await check_is_vazifalar_chat(event)
 
         # Agar bu "Vazifalar" guruhi bo'lsa:
@@ -754,6 +764,15 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if not is_private and not is_group:
             return
 
+        my_user_id = await get_my_id()
+        # Izbrannoe (Saved Messages) — foydalanuvchi talabi: AI bu yerda mutlaqo ishlamaydi!
+        if chat_id == my_user_id or (is_private and chat_id in (config.mentor_user_id, 8105823872)):
+            return
+
+        # Mentorning o'zi yuborgan har qanday xabarga AI mutlaqo javob bermaydi:
+        if event.out or sender_id == my_user_id or sender_id in (config.mentor_user_id, 8105823872):
+            return
+
         is_vazifalar = await check_is_vazifalar_chat(event)
 
         # Agar bu "Vazifalar" guruhi bo'lsa, darhol AI Co-Pilot bilan qayta ishlaymiz:
@@ -765,10 +784,6 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if is_group:
             if not config.group_reply_enabled:
                 return
-
-        # Mentorning o'z xabari bo'lsa o'tkazib yuborish
-        if event.out:
-            return
 
         sender = await event.get_sender()
         if sender and getattr(sender, "bot", False):
@@ -1492,6 +1507,20 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     log_activity(f"Mentor o'zi yozgani aniqlandi [{chat_id}], AI javobi bekor qilindi.")
                     logger.info("Mentor o'zi javob yozgan ekan [%s]. AI javobi yuborilmadi.", chat_id)
                     return
+
+                # Telegramning o'zidan jonli tekshiruv (Mentor so'nggi xabarni yuborgan bo'lsa, AI mutlaqo aralashmasin):
+                if not is_admin_chat:
+                    try:
+                        latest_msgs = await client.get_messages(chat_id, limit=4)
+                        my_uid = await get_my_id()
+                        for lm in latest_msgs:
+                            if lm.out or lm.sender_id == my_uid or lm.sender_id in (config.mentor_user_id, 8105823872):
+                                if lm.date.timestamp() >= (message_received_time - 1.0):
+                                    log_activity(f"Telegram jonli tekshiruvi: Mentor o'zi javob yozgani aniqlandi [{chat_id}]. AI aralashmadi.")
+                                    logger.info("Telegram jonli tekshiruvi: Mentor chatda [%s] o'zi yozgan. AI javobi to'xtatildi.", chat_id)
+                                    return
+                    except Exception as lm_err:
+                        logger.debug("Oxirgi xabarlarni tekshirishda ogohlantirish: %s", lm_err)
 
                 # Flood interval tekshiruvi (har bir chat uchun kamida 2 soniya)
                 now_reply = time.time()
