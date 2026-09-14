@@ -554,24 +554,39 @@ async def schedule_telegram_message(
     else:
         delay_human = f"{delay_sec / 3600:.1f} soat"
 
-    # 3. Yuborish vazifasi:
+    rem_chat_id = chat_id or (getattr(resolved_entity, "id", 0) if hasattr(resolved_entity, "id") else 0)
+    if not rem_chat_id or rem_chat_id == 0:
+        rem_chat_id = config.mentor_user_id or 8105823872
+
+    rem_id = memory_service.add_reminder(
+        chat_id=rem_chat_id,
+        reminder_text=f"[{target_name} ga xabar]: {text}",
+        remind_at=remind_at_str,
+    )
+
+    # 3. Yuborish vazifasi (ovozli uvidomleniya bilan):
     if delay_sec <= 7200:
         async def _do_send():
             try:
                 await asyncio.sleep(delay_sec)
-                await client.send_message(resolved_entity, text)
+                # Agar bu o'ziga eslatma bo'lsa (target "me" / "o'zimga" yoki chat ichidagi eslatma):
+                if resolved_entity == "me" or target in ("me", "o'zim", "o'zimga", "men"):
+                    from services.reminder_service import send_due_reminder_notification
+                    await send_due_reminder_notification(
+                        rem_id=rem_id,
+                        chat_id=rem_chat_id,
+                        task_text=text,
+                        remind_at=remind_at_str,
+                        client=client,
+                    )
+                else:
+                    await client.send_message(resolved_entity, text)
+                    memory_service.mark_reminder_sent_if_pending(rem_id)
                 logger.info("⏳ Rejalashtirilgan xabar muvaffaqiyatli yetkazildi [%s]: %s", target_name, text[:30])
             except Exception as se:
                 logger.error("Rejalashtirilgan xabarni yuborishda xatolik: %s", se)
 
         asyncio.create_task(_do_send())
-
-    rem_chat_id = chat_id or (getattr(resolved_entity, "id", 0) if hasattr(resolved_entity, "id") else 0)
-    memory_service.add_reminder(
-        chat_id=rem_chat_id,
-        reminder_text=f"[{target_name} ga xabar]: {text}",
-        remind_at=remind_at_str,
-    )
 
     return {
         "ok": True,

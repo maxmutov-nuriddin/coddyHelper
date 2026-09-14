@@ -28,11 +28,12 @@ async def start_reminder_worker(client: TelegramClient):
     """
     Doimiy eslatmalar tekshiruvchisi (Asia/Tashkent vaqti bilan).
     Har 25 soniyada SQLite bazasidan vaqti yetgan eslatmalarni olib,
-    tegishli chatga ogohlantirish yuboradi.
+    ovozli va faol push-uvidomleniya bilan mentorga va chatga yetkazadi.
     """
     logger.info("Eslatmalar tekshiruvchi fon xizmati (Toshkent vaqti) faollashdi.")
     await asyncio.sleep(10)  # Telethon to'liq ulanishi uchun
     from services.memory_service import memory_service
+    from services.reminder_service import send_due_reminder_notification
 
     tashkent_tz = ZoneInfo("Asia/Tashkent")
     while True:
@@ -45,23 +46,13 @@ async def start_reminder_worker(client: TelegramClient):
                 task_text = rem["text"]
                 remind_at = rem["remind_at"]
 
-                alert_text = (
-                    "🔔 **DIQQAT, ESLATMA VAQTI KELDI!**\n\n"
-                    f"📌 **Vazifa:** {task_text}\n"
-                    f"⏰ **Rejalashtirilgan vaqt:** `{remind_at}`\n"
-                    f"🆔 **ID:** `{rem_id}`"
+                await send_due_reminder_notification(
+                    rem_id=rem_id,
+                    chat_id=chat_id,
+                    task_text=task_text,
+                    remind_at=remind_at,
+                    client=client,
                 )
-                try:
-                    await client.send_message(chat_id, alert_text)
-                    logger.info("Eslatma muvaffaqiyatli yuborildi (ID: %d, Chat: %s)", rem_id, chat_id)
-                except Exception as send_err:
-                    logger.warning("Eslatmani chatga yuborishda xatolik (%s), me ga urinilmoqda: %s", chat_id, send_err)
-                    try:
-                        await client.send_message("me", alert_text)
-                    except Exception as me_err:
-                        logger.error("Eslatmani 'me' ga ham yuborib bo'lmadi: %s", me_err)
-
-                memory_service.mark_reminder_sent(rem_id)
         except Exception as e:
             logger.error("Reminder workerda kutilmagan xatolik: %s", e)
 

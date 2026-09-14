@@ -677,6 +677,20 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Eslatmani yuborilgan deb belgilashda xatolik: %s", e)
 
+    def mark_reminder_sent_if_pending(self, reminder_id: int) -> bool:
+        """Faqat yuborilmagan bo'lsa (is_sent = 0), is_sent = 1 qiladi va True qaytaradi.
+        Dublikat xabarlar va takrorlanishlarning oldini oladi.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE reminders SET is_sent = 1 WHERE id = ? AND is_sent = 0", (reminder_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Eslatmani atomar belgilashda xatolik: %s", e)
+            return False
+
     def delete_reminder(self, reminder_id: int) -> bool:
         """Eslatmani bekor qiladi/o'chiradi."""
         try:
