@@ -1109,7 +1109,33 @@
           <div style="font-size: 12px; font-weight: 600; color: #fff; margin-bottom: 8px;">
             ⛓️ Zaxira Modellar Zanjiri (Avtomatik Fallback):
           </div>
-          <div id="ai-cascade-container" style="display: flex; flex-direction: column; gap: 5px;">
+          <div id="ai-cascade-container" style="display: flex; flex-direction: column; gap: 6px;">
+            <!-- JS to'ldiradi -->
+          </div>
+        </div>
+
+        <!-- MULTI-AGENT POD TEAMS STATUS -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+            <div style="font-size: 12px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
+              <span>🏢</span> Multi-Agent Jamoalari (Pod Klasteri):
+            </div>
+            <span id="ai-active-team-badge" class="badge badge-success" style="font-size: 10px; padding: 2px 8px; white-space: nowrap !important; flex-shrink: 0;">🟢 Jamoa #1 faol</span>
+          </div>
+          <div id="ai-teams-container" style="display: flex; flex-direction: column; gap: 6px;">
+            <!-- JS to'ldiradi -->
+          </div>
+        </div>
+
+        <!-- 20 GROQ CLUSTER KEYS / TOKENS POOL -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+            <div style="font-size: 12px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
+              <span>🔑</span> Groq API Tokenlari Klasteri (<span id="ai-keys-count-label">20 ta kalit</span>):
+            </div>
+            <span id="ai-active-key-badge" class="badge badge-info" style="font-size: 10px; padding: 2px 8px; white-space: nowrap !important; flex-shrink: 0;">⚡ Kalit #1 javob beryapti</span>
+          </div>
+          <div id="ai-keys-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 6px; max-height: 220px; overflow-y: auto; padding-right: 2px;">
             <!-- JS to'ldiradi -->
           </div>
         </div>
@@ -1533,8 +1559,13 @@
             <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--hint-color);">Avtonom AI Yordamchi</div>
             <h2 style="font-size: clamp(15px, 4vw, 20px); font-weight: 700; margin: 2px 0 0 0; min-width: 0; word-break: break-word;" id="agent-title-display">Coddy Executive Co-Pilot</h2>
           </div>
-          <div style="background: var(--accent); color: #fff; font-weight: 800; font-size: 13px; padding: 5px 12px; border-radius: 20px; box-shadow: 0 2px 8px rgba(36, 129, 204, 0.4); flex-shrink: 0; white-space: nowrap;" id="agent-level-badge">
-            LVL 1
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            <div style="background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); font-weight: 800; font-size: 13px; padding: 5px 10px; border-radius: 20px; white-space: nowrap;" id="agent-iq-badge">
+              🧠 120 IQ
+            </div>
+            <div style="background: var(--accent); color: #fff; font-weight: 800; font-size: 13px; padding: 5px 12px; border-radius: 20px; box-shadow: 0 2px 8px rgba(36, 129, 204, 0.4); flex-shrink: 0; white-space: nowrap;" id="agent-level-badge">
+              LVL 1
+            </div>
           </div>
         </div>
 
@@ -1551,6 +1582,71 @@
         <p style="font-size: 11px; color: var(--hint-color); margin: 6px 0 0 0; line-height: 1.35;">
           * Agent har bir muloqot, saqlangan lokatsiya, reja va o'quvchilar tahlili orqali avtomatik aqllashib boradi.
         </p>
+      </div>
+
+      <!-- AGENT COGNITIVE & IQ ANALYTICS CARD -->
+      <div class="card" style="background: linear-gradient(180deg, rgba(34, 197, 94, 0.08) 0%, var(--card-bg) 100%); border: 1px solid rgba(34, 197, 94, 0.3);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="card-title" style="margin: 0; color: #22c55e; font-size: 14px; font-weight: 700;">🧠 Agent IQ & Kognitiv Tahlil</span>
+          <span class="badge badge-success" id="agent-iq-status-badge">Yuqori Intellekt</span>
+        </div>
+        
+        <div style="display: flex; align-items: center; justify-content: space-between; margin: 4px 0 12px 0; padding: 10px 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border-color); gap: 8px; flex-wrap: wrap;">
+          <div>
+            <div style="font-size: 11px; color: var(--hint-color); text-transform: uppercase;">Aqliy Qobiliyat (IQ):</div>
+            <div style="font-size: 22px; font-weight: 900; color: #22c55e; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+              <span id="agent-iq-score-display">120</span>
+              <span style="font-size: 13px; font-weight: 600; color: var(--hint-color);">ball</span>
+            </div>
+          </div>
+          <div style="text-align: right; max-width: 65%;">
+            <div style="font-size: 12px; font-weight: 700; color: #fff;" id="agent-iq-title-display">Aqlli Yordamchi</div>
+            <div style="font-size: 10.5px; color: var(--hint-color); margin-top: 2px;">Suhbatlar, o'quvchilar va rejalar tahlili orqali doimiy o'sib boradi</div>
+          </div>
+        </div>
+
+        <!-- 4 KOGNITIV MODULNING FOIZLI TAHLILI -->
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div>
+            <div style="display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 3px;">
+              <span style="color: var(--text-color);">💾 Xotira va Bilim Chuqurligi:</span>
+              <strong id="cog-memory-pct" style="color: #2ea6ff;">60%</strong>
+            </div>
+            <div style="height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+              <div id="cog-memory-bar" style="width: 60%; height: 100%; background: #2ea6ff; transition: width 0.4s ease;"></div>
+            </div>
+          </div>
+
+          <div>
+            <div style="display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 3px;">
+              <span style="color: var(--text-color);">👨‍🎓 O'quvchilar Pedagogik Tahlili:</span>
+              <strong id="cog-pedagogy-pct" style="color: #22c55e;">75%</strong>
+            </div>
+            <div style="height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+              <div id="cog-pedagogy-bar" style="width: 75%; height: 100%; background: #22c55e; transition: width 0.4s ease;"></div>
+            </div>
+          </div>
+
+          <div>
+            <div style="display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 3px;">
+              <span style="color: var(--text-color);">🎭 Adaptiv Muloqot & Taktika:</span>
+              <strong id="cog-adaptive-pct" style="color: #a855f7;">70%</strong>
+            </div>
+            <div style="height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+              <div id="cog-adaptive-bar" style="width: 70%; height: 100%; background: #a855f7; transition: width 0.4s ease;"></div>
+            </div>
+          </div>
+
+          <div>
+            <div style="display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 3px;">
+              <span style="color: var(--text-color);">⏰ Avtonom Intizom & Rejalar Ijrosi:</span>
+              <strong id="cog-discipline-pct" style="color: #f59e0b;">80%</strong>
+            </div>
+            <div style="height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+              <div id="cog-discipline-bar" style="width: 80%; height: 100%; background: #f59e0b; transition: width 0.4s ease;"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- METRICS GRID -->
@@ -1961,10 +2057,12 @@
       if (dbSelect && data.debounce_seconds !== undefined) dbSelect.value = String(data.debounce_seconds);
 
       const apSelect = document.getElementById("select-ai-persona");
-      if (apSelect && data.ai_persona) apSelect.value = data.ai_persona;
+      const currentPersona = data.ai_persona || localStorage.getItem("coddy_ai_persona") || "socratic";
+      if (apSelect && currentPersona) apSelect.value = currentPersona;
 
       const acSelect = document.getElementById("select-ai-code-mode");
-      if (acSelect && data.ai_code_mode) acSelect.value = data.ai_code_mode;
+      const currentCodeMode = data.ai_code_mode || localStorage.getItem("coddy_ai_code_mode") || "full_code";
+      if (acSelect && currentCodeMode) acSelect.value = currentCodeMode;
 
       const qSelect = document.getElementById("select-quiet-window");
       if (qSelect) qSelect.value = String(data.private_quiet_window !== undefined ? data.private_quiet_window : 180);
@@ -2101,26 +2199,123 @@
           let badgeHtml = '';
           let borderStyle = 'border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02);';
           if (isAct) {
-            badgeHtml = '<span style="background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600;">🟢 Faol (Active)</span>';
-            borderStyle = 'border: 1px solid rgba(34,197,94,0.3); background: rgba(34,197,94,0.05);';
+            badgeHtml = '<div style="flex-shrink: 0; margin-left: 6px; white-space: nowrap;"><span style="display: inline-block; white-space: nowrap !important; background: rgba(34,197,94,0.18); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700;">🟢 Faol</span></div>';
+            borderStyle = 'border: 1px solid rgba(34,197,94,0.35); background: rgba(34,197,94,0.06);';
           } else if (isRateLim) {
-            badgeHtml = '<span style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600;">🔴 Limitga uchragan</span>';
-            borderStyle = 'border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.05);';
+            badgeHtml = '<div style="flex-shrink: 0; margin-left: 6px; white-space: nowrap;"><span style="display: inline-block; white-space: nowrap !important; background: rgba(239,68,68,0.18); color: #ef4444; border: 1px solid rgba(239,68,68,0.4); font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700;">🔴 Limit</span></div>';
+            borderStyle = 'border: 1px solid rgba(239,68,68,0.35); background: rgba(239,68,68,0.06);';
           } else {
-            badgeHtml = '<span style="background: rgba(255,255,255,0.06); color: var(--hint-color); border: 1px solid rgba(255,255,255,0.1); font-size: 10px; padding: 2px 6px; border-radius: 4px;">🟡 Zaxirada</span>';
+            badgeHtml = '<div style="flex-shrink: 0; margin-left: 6px; white-space: nowrap;"><span style="display: inline-block; white-space: nowrap !important; background: rgba(255,255,255,0.06); color: var(--hint-color); border: 1px solid rgba(255,255,255,0.1); font-size: 10px; padding: 2px 7px; border-radius: 5px;">🟡 Zaxirada</span></div>';
           }
 
           html += `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-radius: 6px; ${borderStyle} font-size: 12px;">
-              <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 7px; ${borderStyle} font-size: 12px; gap: 8px;">
+              <div style="min-width: 0; flex: 1; word-break: break-word;">
                 <span style="font-weight: 600; color: ${isAct ? '#2ea6ff' : '#fff'};">${escapeHtml(mName)}</span>
-                <span style="font-size: 10px; color: var(--hint-color); margin-left: 4px;">[${info.role || ''} • ${info.context || ''}]</span>
+                <span style="font-size: 10.5px; color: var(--hint-color); margin-left: 4px; display: inline-block;">[${escapeHtml(info.role || '')} • ${escapeHtml(info.context || '')}]</span>
               </div>
-              <div>${badgeHtml}</div>
+              ${badgeHtml}
             </div>
           `;
         }
         cCont.innerHTML = html;
+      }
+
+      // Render Teams / Pods
+      const teams = metrics.teams || [];
+      const activeTeamId = metrics.active_team_id || 1;
+      const tBadge = document.getElementById('ai-active-team-badge');
+      if (tBadge) {
+        tBadge.innerText = `🟢 Jamoa #${activeTeamId} faol`;
+      }
+      const tCont = document.getElementById('ai-teams-container');
+      if (tCont) {
+        if (!teams.length) {
+          tCont.innerHTML = '<div style="font-size: 11px; color: var(--hint-color); padding: 4px;">Jamoalar ma\'lumoti yuklanmoqda...</div>';
+        } else {
+          let thtml = '';
+          teams.forEach(t => {
+            const isTActive = t.is_active || t.team_id === activeTeamId;
+            const tBorder = isTActive 
+              ? 'border: 1px solid rgba(34,197,94,0.4); background: rgba(34,197,94,0.08);'
+              : 'border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02);';
+            const tBadgeHtml = isTActive
+              ? '<span style="white-space: nowrap !important; display: inline-block; background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700;">🟢 Ishlamoqda</span>'
+              : '<span style="white-space: nowrap !important; display: inline-block; background: rgba(255,255,255,0.06); color: var(--hint-color); border: 1px solid rgba(255,255,255,0.1); font-size: 10px; padding: 2px 7px; border-radius: 5px;">🟡 Navbatda</span>';
+            
+            thtml += `
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 8px; ${tBorder} font-size: 12px; gap: 8px;">
+                <div style="min-width: 0; flex: 1;">
+                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <span style="font-weight: 700; color: ${isTActive ? '#22c55e' : '#fff'};">${escapeHtml(t.name)}</span>
+                    <span style="font-size: 10.5px; color: var(--hint-color);">(${t.members_count} ta Agent: ${escapeHtml(t.roles || '')})</span>
+                  </div>
+                  <div style="font-size: 10.5px; color: var(--hint-color); margin-top: 2px;">
+                    ${escapeHtml(t.keys_text || '')} • <span style="color: #2ea6ff; font-weight: 600;">⚡ ${t.requests_count || 0} ta zapros</span>
+                  </div>
+                </div>
+                <div style="flex-shrink: 0; white-space: nowrap;">
+                  ${tBadgeHtml}
+                </div>
+              </div>
+            `;
+          });
+          tCont.innerHTML = thtml;
+        }
+      }
+
+      // Render Keys Pool
+      const keysPool = metrics.keys_pool || [];
+      const activeKeyIdx = metrics.active_key_index || 1;
+      const kCountLabel = document.getElementById('ai-keys-count-label');
+      if (kCountLabel) {
+        kCountLabel.innerText = `${metrics.available_groq_keys || keysPool.length || 20} ta kalit`;
+      }
+      const kBadge = document.getElementById('ai-active-key-badge');
+      if (kBadge) {
+        kBadge.innerText = `⚡ Kalit #${activeKeyIdx} javob beryapti`;
+      }
+      const kCont = document.getElementById('ai-keys-container');
+      if (kCont) {
+        if (!keysPool.length) {
+          kCont.innerHTML = '<div style="font-size: 11px; color: var(--hint-color); padding: 4px; grid-column: 1 / -1;">Kalitlar ma\'lumoti yuklanmoqda...</div>';
+        } else {
+          let khtml = '';
+          keysPool.forEach(k => {
+            const isKActive = k.is_active || k.index === activeKeyIdx;
+            const isRateLim = k.status === 'rate_limited';
+            let cardBg = 'background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);';
+            let badgeText = '🟡 Navbatda';
+            let badgeStyle = 'background: rgba(255,255,255,0.06); color: var(--hint-color);';
+            
+            if (isKActive) {
+              cardBg = 'background: rgba(46,166,255,0.12); border: 1px solid rgba(46,166,255,0.45); box-shadow: 0 0 8px rgba(46,166,255,0.2);';
+              badgeText = '🟢 Faol';
+              badgeStyle = 'background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.4);';
+            } else if (isRateLim) {
+              cardBg = 'background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.35);';
+              badgeText = '🔴 Limit';
+              badgeStyle = 'background: rgba(239,68,68,0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.4);';
+            }
+
+            khtml += `
+              <div style="${cardBg} border-radius: 7px; padding: 6px 8px; font-size: 11px; display: flex; flex-direction: column; gap: 3px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px;">
+                  <strong style="color: ${isKActive ? '#2ea6ff' : '#fff'}; font-size: 11.5px;">Kalit #${k.index}</strong>
+                  <span style="${badgeStyle} font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 700; white-space: nowrap !important;">${badgeText}</span>
+                </div>
+                <div style="font-family: monospace; font-size: 9.5px; color: var(--hint-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${k.key_masked}">
+                  ${k.key_masked}
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 9.5px; color: var(--hint-color); margin-top: 1px;">
+                  <span>Jamoa #${k.team_id}</span>
+                  <span style="color: #2ea6ff; font-weight: 600;">${k.requests_count || 0} req</span>
+                </div>
+              </div>
+            `;
+          });
+          kCont.innerHTML = khtml;
+        }
       }
     }
 
@@ -2399,27 +2594,45 @@
 
     async function changePersona(val) {
       haptic();
-      const res = await apiRequest("/api/toggle", "POST", {
-        feature: "ai_persona",
-        value: val
-      });
-      if (res && res.ok) {
-        let name = "Sokratik Mentor";
-        if (val === "tech_lead") name = "Tech Lead";
-        else if (val === "friendly") name = "Do'stona & Sabrli";
-        showToast(`AI Uslubi: ${name} qilib belgilandi ✅`);
+      const apSelect = document.getElementById("select-ai-persona");
+      if (apSelect) apSelect.value = val;
+      localStorage.setItem("coddy_ai_persona", val);
+      try {
+        const res = await apiRequest("/api/toggle", "POST", {
+          feature: "ai_persona",
+          value: val
+        });
+        if (res && res.ok) {
+          let name = "Sokratik Mentor";
+          if (val === "tech_lead") name = "Tech Lead";
+          else if (val === "friendly") name = "Do'stona & Sabrli";
+          showToast(`AI Uslubi: ${name} qilib saqlandi ✅`);
+        } else {
+          showToast("⚠️ Serverda saqlashda muammo yuz berdi");
+        }
+      } catch (err) {
+        console.error("changePersona error:", err);
       }
     }
 
     async function changeCodeMode(val) {
       haptic();
-      const res = await apiRequest("/api/toggle", "POST", {
-        feature: "ai_code_mode",
-        value: val
-      });
-      if (res && res.ok) {
-        const txt = val === "full_code" ? "To'liq kod taqdim etish" : "Faqat maslahat (kod bermaslik)";
-        showToast(`Kod rejimi: ${txt} ✅`);
+      const acSelect = document.getElementById("select-ai-code-mode");
+      if (acSelect) acSelect.value = val;
+      localStorage.setItem("coddy_ai_code_mode", val);
+      try {
+        const res = await apiRequest("/api/toggle", "POST", {
+          feature: "ai_code_mode",
+          value: val
+        });
+        if (res && res.ok) {
+          const txt = val === "full_code" ? "To'liq kod taqdim etish" : "Faqat maslahat (kod bermaslik)";
+          showToast(`Kod rejimi: ${txt} qilib saqlandi ✅`);
+        } else {
+          showToast("⚠️ Serverda saqlashda muammo yuz berdi");
+        }
+      } catch (err) {
+        console.error("changeCodeMode error:", err);
       }
     }
 
@@ -3024,6 +3237,37 @@
         const levelBadge = document.getElementById("agent-level-badge");
         if (levelBadge) levelBadge.innerText = "LVL " + (res.level || 1);
 
+        const iqBadge = document.getElementById("agent-iq-badge");
+        if (iqBadge) iqBadge.innerText = "🧠 " + (res.iq_score || 120) + " IQ";
+
+        const iqScoreDisplay = document.getElementById("agent-iq-score-display");
+        if (iqScoreDisplay) iqScoreDisplay.innerText = res.iq_score || 120;
+
+        const iqStatusBadge = document.getElementById("agent-iq-status-badge");
+        if (iqStatusBadge) iqStatusBadge.innerText = res.iq_status || "Yuqori Intellekt";
+
+        const iqTitleDisplay = document.getElementById("agent-iq-title-display");
+        if (iqTitleDisplay) iqTitleDisplay.innerText = res.iq_status || "Aqlli Yordamchi";
+
+        // Cognitive Progress Bars
+        const cog = res.cognitive_metrics || {};
+        const memVal = cog.memory_depth !== undefined ? cog.memory_depth : 60;
+        const pedVal = cog.pedagogical_analysis !== undefined ? cog.pedagogical_analysis : 75;
+        const adaVal = cog.adaptive_intelligence !== undefined ? cog.adaptive_intelligence : 70;
+        const disVal = cog.execution_discipline !== undefined ? cog.execution_discipline : 80;
+
+        if (document.getElementById("cog-memory-pct")) document.getElementById("cog-memory-pct").innerText = memVal + "%";
+        if (document.getElementById("cog-memory-bar")) document.getElementById("cog-memory-bar").style.width = memVal + "%";
+
+        if (document.getElementById("cog-pedagogy-pct")) document.getElementById("cog-pedagogy-pct").innerText = pedVal + "%";
+        if (document.getElementById("cog-pedagogy-bar")) document.getElementById("cog-pedagogy-bar").style.width = pedVal + "%";
+
+        if (document.getElementById("cog-adaptive-pct")) document.getElementById("cog-adaptive-pct").innerText = adaVal + "%";
+        if (document.getElementById("cog-adaptive-bar")) document.getElementById("cog-adaptive-bar").style.width = adaVal + "%";
+
+        if (document.getElementById("cog-discipline-pct")) document.getElementById("cog-discipline-pct").innerText = disVal + "%";
+        if (document.getElementById("cog-discipline-bar")) document.getElementById("cog-discipline-bar").style.width = disVal + "%";
+
         const titleDisplay = document.getElementById("agent-title-display");
         if (titleDisplay) titleDisplay.innerText = res.title || "Coddy Executive Co-Pilot";
 
@@ -3140,12 +3384,22 @@
               const badgeLabel = isStudent ? "O'quvchi Tahlili" : (item.category === "mentor_location" ? "Manzil" : "Qoida / Odat");
               const badgeClass = isStudent ? "badge-info" : (item.category === "mentor_location" ? "badge-warning" : "badge-success");
               
+              // Clean any duplicate icon in topic
+              let cleanTopic = (item.topic || "Bilim").trim();
+              if (cleanTopic.startsWith("👨‍🎓")) {
+                cleanTopic = cleanTopic.replace(/^👨‍🎓\s*/, "");
+              } else if (cleanTopic.startsWith("📍")) {
+                cleanTopic = cleanTopic.replace(/^📍\s*/, "");
+              } else if (cleanTopic.startsWith("💡")) {
+                cleanTopic = cleanTopic.replace(/^💡\s*/, "");
+              }
+
               return `
                 <div style="background: var(--card-bg); border-radius: 8px; padding: 10px 12px; border: 1px solid var(--border-color); border-left: 3px solid var(--accent);">
                   <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; gap: 8px; flex-wrap: wrap;">
                     <div style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; min-width: 0; word-break: break-word;">
                       <span style="flex-shrink: 0;">${icon}</span>
-                      <span style="word-break: break-word;">${escapeHtml(item.topic || "Bilim")}</span>
+                      <span style="word-break: break-word;">${escapeHtml(cleanTopic)}</span>
                     </div>
                     <span class="badge ${badgeClass}" style="font-size: 10px; padding: 2px 6px; flex-shrink: 0; white-space: nowrap;">${badgeLabel}</span>
                   </div>

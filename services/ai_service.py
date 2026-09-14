@@ -674,7 +674,12 @@ class AIResult(str):
 class AIService:
     def __init__(self):
         self._groq_clients: list[Any] = []
+        self._groq_keys: list[str] = []
+        self._client_to_idx: dict[int, int] = {}
         self._groq_idx: int = 0
+        self._last_active_key_idx: int = 0
+        self._last_active_team_idx: int = 1
+        self._key_stats: dict[int, dict[str, Any]] = {}
         self._gemini_client: Any = None
         self._metrics: dict[str, Any] = {
             "active_model": config.groq_model,
@@ -711,6 +716,9 @@ class AIService:
     def restart(self) -> None:
         """AI Service holatini to'liq tozalaydi, kalitlarni qayta ulaydi va barcha statuslarni tiklaydi."""
         self._groq_idx = 0
+        self._last_active_key_idx = 0
+        self._last_active_team_idx = 1
+        self._key_stats = {}
         if "cascade_status" in self._metrics:
             for m in self._metrics["cascade_status"].values():
                 if m.get("role", "").startswith("Asosiy"):
@@ -828,8 +836,82 @@ class AIService:
         except Exception as err:
             logger.warning("Gemini metrikalarini yangilashda ogohlantirish: %s", err)
 
+    def _mark_key_used(self, key_idx: int) -> None:
+        """Belgilangan kalit va tegishli jamoani faol deb belgilaydi hamda statistikasini oshiradi."""
+        try:
+            if not self._groq_keys or key_idx < 0 or key_idx >= len(self._groq_keys):
+                return
+            self._last_active_key_idx = key_idx
+            self._last_active_team_idx = (key_idx // 3) + 1
+            now_iso = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%H:%M:%S")
+            if key_idx not in self._key_stats:
+                self._key_stats[key_idx] = {"requests": 0, "last_used": None, "status": "active", "errors": 0}
+            self._key_stats[key_idx]["requests"] = self._key_stats[key_idx].get("requests", 0) + 1
+            self._key_stats[key_idx]["last_used"] = now_iso
+            self._key_stats[key_idx]["status"] = "active"
+        except Exception as e:
+            logger.debug("Kalit statistikasini yangilashda ogohlantirish: %s", e)
+
+    def _mark_key_error(self, key_idx: int, error_msg: str = "") -> None:
+        """Kalitda xatolik yoki limit bo'lganda holatini qayd etadi."""
+        try:
+            if not self._groq_keys or key_idx < 0 or key_idx >= len(self._groq_keys):
+                return
+            if key_idx not in self._key_stats:
+                self._key_stats[key_idx] = {"requests": 0, "last_used": None, "status": "standby", "errors": 0}
+            self._key_stats[key_idx]["errors"] = self._key_stats[key_idx].get("errors", 0) + 1
+            err_str = str(error_msg).lower()
+            if "429" in err_str or "rate_limit" in err_str or "413" in err_str:
+                self._key_stats[key_idx]["status"] = "rate_limited"
+            else:
+                self._key_stats[key_idx]["status"] = "error"
+            self._key_stats[key_idx]["last_error"] = str(error_msg)[:100]
+        except Exception:
+            pass
+
     def get_metrics(self) -> dict[str, Any]:
-        """Tizimning joriy AI modeli, TPM/RPM limitlari va so'rovlar sarfi statistikasini qaytaradi."""
+        """Tizimning joriy AI modeli, TPM/RPM limitlari, kalitlar va jamoalar statistikasi."""
+        keys_pool = []
+        for i, k in enumerate(self._groq_keys):
+            masked = f"{k[:8]}...{k[-4:]}" if len(k) > 14 else (f"{k[:4]}..." if k else f"Key #{i+1}")
+            stats = self._key_stats.get(i, {"requests": 0, "last_used": None, "status": "standby"})
+            is_active = (i == self._last_active_key_idx)
+            team_id = (i // 3) + 1
+            st = stats.get("status", "standby")
+            if is_active:
+                st = "active"
+            elif st not in ("rate_limited", "error"):
+                st = "standby"
+
+            keys_pool.append({
+                "index": i + 1,
+                "key_masked": masked,
+                "team_id": team_id,
+                "is_active": is_active,
+                "requests_count": stats.get("requests", 0),
+                "last_used": stats.get("last_used"),
+                "status": st,
+            })
+
+        teams = []
+        total_teams = max(1, (len(self._groq_keys) + 2) // 3) if self._groq_keys else 0
+        for t in range(1, total_teams + 1):
+            team_keys = [kp for kp in keys_pool if kp["team_id"] == t]
+            team_is_active = (t == self._last_active_team_idx)
+            team_requests = sum(kp["requests_count"] for kp in team_keys)
+            key_indices = [kp["index"] for kp in team_keys]
+            teams.append({
+                "team_id": t,
+                "name": f"Jamoa #{t}",
+                "keys": key_indices,
+                "keys_text": f"Kalitlar: {', '.join(f'#{k}' for k in key_indices)}",
+                "is_active": team_is_active,
+                "requests_count": team_requests,
+                "members_count": len(team_keys),
+                "roles": "Coder, Reviewer, Synthesizer" if len(team_keys) >= 3 else "Assistent",
+                "status": "active" if team_is_active else "standby",
+            })
+
         return {
             "ok": True,
             "active_model": self._metrics.get("active_model", config.groq_model),
@@ -842,6 +924,10 @@ class AIService:
             "rate_limits": self._metrics.get("rate_limits", {}),
             "cascade_status": self._metrics.get("cascade_status", {}),
             "available_groq_keys": len(self._groq_clients),
+            "active_key_index": (self._last_active_key_idx + 1) if self._groq_clients else 0,
+            "active_team_id": self._last_active_team_idx if self._groq_clients else 0,
+            "keys_pool": keys_pool,
+            "teams": teams,
         }
 
     async def _call_groq_with_metrics(
@@ -856,50 +942,68 @@ class AIService:
         # Groq OTPM (Output Tokens Per Minute) chegarasi 1,000 bo'lgani uchun 800 xavfsiz chegara
         safe_max_tokens = min(max_tokens, 800)
         t0 = time.time()
-        if hasattr(client.chat.completions, "with_raw_response"):
-            raw_resp = await asyncio.wait_for(
-                client.chat.completions.with_raw_response.create(
-                    model=model_name,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=safe_max_tokens,
-                ),
-                timeout=18.0,
-            )
-            duration_ms = int((time.time() - t0) * 1000)
-            parse_res = raw_resp.parse()
-            if inspect.isawaitable(parse_res):
-                response = await parse_res
+        k_idx = self._client_to_idx.get(id(client), self._last_active_key_idx)
+        self._mark_key_used(k_idx)
+        try:
+            if hasattr(client.chat.completions, "with_raw_response"):
+                raw_resp = await asyncio.wait_for(
+                    client.chat.completions.with_raw_response.create(
+                        model=model_name,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=safe_max_tokens,
+                    ),
+                    timeout=18.0,
+                )
+                duration_ms = int((time.time() - t0) * 1000)
+                parse_res = raw_resp.parse()
+                if inspect.isawaitable(parse_res):
+                    response = await parse_res
+                else:
+                    response = parse_res
+                self._record_groq_metrics(model_name, response, headers=raw_resp.headers, duration_ms=duration_ms)
+                return response
             else:
-                response = parse_res
-            self._record_groq_metrics(model_name, response, headers=raw_resp.headers, duration_ms=duration_ms)
-            return response
-        else:
-            response = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=model_name,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=safe_max_tokens,
-                ),
-                timeout=18.0,
-            )
-            duration_ms = int((time.time() - t0) * 1000)
-            self._record_groq_metrics(model_name, response, headers=None, duration_ms=duration_ms)
-            return response
+                response = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=safe_max_tokens,
+                    ),
+                    timeout=18.0,
+                )
+                duration_ms = int((time.time() - t0) * 1000)
+                self._record_groq_metrics(model_name, response, headers=None, duration_ms=duration_ms)
+                return response
+        except Exception as err:
+            self._mark_key_error(k_idx, str(err))
+            raise
 
     def _setup_clients(self) -> None:
         """Mavjud provayderlarni aniqlaydi va kalitlar zaxirasini sozlaydi."""
         # 1. Groq kalitlarini ulash (Multi-key pool)
         keys = config.groq_api_keys or ([config.groq_api_key] if config.groq_api_key else [])
         self._groq_clients = []
+        self._groq_keys = [k for k in keys if k]
+        self._client_to_idx = {}
+        if not hasattr(self, "_key_stats") or not self._key_stats:
+            self._key_stats = {}
 
-        if keys:
+        if self._groq_keys:
             try:
                 from groq import AsyncGroq
-                for k in keys:
-                    if k:
-                        self._groq_clients.append(AsyncGroq(api_key=k, timeout=15.0, max_retries=1))
+                for idx, k in enumerate(self._groq_keys):
+                    c = AsyncGroq(api_key=k, timeout=15.0, max_retries=1)
+                    self._groq_clients.append(c)
+                    self._client_to_idx[id(c)] = idx
+                    if idx not in self._key_stats:
+                        self._key_stats[idx] = {
+                            "requests": 0,
+                            "last_used": None,
+                            "status": "standby",
+                            "errors": 0,
+                        }
                 logger.info(
                     "⚡ Groq AI muvaffaqiyatli ulandi (%d ta API kalit, Asosiy model: %s, Vision: %s)",
                     len(self._groq_clients),
@@ -1161,6 +1265,11 @@ class AIService:
                 self._groq_idx = (self._groq_idx + 3) % len(self._groq_clients)
 
                 team_num = (idx1 // 3) + 1
+                self._last_active_team_idx = team_num
+                self._last_active_key_idx = idx1
+                self._mark_key_used(idx1)
+                self._mark_key_used(idx2)
+                self._mark_key_used(idx3)
                 logger.info(
                     "⚡ 3 talik komanda (Pod #%d) ishga tushirildi: Model [%s], [Kalit %d, %d, %d]",
                     team_num, model_to_use, idx1 + 1, idx2 + 1, idx3 + 1,
@@ -1187,8 +1296,12 @@ class AIService:
             calc_max_tokens = 800
             max_attempts = min(3, len(self._groq_clients))
             for _ in range(max_attempts):
-                client = self._groq_clients[self._groq_idx]
+                curr_k_idx = self._groq_idx
+                client = self._groq_clients[curr_k_idx]
                 self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+                self._last_active_key_idx = curr_k_idx
+                self._last_active_team_idx = (curr_k_idx // 3) + 1
+                self._mark_key_used(curr_k_idx)
                 try:
                     response = await self._call_groq_with_metrics(
                         client,

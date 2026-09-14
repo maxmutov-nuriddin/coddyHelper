@@ -980,10 +980,20 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 if s.get("mentor_notes"):
                     parts.append(f"Tavsiya: {s['mentor_notes']}")
                 if parts:
+                    raw_name = (s.get("full_name") or "").strip()
+                    if not raw_name or raw_name == "-":
+                        uname = (s.get("username") or "").strip()
+                        if uname and not uname.startswith("@"):
+                            uname = f"@{uname}"
+                        s_name = uname or f"O'quvchi #{s['id']}"
+                    else:
+                        s_name = raw_name
+
+                    grp = s.get("group_name") or "Coddy"
                     knowledge_items.append({
                         "id": f"student_{s['id']}",
                         "type": "student",
-                        "topic": f"👨‍🎓 {s['full_name']} ({s.get('group_name') or 'Coddy'})",
+                        "topic": f"{s_name} ({grp})",
                         "content": " • ".join(parts),
                         "category": "student_insight",
                         "created_at": s.get("last_active", "") or s.get("created_at", ""),
@@ -993,6 +1003,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "ok": True,
                 "level": stats.get("level", 1),
                 "title": stats.get("title", "Kichik AI Yordamchi"),
+                "iq_score": stats.get("iq_score", 120),
+                "iq_status": stats.get("iq_status", "Yuqori Intellekt"),
+                "cognitive_metrics": stats.get("cognitive_metrics", {}),
                 "xp": stats.get("total_xp", 0),
                 "current_level_xp": stats.get("current_level_xp", 0),
                 "next_level_xp": stats.get("next_level_xp", 250),

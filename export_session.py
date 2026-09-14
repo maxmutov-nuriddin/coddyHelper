@@ -10,7 +10,16 @@ from config import config
 
 async def export_session():
     print("Mavjud sessiyani o'qish...")
-    client = TelegramClient(config.session_name, config.api_id, config.api_hash)
+    client = TelegramClient(
+        config.session_name,
+        config.api_id,
+        config.api_hash,
+        device_model="Agent Assistent",
+        system_version="Executive AI Co-Pilot",
+        app_version="coddyHelper 2.0",
+        lang_code="uz",
+        system_lang_code="uz",
+    )
     await client.connect()
 
     if not await client.is_user_authorized():

@@ -1163,6 +1163,27 @@ class SQLiteMemoryService:
                 xp_current_level = xp % 250
                 progress_pct = int((xp_current_level / 250) * 100)
 
+                # IQ Indeksi va Tahlilini hisoblash (Base: 115 IQ + tajriba/o'rganishlar orqali oshib boradi)
+                iq_bonus = min(50, int((level * 2.5) + (total_learned * 2.0) + (total_students * 1.5) + (total_locations * 2.0) + (completed_plans * 1.5)))
+                iq_score = 115 + iq_bonus
+
+                if iq_score < 125:
+                    iq_status = "Aqlli Yordamchi (Smart AI)"
+                elif iq_score < 140:
+                    iq_status = "Yuqori Intellekt (High IQ)"
+                elif iq_score < 155:
+                    iq_status = "Katta Strategik Hamkor (Superior IQ)"
+                else:
+                    iq_status = "Daho Avtonom AI (Genius Level)"
+
+                # Kognitiv qobiliyatlar tahlili (0-100% shkalada)
+                cognitive_metrics = {
+                    "memory_depth": min(100, max(20, int(35 + (total_learned * 5) + (total_locations * 6)))),
+                    "pedagogical_analysis": min(100, max(20, int(45 + (total_students * 6)))),
+                    "adaptive_intelligence": min(100, max(30, int(50 + (level * 4)))),
+                    "execution_discipline": min(100, max(20, int(40 + (completed_plans * 10) + (sent_reminders * 5)))),
+                }
+
                 # Unvonlar
                 if level < 5:
                     title = "Kichik AI Yordamchi (Junior Co-Pilot)"
@@ -1178,6 +1199,9 @@ class SQLiteMemoryService:
                 return {
                     "level": level,
                     "title": title,
+                    "iq_score": iq_score,
+                    "iq_status": iq_status,
+                    "cognitive_metrics": cognitive_metrics,
                     "total_xp": xp,
                     "current_level_xp": xp_current_level,
                     "next_level_xp": 250,

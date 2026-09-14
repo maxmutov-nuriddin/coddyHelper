@@ -248,6 +248,11 @@ async def main():
         session=session,
         api_id=config.api_id,
         api_hash=config.api_hash,
+        device_model="Agent Assistent",
+        system_version="Executive AI Co-Pilot",
+        app_version="coddyHelper 2.0",
+        lang_code="uz",
+        system_lang_code="uz",
     )
     global CURRENT_CLIENT
     CURRENT_CLIENT = client
