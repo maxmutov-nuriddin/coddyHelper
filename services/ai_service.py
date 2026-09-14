@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -674,7 +675,193 @@ class AIService:
         self._groq_clients: list[Any] = []
         self._groq_idx: int = 0
         self._gemini_client: Any = None
+        self._metrics: dict[str, Any] = {
+            "active_model": config.groq_model,
+            "last_provider": "Groq",
+            "last_model": config.groq_model,
+            "last_updated": None,
+            "total_requests": 0,
+            "total_tokens": 0,
+            "last_request": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "duration_ms": 0,
+                "timestamp": None,
+            },
+            "rate_limits": {
+                "remaining_tokens": 12000,
+                "limit_tokens": 12000,
+                "used_tokens_pct": 0.0,
+                "remaining_requests": 30,
+                "limit_requests": 30,
+                "reset_tokens": "0s",
+                "reset_requests": "0s",
+            },
+            "cascade_status": {
+                "llama-3.3-70b-versatile": {"role": "Asosiy", "state": "active", "context": "131k", "tpm": "12k-30k", "rpm": 30},
+                "openai/gpt-oss-120b": {"role": "Zaxira 1", "state": "standby", "context": "128k", "tpm": "120k", "rpm": 30},
+                "llama-3.1-8b-instant": {"role": "Zaxira 2", "state": "standby", "context": "131k", "tpm": "20k", "rpm": 30},
+                "openai/gpt-oss-20b": {"role": "Zaxira 3", "state": "standby", "context": "8k", "tpm": "8k", "rpm": 30},
+                "Google Gemini": {"role": "Temir Zaxira", "state": "standby", "context": "1M", "tpm": "1M", "rpm": 15},
+            },
+        }
         self._setup_clients()
+
+    def _record_groq_metrics(self, model_name: str, response: Any, headers: Any = None, duration_ms: int = 0) -> None:
+        """Groq API so'rovidan qaytgan tokenlar va x-ratelimit HTTP sarlavhalarini hisobga oladi."""
+        try:
+            self._metrics["last_provider"] = "Groq"
+            self._metrics["active_model"] = model_name
+            actual_model = getattr(response, "model", model_name) or model_name
+            self._metrics["last_model"] = actual_model
+            now_iso = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
+            self._metrics["last_updated"] = now_iso
+            self._metrics["total_requests"] = self._metrics.get("total_requests", 0) + 1
+
+            p_tok = 0
+            c_tok = 0
+            t_tok = 0
+            if hasattr(response, "usage") and response.usage:
+                p_tok = getattr(response.usage, "prompt_tokens", 0) or 0
+                c_tok = getattr(response.usage, "completion_tokens", 0) or 0
+                t_tok = getattr(response.usage, "total_tokens", 0) or (p_tok + c_tok)
+
+            self._metrics["total_tokens"] = self._metrics.get("total_tokens", 0) + t_tok
+            self._metrics["last_request"] = {
+                "prompt_tokens": p_tok,
+                "completion_tokens": c_tok,
+                "total_tokens": t_tok,
+                "duration_ms": duration_ms,
+                "timestamp": now_iso,
+            }
+
+            if headers:
+                def _get_h(k: str) -> str:
+                    if hasattr(headers, "get"):
+                        val = headers.get(k) or headers.get(k.lower())
+                        return str(val).strip() if val is not None else ""
+                    return ""
+
+                rem_t_str = _get_h("x-ratelimit-remaining-tokens")
+                lim_t_str = _get_h("x-ratelimit-limit-tokens")
+                rem_r_str = _get_h("x-ratelimit-remaining-requests")
+                lim_r_str = _get_h("x-ratelimit-limit-requests")
+                rst_t_str = _get_h("x-ratelimit-reset-tokens")
+                rst_r_str = _get_h("x-ratelimit-reset-requests")
+
+                rem_t = int(rem_t_str) if rem_t_str.isdigit() else self._metrics["rate_limits"]["remaining_tokens"]
+                lim_t = int(lim_t_str) if lim_t_str.isdigit() else self._metrics["rate_limits"]["limit_tokens"]
+                rem_r = int(rem_r_str) if rem_r_str.isdigit() else self._metrics["rate_limits"]["remaining_requests"]
+                lim_r = int(lim_r_str) if lim_r_str.isdigit() else self._metrics["rate_limits"]["limit_requests"]
+
+                used_pct = 0.0
+                if lim_t > 0:
+                    used_pct = round(max(0.0, min(100.0, (lim_t - rem_t) / lim_t * 100)), 1)
+
+                self._metrics["rate_limits"] = {
+                    "remaining_tokens": rem_t,
+                    "limit_tokens": lim_t,
+                    "used_tokens_pct": used_pct,
+                    "remaining_requests": rem_r,
+                    "limit_requests": lim_r,
+                    "reset_tokens": rst_t_str or "0s",
+                    "reset_requests": rst_r_str or "0s",
+                }
+
+            cascade = self._metrics.setdefault("cascade_status", {})
+            for m_key in cascade:
+                if m_key == model_name:
+                    cascade[m_key]["state"] = "active"
+                elif cascade[m_key].get("state") != "rate_limited":
+                    cascade[m_key]["state"] = "standby"
+        except Exception as err:
+            logger.warning("AI metrikalarini yangilashda ogohlantirish: %s", err)
+
+    def _record_model_rate_limited(self, model_name: str, error_msg: str = "") -> None:
+        """Model limitga uchraganida uning holatini yangilaydi."""
+        try:
+            cascade = self._metrics.setdefault("cascade_status", {})
+            if model_name in cascade:
+                cascade[model_name]["state"] = "rate_limited"
+                cascade[model_name]["last_error"] = str(error_msg)[:120]
+        except Exception:
+            pass
+
+    def _record_gemini_metrics(self, prompt_len: int, completion_len: int, duration_ms: int = 0) -> None:
+        """Google Gemini zaxira tizimi ishlaganda metrikalarni yangilaydi."""
+        try:
+            self._metrics["last_provider"] = "Google Gemini"
+            self._metrics["active_model"] = "Google Gemini"
+            self._metrics["last_model"] = config.gemini_model
+            now_iso = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
+            self._metrics["last_updated"] = now_iso
+            self._metrics["total_requests"] = self._metrics.get("total_requests", 0) + 1
+
+            p_tok = int(prompt_len / 3.5)
+            c_tok = int(completion_len / 3.5)
+            t_tok = p_tok + c_tok
+            self._metrics["total_tokens"] = self._metrics.get("total_tokens", 0) + t_tok
+            self._metrics["last_request"] = {
+                "prompt_tokens": p_tok,
+                "completion_tokens": c_tok,
+                "total_tokens": t_tok,
+                "duration_ms": duration_ms,
+                "timestamp": now_iso,
+            }
+            cascade = self._metrics.setdefault("cascade_status", {})
+            if "Google Gemini" in cascade:
+                cascade["Google Gemini"]["state"] = "active"
+        except Exception as err:
+            logger.warning("Gemini metrikalarini yangilashda ogohlantirish: %s", err)
+
+    def get_metrics(self) -> dict[str, Any]:
+        """Tizimning joriy AI modeli, TPM/RPM limitlari va so'rovlar sarfi statistikasini qaytaradi."""
+        return {
+            "ok": True,
+            "active_model": self._metrics.get("active_model", config.groq_model),
+            "last_provider": self._metrics.get("last_provider", "Groq"),
+            "last_model": self._metrics.get("last_model", config.groq_model),
+            "last_updated": self._metrics.get("last_updated"),
+            "total_requests": self._metrics.get("total_requests", 0),
+            "total_tokens": self._metrics.get("total_tokens", 0),
+            "last_request": self._metrics.get("last_request", {}),
+            "rate_limits": self._metrics.get("rate_limits", {}),
+            "cascade_status": self._metrics.get("cascade_status", {}),
+            "available_groq_keys": len(self._groq_clients),
+        }
+
+    async def _call_groq_with_metrics(
+        self,
+        client: Any,
+        model_name: str,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+    ) -> Any:
+        """Groq API so'rovini bajaradi va avtomatik metrikalarni yig'adi."""
+        t0 = time.time()
+        if hasattr(client.chat.completions, "with_raw_response"):
+            raw_resp = await client.chat.completions.with_raw_response.create(
+                model=model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            duration_ms = int((time.time() - t0) * 1000)
+            response = raw_resp.parse()
+            self._record_groq_metrics(model_name, response, headers=raw_resp.headers, duration_ms=duration_ms)
+            return response
+        else:
+            response = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            duration_ms = int((time.time() - t0) * 1000)
+            self._record_groq_metrics(model_name, response, headers=None, duration_ms=duration_ms)
+            return response
 
     def _setup_clients(self) -> None:
         """Mavjud provayderlarni aniqlaydi va kalitlar zaxirasini sozlaydi."""
@@ -740,8 +927,9 @@ class AIService:
         target_model = model_name or config.groq_model
         # 1. Generator
         calc_max_tokens = 1000 if "20b" in target_model.lower() else (2000 if is_admin_mode else 1500)
-        res_gen = await c_gen.chat.completions.create(
-            model=target_model,
+        res_gen = await self._call_groq_with_metrics(
+            c_gen,
+            model_name=target_model,
             messages=messages,
             temperature=0.6 if is_admin_mode else 0.4,
             max_tokens=calc_max_tokens,
@@ -809,8 +997,9 @@ class AIService:
                     ),
                 },
             ]
-            res_syn = await c_syn.chat.completions.create(
-                model=target_model,
+            res_syn = await self._call_groq_with_metrics(
+                c_syn,
+                model_name=target_model,
                 messages=syn_messages,
                 temperature=0.5 if is_admin_mode else 0.3,
                 max_tokens=3000 if is_admin_mode else 2000,
@@ -968,8 +1157,9 @@ class AIService:
                 client = self._groq_clients[self._groq_idx]
                 self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
                 try:
-                    response = await client.chat.completions.create(
-                        model=model_to_use,
+                    response = await self._call_groq_with_metrics(
+                        client,
+                        model_name=model_to_use,
                         messages=active_messages,
                         temperature=0.6 if is_admin_mode else 0.4,
                         max_tokens=calc_max_tokens,
@@ -978,6 +1168,9 @@ class AIService:
                 except Exception as e:
                     logger.warning("Groq kalitida xatolik (model: %s): %s", model_to_use, e)
                     last_error = e
+                    if "429" in str(e) or "rate_limit_exceeded" in str(e) or "413" in str(e):
+                        self._record_model_rate_limited(model_to_use, str(e))
+
                     # Reactive Halving: Agar 413 yoki token limiti oshishi yuz bersa,
                     # xotirani ikkiga bo'lib (faqat oxirgi savol qoldirilib) va max_tokens ni 2 ga qisqartirib darhol qayta urinish
                     if ("413" in str(e) or "rate_limit_exceeded" in str(e)) and len(active_messages) > 2:
@@ -985,8 +1178,9 @@ class AIService:
                         active_messages = [active_messages[0], active_messages[-1]]
                         calc_max_tokens = max(512, calc_max_tokens // 2)
                         try:
-                            retry_resp = await client.chat.completions.create(
-                                model=model_to_use,
+                            retry_resp = await self._call_groq_with_metrics(
+                                client,
+                                model_name=model_to_use,
                                 messages=active_messages,
                                 temperature=0.6 if is_admin_mode else 0.4,
                                 max_tokens=calc_max_tokens,
@@ -1193,8 +1387,15 @@ class AIService:
                     history_context = "\n".join(history_lines)
 
                     loop = asyncio.get_running_loop()
+                    t_gem = time.time()
                     answer = await loop.run_in_executor(
                         None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode
+                    )
+                    d_ms = int((time.time() - t_gem) * 1000)
+                    self._record_gemini_metrics(
+                        len(effective_prompt) + len(history_context),
+                        len(answer) if answer else 0,
+                        duration_ms=d_ms,
                     )
                     logger.info("✅ Google Gemini zaxira tizimi orqali muvaffaqiyatli javob olindi.")
                 except Exception as gemini_err:

@@ -336,6 +336,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                     "username": "mentor_cc",
                     "name": "Teacher",
                 },
+                "ai_metrics": ai_service.get_metrics(),
             }
         )
 
@@ -839,10 +840,19 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         topics = memory_service.get_curriculum_topics()
         return web.json_response({"ok": ok, "topics": topics, "message": "Mavzu olib tashlandi"})
 
+    # -----------------------------------------------------------
+    # 13. AI Model va Limitlar monitoringi (Real-time AI Metrics)
+    # -----------------------------------------------------------
+    async def handle_api_ai_metrics(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        return web.json_response(ai_service.get_metrics())
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
     app.router.add_get("/api/status", handle_api_status)
+    app.router.add_get("/api/ai_metrics", handle_api_ai_metrics)
     app.router.add_post("/api/toggle", handle_api_toggle)
     app.router.add_get("/api/reminders", handle_api_get_reminders)
     app.router.add_post("/api/reminders/add", handle_api_add_reminder)

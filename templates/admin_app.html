@@ -778,6 +778,102 @@
     <!-- ==================== TAB 1: DASHBOARD ==================== -->
     <div class="tab-pane active" id="tab-dashboard">
       
+      <!-- AI CLUSTER & REAL-TIME RATE LIMITS MONITOR -->
+      <div class="card" id="ai-monitor-card" style="border: 1px solid rgba(46, 166, 255, 0.3); background: linear-gradient(180deg, rgba(46, 166, 255, 0.08) 0%, var(--card-bg) 100%);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="card-title">🤖 AI Klaster & Jonli Model Monitori</span>
+          </div>
+          <button onclick="refreshAiMetrics()" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; cursor: pointer; background: rgba(46,166,255,0.15); color: #2ea6ff; border: 1px solid rgba(46,166,255,0.3);">
+            🔄 Yangilash
+          </button>
+        </div>
+
+        <!-- ACTIVE MODEL BADGE -->
+        <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 12px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <div style="font-size: 11px; color: var(--hint-color); text-transform: uppercase; letter-spacing: 0.5px;">Ayni paytda faol model</div>
+              <div id="ai-active-model-name" style="font-size: 16px; font-weight: 700; color: #2ea6ff; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                <span class="status-dot" style="background-color: #22c55e; box-shadow: 0 0 8px #22c55e;"></span>
+                <span id="ai-active-model-text">llama-3.3-70b-versatile</span>
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <span id="ai-provider-badge" class="badge" style="background: rgba(46, 166, 255, 0.2); color: #2ea6ff; border: 1px solid rgba(46, 166, 255, 0.4); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">
+                Groq Klaster (20 ta kalit)
+              </span>
+              <div id="ai-last-updated" style="font-size: 10px; color: var(--hint-color); margin-top: 4px;">Kuzatilmoqda...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SINGLE REQUEST USAGE (BIR MARTALIK ZAPROS SARFI) -->
+        <div style="margin-bottom: 12px;">
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-color); margin-bottom: 6px; display: flex; justify-content: space-between;">
+            <span>⚡ Oxirgi Bittalik So'rov Sarfi:</span>
+            <span id="ai-last-req-time" style="color: var(--hint-color); font-size: 11px; font-weight: normal;">0 ms</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
+            <div style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; text-align: center;">
+              <div style="font-size: 10px; color: var(--hint-color);">📥 Savol (Prompt)</div>
+              <div id="ai-req-prompt-tokens" style="font-size: 14px; font-weight: 700; color: #fff; margin-top: 2px;">0</div>
+              <div style="font-size: 9px; color: var(--hint-color);">token</div>
+            </div>
+            <div style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; text-align: center;">
+              <div style="font-size: 10px; color: var(--hint-color);">📤 AI Javobi</div>
+              <div id="ai-req-comp-tokens" style="font-size: 14px; font-weight: 700; color: #22c55e; margin-top: 2px;">0</div>
+              <div style="font-size: 9px; color: var(--hint-color);">token</div>
+            </div>
+            <div style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; text-align: center;">
+              <div style="font-size: 10px; color: var(--hint-color);">⚡ Jami (Zapros)</div>
+              <div id="ai-req-total-tokens" style="font-size: 14px; font-weight: 700; color: #2ea6ff; margin-top: 2px;">0</div>
+              <div style="font-size: 9px; color: var(--hint-color);">token</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TPM (TOKENS PER MINUTE) RATE LIMIT BAR -->
+        <div style="margin-bottom: 12px; background: rgba(0,0,0,0.15); border-radius: 8px; padding: 10px; border: 1px solid var(--border-color);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-size: 12px; font-weight: 600; color: #fff;">📊 Daqiqalik Token Limiti (TPM):</span>
+            <span id="ai-tpm-text" style="font-size: 12px; font-weight: 700; color: #22c55e;">12,000 / 12,000</span>
+          </div>
+          
+          <div style="height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; margin: 6px 0;">
+            <div id="ai-tpm-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #22c55e, #10b981); transition: width 0.3s ease, background-color 0.3s;"></div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--hint-color);">
+            <span id="ai-tpm-used-pct">0% ishlatildi (100% bo'sh)</span>
+            <span id="ai-tpm-reset">⏳ Yangilanish: 0s</span>
+          </div>
+        </div>
+
+        <!-- RPM (REQUESTS PER MINUTE) RATE LIMIT -->
+        <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.15); border-radius: 8px; padding: 8px 10px; border: 1px solid var(--border-color); margin-bottom: 12px;">
+          <div>
+            <span style="font-size: 12px; font-weight: 600; color: #fff;">⚡ Daqiqalik So'rovlar (RPM):</span>
+            <div id="ai-rpm-reset" style="font-size: 10px; color: var(--hint-color);">⏳ Reset: 0s</div>
+          </div>
+          <div style="text-align: right;">
+            <div id="ai-rpm-text" style="font-size: 14px; font-weight: 700; color: #2ea6ff;">30 / 30</div>
+            <div style="font-size: 10px; color: var(--hint-color);">so'rov qoldi</div>
+          </div>
+        </div>
+
+        <!-- CASCADE MODELS STATUS -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 10px;">
+          <div style="font-size: 12px; font-weight: 600; color: #fff; margin-bottom: 8px;">
+            ⛓️ Zaxira Modellar Zanjiri (Avtomatik Fallback):
+          </div>
+          <div id="ai-cascade-container" style="display: flex; flex-direction: column; gap: 5px;">
+            <!-- JS to'ldiradi -->
+          </div>
+        </div>
+
+      </div>
+
       <!-- QUICK TOGGLE SWITCHES -->
       <div class="card">
         <div class="card-header">
@@ -1482,6 +1578,135 @@
 
       // Load Curriculum Topics
       renderCurriculumTopics(data.curriculum_topics || []);
+
+      // Load AI Metrics
+      if (data.ai_metrics) {
+        renderAiMetrics(data.ai_metrics);
+      }
+    }
+
+    // AI Metrics & Cluster Monitor
+    function renderAiMetrics(metrics) {
+      if (!metrics) return;
+      
+      // Active Model & Provider
+      const activeModel = metrics.active_model || 'llama-3.3-70b-versatile';
+      const activeEl = document.getElementById('ai-active-model-text');
+      if (activeEl) activeEl.innerText = activeModel;
+
+      const prov = metrics.last_provider || 'Groq';
+      const keysCount = metrics.available_groq_keys || 20;
+      const provBadge = document.getElementById('ai-provider-badge');
+      if (provBadge) {
+        provBadge.innerText = prov === 'Groq' ? `Groq Klaster (${keysCount} ta kalit)` : 'Google Gemini (Zaxira)';
+      }
+
+      const lastUp = document.getElementById('ai-last-updated');
+      if (lastUp && metrics.last_updated) {
+        const timePart = metrics.last_updated.includes(' ') ? metrics.last_updated.split(' ')[1] : metrics.last_updated;
+        lastUp.innerText = `Yangilandi: ${timePart}`;
+      }
+
+      // Last Request Usage
+      const req = metrics.last_request || {};
+      const pTok = document.getElementById('ai-req-prompt-tokens');
+      if (pTok) pTok.innerText = (req.prompt_tokens || 0).toLocaleString();
+      const cTok = document.getElementById('ai-req-comp-tokens');
+      if (cTok) cTok.innerText = (req.completion_tokens || 0).toLocaleString();
+      const tTok = document.getElementById('ai-req-total-tokens');
+      if (tTok) tTok.innerText = (req.total_tokens || 0).toLocaleString();
+      const durEl = document.getElementById('ai-last-req-time');
+      if (durEl) durEl.innerText = req.duration_ms ? `${req.duration_ms} ms` : '0 ms';
+
+      // TPM (Tokens Per Minute)
+      const rl = metrics.rate_limits || {};
+      const remTokens = rl.remaining_tokens !== undefined ? rl.remaining_tokens : 12000;
+      const limTokens = rl.limit_tokens !== undefined ? rl.limit_tokens : 12000;
+      const usedPct = rl.used_tokens_pct !== undefined ? rl.used_tokens_pct : (limTokens > 0 ? Math.round(((limTokens - remTokens) / limTokens) * 100) : 0);
+
+      const tpmText = document.getElementById('ai-tpm-text');
+      if (tpmText) tpmText.innerText = `${remTokens.toLocaleString()} / ${limTokens.toLocaleString()} token`;
+      
+      const tpmBar = document.getElementById('ai-tpm-bar');
+      if (tpmBar) {
+        tpmBar.style.width = `${Math.min(100, Math.max(0, usedPct))}%`;
+        if (usedPct > 80) {
+          tpmBar.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
+        } else if (usedPct > 50) {
+          tpmBar.style.background = 'linear-gradient(90deg, #f59e0b, #d97706)';
+        } else {
+          tpmBar.style.background = 'linear-gradient(90deg, #22c55e, #10b981)';
+        }
+      }
+
+      const tpmPct = document.getElementById('ai-tpm-used-pct');
+      if (tpmPct) tpmPct.innerText = `${usedPct}% ishlatildi (${Math.max(0, Math.round(100 - usedPct))}% bo'sh)`;
+
+      const tpmReset = document.getElementById('ai-tpm-reset');
+      if (tpmReset) tpmReset.innerText = `⏳ Yangilanish: ${rl.reset_tokens || '0s'}`;
+
+      // RPM (Requests Per Minute)
+      const remReq = rl.remaining_requests !== undefined ? rl.remaining_requests : 30;
+      const limReq = rl.limit_requests !== undefined ? rl.limit_requests : 30;
+      const rpmText = document.getElementById('ai-rpm-text');
+      if (rpmText) rpmText.innerText = `${remReq} / ${limReq}`;
+      const rpmReset = document.getElementById('ai-rpm-reset');
+      if (rpmReset) rpmReset.innerText = `⏳ Reset: ${rl.reset_requests || '0s'}`;
+
+      // Cascade Models Status
+      const cascade = metrics.cascade_status || {};
+      const cCont = document.getElementById('ai-cascade-container');
+      if (cCont) {
+        const defaultCascade = {
+          "llama-3.3-70b-versatile": { role: "Asosiy", state: "active", context: "131k", tpm: "12k-30k" },
+          "openai/gpt-oss-120b": { role: "Zaxira 1", state: "standby", context: "128k", tpm: "120k" },
+          "llama-3.1-8b-instant": { role: "Zaxira 2", state: "standby", context: "131k", tpm: "20k" },
+          "openai/gpt-oss-20b": { role: "Zaxira 3", state: "standby", context: "8k", tpm: "8k" },
+          "Google Gemini": { role: "Temir Zaxira", state: "standby", context: "1M", tpm: "1M" }
+        };
+        const merged = Object.assign({}, defaultCascade, cascade);
+        let html = '';
+        for (const [mName, info] of Object.entries(merged)) {
+          const isAct = info.state === 'active';
+          const isRateLim = info.state === 'rate_limited';
+          
+          let badgeHtml = '';
+          let borderStyle = 'border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02);';
+          if (isAct) {
+            badgeHtml = '<span style="background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600;">🟢 Faol (Active)</span>';
+            borderStyle = 'border: 1px solid rgba(34,197,94,0.3); background: rgba(34,197,94,0.05);';
+          } else if (isRateLim) {
+            badgeHtml = '<span style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600;">🔴 Limitga uchragan</span>';
+            borderStyle = 'border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.05);';
+          } else {
+            badgeHtml = '<span style="background: rgba(255,255,255,0.06); color: var(--hint-color); border: 1px solid rgba(255,255,255,0.1); font-size: 10px; padding: 2px 6px; border-radius: 4px;">🟡 Zaxirada</span>';
+          }
+
+          html += `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-radius: 6px; ${borderStyle} font-size: 12px;">
+              <div>
+                <span style="font-weight: 600; color: ${isAct ? '#2ea6ff' : '#fff'};">${escapeHtml(mName)}</span>
+                <span style="font-size: 10px; color: var(--hint-color); margin-left: 4px;">[${info.role || ''} • ${info.context || ''}]</span>
+              </div>
+              <div>${badgeHtml}</div>
+            </div>
+          `;
+        }
+        cCont.innerHTML = html;
+      }
+    }
+
+    async function refreshAiMetrics() {
+      try {
+        haptic();
+        const res = await apiRequest('/api/ai_metrics');
+        if (res && res.ok) {
+          renderAiMetrics(res);
+          showToast('✅ AI metrikalari yangilandi');
+        }
+      } catch (e) {
+        console.error('refreshAiMetrics xatosi:', e);
+      }
     }
 
     // Trusted Websites Management
@@ -2239,6 +2464,14 @@
 
     // Start authentication on page load
     initAuth();
+
+    // Dashboard faol bo'lganda AI metrikalarini har 10 soniyada avtomatik yangilab turish
+    setInterval(() => {
+      const dbTab = document.getElementById('tab-dashboard');
+      if (dbTab && dbTab.classList.contains('active')) {
+        refreshAiMetrics();
+      }
+    }, 10000);
   </script>
 </body>
 </html>
