@@ -398,8 +398,9 @@ async def check_is_vazifalar_chat(event) -> bool:
         return True
     try:
         chat = await event.get_chat()
-        title = (getattr(chat, "title", "") or "").lower()
-        if any(w in title for w in ("vazifalar", "vazifa", "markaz", "boshqaruv", "admin", "co-pilot", "copilot")):
+        title = (getattr(chat, "title", "") or "").lower().strip()
+        # FAQAT yagona shaxsiy Vazifalar boshqaruv markazi uchun (oddiy o'quvchilar guruhlari EMAS):
+        if title == "vazifalar" or title == "vazifalar markazi" or title.startswith("vazifalar (mentor"):
             return True
     except Exception:
         pass
@@ -1533,13 +1534,15 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                                 file_name=file_name,
                                 file_text=file_text,
                             ),
-                            timeout=35.0,
+                            timeout=40.0,
                         )
                 except asyncio.TimeoutError:
-                    logger.warning("AI javob kutish vaqti (timeout 35s) oshdi [%s]. Javob bekor qilindi.", chat_id)
+                    logger.warning("AI javob kutish vaqti (timeout 40s) oshdi [%s]. Javob bekor qilindi.", chat_id)
+                    log_activity(f"⚠️ AI timeout (40s) bo'ldi [{chat_id}]")
                     return
                 except Exception as gen_err:
                     logger.error("AI javobini olishda xatolik [%s]: %s", chat_id, gen_err)
+                    log_activity(f"⚠️ AI xatolik [{chat_id}]: {str(gen_err)[:35]}")
                     return
 
                 # Yakuniy tekshiruv: agar shu orada mentor o'zi yozgan bo'lsa, yubormaslik

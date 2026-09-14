@@ -1093,8 +1093,11 @@ class AIService:
             messages.append({"role": "user", "content": effective_prompt})
 
         # 3 talik komanda (Pod Klaster) orqali murakkab savollarga xatosiz javob berish
+        # DIQQAT: Guruhlarga FAQAT bitta tezkor model javob beradi (Pod klaster ortiqcha token sarflamasligi uchun)
+        is_group_chat = (chat_id < 0)
         is_complex = (
             not image_bytes
+            and not is_group_chat
             and len(self._groq_clients) >= 3
             and (
                 any(k in effective_prompt.lower() for k in (
@@ -1103,7 +1106,7 @@ class AIService:
                     "masala", "vazifa", "lms", "python", "javascript", "sql", "bug", "yordam",
                     "ishlamayapti", "chiqmayapti", "tekshir", "tahlil"
                 ))
-                or len(effective_prompt.split()) >= 6
+                or len(effective_prompt.split()) >= 8
             )
         )
 
@@ -1111,13 +1114,14 @@ class AIService:
             candidate_models = [config.groq_vision_model]
         else:
             candidate_models = []
-            # Yuqori TPM va 128k kontekstli barqaror modellar
+            # Faqat Groq klasterida 100% mavjud va ishlaydigan haqiqiy modellar
             preferred = [
-                config.groq_model,
                 "qwen/qwen3.8-27b",
                 "openai/gpt-oss-120b",
                 "openai/gpt-oss-20b",
             ]
+            if config.groq_model and "llama" not in config.groq_model.lower() and config.groq_model not in preferred:
+                preferred.insert(0, config.groq_model)
             for m in preferred:
                 if m and m not in candidate_models:
                     candidate_models.append(m)
@@ -1403,7 +1407,7 @@ class AIService:
                         self._generate_with_groq(
                             chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode
                         ),
-                        timeout=22.0,
+                        timeout=18.0,
                     )
                 except Exception as groq_err:
                     logger.warning(
@@ -1430,7 +1434,7 @@ class AIService:
                         loop.run_in_executor(
                             None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode
                         ),
-                        timeout=15.0,
+                        timeout=12.0,
                     )
                     d_ms = int((time.time() - t_gem) * 1000)
                     self._record_gemini_metrics(

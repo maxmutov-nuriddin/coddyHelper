@@ -69,7 +69,11 @@ class Config:
         raw_groq_keys = os.getenv("GROQ_API_KEYS", "").strip() or os.getenv("GROQ_API_KEY", "").strip()
         groq_api_keys = [k.strip() for k in raw_groq_keys.split(",") if k.strip()]
         groq_api_key = groq_api_keys[0] if groq_api_keys else ""
-        groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
+        raw_groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
+        if not raw_groq_model or "llama" in raw_groq_model.lower():
+            groq_model = "qwen/qwen3.8-27b"
+        else:
+            groq_model = raw_groq_model
         groq_vision_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
 
         auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
