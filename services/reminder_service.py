@@ -48,12 +48,14 @@ async def send_due_reminder_notification(
     sent_any = False
     target_user = config.mentor_user_id or 8105823872
 
-    # 3. 🚨 ASOSIY UVIDOMLENIYA: Telegram Bot (@coddyassistanstbot) orqali to'g'ridan-to'g'ri mentorga
+    # 3. 🚨 ASOSIY UVIDOMLENIYA: Telegram Bot (@coddyassistanstbot) orqali yuborish
     # Bot orqali kelgan xabar Telegramda INCOMING hisoblanadi va 100% ovozli push notification beradi!
+    group_sent_by_bot = False
     if config.bot_token:
         try:
             bot_inst = Bot(token=config.bot_token)
             try:
+                # 3.1. Shaxsiy chat orqali 100% kafolatlangan ovozli Push Uvidomleniya:
                 await bot_inst.send_message(
                     chat_id=target_user,
                     text=alert_text,
@@ -62,13 +64,38 @@ async def send_due_reminder_notification(
                 )
                 sent_any = True
                 logger.info("🔔 Eslatma #%d bot orqali ovozli uvidomleniya bilan mentorga yetkazildi.", rem_id)
+
+                # 3.2. Agar chat_id guruh bo'lsa (Vazifalar guruhi), bot orqali guruhga ham PUSH bilan yuborish:
+                c_id_check = chat_id
+                if isinstance(c_id_check, str) and c_id_check.strip().lstrip("-").isdigit():
+                    c_id_check = int(c_id_check.strip())
+
+                if isinstance(c_id_check, int) and c_id_check < 0:
+                    group_text = (
+                        f"🔔 **DIQQAT, ESLATMA!** [Nuriddin aka](tg://user?id={target_user})\n\n"
+                        f"📌 **Vazifa:** {clean_task}\n"
+                        f"⏰ **Rejalashtirilgan vaqt:** `{remind_at}`\n"
+                        f"🆔 **ID:** `{rem_id}`"
+                    )
+                    try:
+                        await bot_inst.send_message(
+                            chat_id=c_id_check,
+                            text=group_text,
+                            parse_mode="Markdown",
+                            disable_notification=False,
+                        )
+                        group_sent_by_bot = True
+                        sent_any = True
+                        logger.info("🔔 Eslatma #%d bot orqali Vazifalar guruhiga ham push bilan yuborildi.", rem_id)
+                    except Exception as bg_err:
+                        logger.debug("Bot orqali guruhga yuborishda ogohlantirish (Telethon zaxirasi ishlaydi): %s", bg_err)
             finally:
                 await bot_inst.session.close()
         except Exception as b_err:
             logger.warning("Bot orqali eslatma yuborishda ogohlantirish: %s", b_err)
 
-    # 4. Telethon (Vazifalar guruhi yoki tegishli chatga joylashtirish)
-    if client:
+    # 4. Telethon (Agar guruhga bot tashlay olmagan bo'lsa, zaxira sifatida Telethon orqali joylashtirish)
+    if client and not group_sent_by_bot:
         try:
             c_id = chat_id
             if isinstance(c_id, str):
@@ -79,7 +106,6 @@ async def send_due_reminder_notification(
                     c_id = "me"
 
             if c_id and str(c_id).strip() not in ("0", ""):
-                # Agar guruh bo'lsa (c_id < 0), mentorni tag qilamiz (shunda guruh ovozsiz bo'lsa ham @ notification keladi)
                 group_text = alert_text
                 if isinstance(c_id, int) and c_id < 0:
                     group_text = (
