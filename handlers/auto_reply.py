@@ -779,7 +779,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
     # -----------------------------------------------------------
     @client.on(events.NewMessage(incoming=True))
     async def handle_incoming_message(event: events.NewMessage.Event):
-        if not config.auto_reply_enabled:
+        if not config.auto_reply_enabled and not config.group_reply_enabled:
             return
 
         if event.message.id in BOT_SENT_MESSAGE_IDS or event.chat_id in CURRENT_SENDING_CHATS:
@@ -1087,8 +1087,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", chat_id)
                         return
 
-                if not config.auto_reply_enabled and not is_admin_chat:
-                    log_activity(f"auto_reply_enabled o'chirilgan, javob berilmadi [{chat_id}]")
+                if is_private and not config.auto_reply_enabled and not is_admin_chat:
+                    log_activity(f"auto_reply_enabled (lichka) o'chirilgan, javob berilmadi [{chat_id}]")
                     return
                 if is_group and not config.group_reply_enabled and not is_admin_chat:
                     log_activity(f"group_reply_enabled o'chirilgan, javob berilmadi [{chat_id}]")

@@ -355,13 +355,42 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         feature = data.get("feature")
         enabled = bool(data.get("enabled"))
 
+        if feature == "all_optimal":
+            config.auto_reply_enabled = True
+            memory_service.set_setting("auto_reply_enabled", "true")
+            config.group_reply_enabled = True
+            memory_service.set_setting("group_reply_enabled", "true")
+            memory_service.set_setting("voice_reply_enabled", "true")
+            memory_service.set_setting("web_search_enabled", "true")
+            memory_service.set_setting("smart_reactions_enabled", "true")
+            memory_service.set_setting("vazifalar_status_enabled", "true")
+            memory_service.set_setting("silent_mode_enabled", "false")
+            logger.info("Admin Panel orqali barcha funksiyalar optimal rejimda yoqildi!")
+            return web.json_response(
+                {
+                    "ok": True,
+                    "feature": "all_optimal",
+                    "auto_reply_enabled": True,
+                    "group_reply_enabled": True,
+                    "voice_reply_enabled": True,
+                    "web_search_enabled": True,
+                    "smart_reactions_enabled": True,
+                    "vazifalar_status_enabled": True,
+                    "silent_mode_enabled": False,
+                }
+            )
+
         if feature == "auto_reply":
             config.auto_reply_enabled = enabled
             memory_service.set_setting("auto_reply_enabled", "true" if enabled else "false")
+            if enabled:
+                memory_service.set_setting("silent_mode_enabled", "false")
             logger.info("Admin Panel orqali auto_reply_enabled o'zgartirildi: %s", enabled)
         elif feature == "group_reply":
             config.group_reply_enabled = enabled
             memory_service.set_setting("group_reply_enabled", "true" if enabled else "false")
+            if enabled:
+                memory_service.set_setting("silent_mode_enabled", "false")
             logger.info("Admin Panel orqali group_reply_enabled o'zgartirildi: %s", enabled)
         elif feature == "voice_reply":
             memory_service.set_setting("voice_reply_enabled", "true" if enabled else "false")
@@ -415,6 +444,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "auto_reply_enabled": config.auto_reply_enabled,
                 "group_reply_enabled": config.group_reply_enabled,
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
+                "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
                 "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",

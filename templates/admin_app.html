@@ -941,6 +941,11 @@
           <span class="card-title">⚡ Avto-Javob Boshqaruvi</span>
         </div>
 
+        <!-- OPTIMAL REJIMNI BIR BOSISHDA YOQISH TUGMASI -->
+        <button type="button" class="btn btn-primary" onclick="enableAllFeatures()" style="width: 100%; margin-bottom: 16px; padding: 12px; font-weight: 700; font-size: 13.5px; background: linear-gradient(135deg, #2ea6ff, #0077d6); box-shadow: 0 4px 14px rgba(46, 166, 255, 0.35); border: none; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; color: white;">
+          <span>🚀</span> Barcha Funksiyalarni Yoqish (Optimal Rejim)
+        </button>
+
         <div class="toggle-row">
           <div class="toggle-info">
             <h3>Lichka Avto-Javobi</h3>
@@ -1035,10 +1040,10 @@
           </label>
         </div>
 
-        <div class="toggle-row" style="background: rgba(239, 83, 80, 0.08); margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px; border-radius: 8px;">
+        <div class="toggle-row" style="background: rgba(239, 83, 80, 0.08); margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px; border-radius: 8px; border: 1px dashed rgba(239, 83, 80, 0.3);">
           <div class="toggle-info">
             <h3 style="color: #ef5350;">🛑 Favqulodda "Muzlatish" (Silent Mode)</h3>
-            <p style="color: #ff8a80;">AI hech kimga javob qaytarmaydi, faqat kuzatuv rejimida bo'ladi</p>
+            <p style="color: #ff8a80;">⚠️ DIQQAT: Faqat favqulodda to'xtatish uchun! Agar yoqsangiz, AI hech kimga javob bermaydi.</p>
           </div>
           <label class="switch">
             <input type="checkbox" id="switch-silent-mode" onchange="toggleFeature('silent_mode', this.checked)">
@@ -1639,18 +1644,7 @@
       if (qSelect) qSelect.value = String(data.private_quiet_window !== undefined ? data.private_quiet_window : 180);
 
       // Global status pill
-      const pill = document.getElementById("global-status");
-      const pillText = document.getElementById("global-status-text");
-      if (data.silent_mode_enabled) {
-        pill.classList.add("offline");
-        pillText.innerText = "🛑 Silent (Muzlatilgan)";
-      } else if (data.auto_reply_enabled) {
-        pill.classList.remove("offline");
-        pillText.innerText = "Online (Faol)";
-      } else {
-        pill.classList.add("offline");
-        pillText.innerText = "To'xtatilgan";
-      }
+      updateGlobalStatusPill(data);
 
       // Metrics
       document.getElementById("metric-chats").innerText = data.active_chats_count;
@@ -1942,10 +1936,50 @@
       }
     }
 
-    // 3. Toggle Feature & Quiet Window
-    // 3. Toggle Feature & Agent Controls
+    // Status pill yangilash (hech qanday switchlarni o'chirib yubormasdan)
+    function updateGlobalStatusPill(data) {
+      if (!data) return;
+      const pill = document.getElementById("global-status");
+      const pillText = document.getElementById("global-status-text");
+      if (!pill || !pillText) return;
+      if (data.silent_mode_enabled) {
+        pill.classList.add("offline");
+        pillText.innerText = "🛑 Silent (Muzlatilgan)";
+      } else if (data.auto_reply_enabled || data.group_reply_enabled) {
+        pill.classList.remove("offline");
+        pillText.innerText = "Online (Faol)";
+      } else {
+        pill.classList.add("offline");
+        pillText.innerText = "To'xtatilgan";
+      }
+    }
+
+    function getSwitchElement(feature) {
+      const map = {
+        "auto_reply": "switch-auto-reply",
+        "group_reply": "switch-group-reply",
+        "voice_reply": "switch-voice-reply",
+        "web_search": "switch-web-search",
+        "smart_reactions": "switch-smart-reactions",
+        "vazifalar_status": "switch-vazifalar-status",
+        "silent_mode": "switch-silent-mode"
+      };
+      return document.getElementById(map[feature]);
+    }
+
+    // 3. Toggle Feature & Agent Controls (Race Condition himoyasi bilan)
     async function toggleFeature(feature, enabled) {
       haptic();
+
+      // Agar o'quvchilar javobi yoqilsa, favqulodda Silent Mode avtomatik o'chadi
+      if ((feature === "auto_reply" || feature === "group_reply") && enabled) {
+        const smSwitch = document.getElementById("switch-silent-mode");
+        if (smSwitch) smSwitch.checked = false;
+      }
+      if (feature === "silent_mode" && enabled) {
+        showToast("🛑 Silent Mode: AI to'xtatildi (hech kimga javob bermaydi)!");
+      }
+
       const res = await apiRequest("/api/toggle", "POST", { feature, enabled });
       if (res && res.ok) {
         let name = "Sozlama";
@@ -1953,13 +1987,49 @@
         else if (feature === "group_reply") name = "Guruhlar avto-javobi";
         else if (feature === "voice_reply") name = "Ovozli javob (Voice Reply)";
         else if (feature === "web_search") name = "Web Search & IT Dokumentatsiya";
-        else if (feature === "smart_reactions") name = "Aqlli reaksiyalar (👍, ❤️, 🔥)";
+        else if (feature === "smart_reactions") name = "Aqlli reaksiyalar";
         else if (feature === "vazifalar_status") name = "Vazifalar status indikatori";
-        else if (feature === "silent_mode") name = "🛑 Favqulodda Silent Mode";
+        else if (feature === "silent_mode") name = "Favqulodda Silent Mode";
         showToast(name + " " + (enabled ? "yoqildi ✅" : "to'xtatildi ⏸"));
-        loadStatus();
+        
+        // Boshqa switchlarni joyida qoldirgan holda faqat global status pill ni yangilaymiz
+        updateGlobalStatusPill(res);
       } else {
-        showToast("Xatolik yuz berdi!");
+        // Agar xatolik bo'lsa, bosilgan switchni eski holatiga qaytaramiz
+        const el = getSwitchElement(feature);
+        if (el) el.checked = !enabled;
+        showToast("⚠️ Saqlanmadi, internet yoki server xatoligi!");
+      }
+    }
+
+    // Barcha funksiyalarni bitta bosishda yoqish (Optimal Rejim)
+    async function enableAllFeatures() {
+      haptic();
+      const switches = [
+        "switch-auto-reply",
+        "switch-group-reply",
+        "switch-voice-reply",
+        "switch-web-search",
+        "switch-smart-reactions",
+        "switch-vazifalar-status"
+      ];
+      switches.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.checked = true;
+      });
+      const smSwitch = document.getElementById("switch-silent-mode");
+      if (smSwitch) smSwitch.checked = false;
+
+      updateGlobalStatusPill({ auto_reply_enabled: true, silent_mode_enabled: false });
+      showToast("⏳ Barcha funksiyalar yoqilmoqda...");
+
+      const res = await apiRequest("/api/toggle", "POST", { feature: "all_optimal" });
+      if (res && res.ok) {
+        showToast("🚀 Barcha kerakli funksiyalar yoqildi va AI faollashdi! ✅");
+        updateGlobalStatusPill(res);
+      } else {
+        showToast("⚠️ Saqlashda xatolik yuz berdi!");
+        loadStatus();
       }
     }
 

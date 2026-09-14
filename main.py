@@ -283,6 +283,12 @@ async def main():
 
     # Render restartida bazani avtomatik zaxiradan tiklash (agar baza yangi/bo'sh bo'lsa)
     await auto_restore_database_on_startup(client)
+    restored_auto = memory_service.get_setting("auto_reply_enabled")
+    if restored_auto is not None:
+        config.auto_reply_enabled = (restored_auto == "true")
+    restored_group = memory_service.get_setting("group_reply_enabled")
+    if restored_group is not None:
+        config.group_reply_enabled = (restored_group == "true")
 
     # Render o'chishi (SIGTERM/SIGINT) oldidan oxirgi bazani zaxiraga yuborish tinglovchisi
     try:
