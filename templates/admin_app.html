@@ -830,7 +830,7 @@
           <div style="display: flex; align-items: center; gap: 8px;">
             <span class="card-title" style="color: #2ea6ff;">🤖 AI Klaster & Jonli Model Monitori</span>
           </div>
-          <button onclick="refreshAiMetrics()" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; cursor: pointer; background: rgba(46,166,255,0.15); color: #2ea6ff; border: 1px solid rgba(46,166,255,0.3);">
+          <button onclick="refreshAiMetrics(true)" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; cursor: pointer; background: rgba(46,166,255,0.15); color: #2ea6ff; border: 1px solid rgba(46,166,255,0.3);">
             🔄 Yangilash
           </button>
         </div>
@@ -1776,13 +1776,15 @@
       }
     }
 
-    async function refreshAiMetrics() {
+    async function refreshAiMetrics(isManual = false) {
       try {
-        haptic();
+        if (isManual) haptic();
         const res = await apiRequest('/api/ai_metrics');
         if (res && res.ok) {
           renderAiMetrics(res);
-          showToast('✅ AI metrikalari yangilandi');
+          if (isManual) {
+            showToast('✅ AI metrikalari yangilandi');
+          }
         }
       } catch (e) {
         console.error('refreshAiMetrics xatosi:', e);
