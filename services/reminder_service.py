@@ -1,8 +1,9 @@
 """
 Eslatmalar xizmati (Reminder Service).
-Eslatmalarni o'z vaqtida ovozli va faol push-uvidomleniya (notification) bilan
-ham Telegram Bot (@coddyassistanstbot) orqali to'g'ridan-to'g'ri mentorga,
-ham Vazifalar guruhiga yetkazadi.
+Foydalanuvchi talabi:
+- Barcha admin boshqaruvlari va eslatmalar FAQAT VA FAQAT 'Vazifalar' guruhida bo'ladi.
+- Shaxsiy chat (lichka) va Izbrannoe (Saved Messages / "me") ga MUTLAQO hech narsa yuborilmaydi, o'z holicha toza qoladi.
+- Vazifalar guruhiga Telegram Bot orqali ovozli PUSH-uvidomleniya va teglash bilan yetkaziladi.
 """
 
 import logging
@@ -22,11 +23,12 @@ async def send_due_reminder_notification(
     client=None,
 ) -> bool:
     """
-    Vaqti yetgan eslatmani OVOZLI PUSH UVIDOMLENIYA bilan yetkazadi.
+    Vaqti yetgan eslatmani FAQAT 'Vazifalar' guruhiga ovozli push-uvidomleniya bilan yuboradi.
     1. Dublikat bo'lmasligi uchun SQLite da atomar tarzda is_sent=1 deb qulflaydi.
-    2. Telegram Bot (@coddyassistanstbot) orqali to'g'ridan-to'g'ri mentorga
-       disable_notification=False parametri bilan yuboradi (ekranni yoqadi, ovoz chiqaradi, tebranish qiladi).
-    3. Agar chat_id guruh bo'lsa, Vazifalar guruhiga ham xabarni yuboradi va mentorni tag qiladi.
+    2. Izbrannoe (Saved Messages) va shaxsiy chatlarga ASLO yubormaydi.
+    3. Vazifalar guruhiga Telegram Bot (@coddyassistanstbot) orqali disable_notification=False
+       va [Nuriddin aka](tg://user?id=...) tegi bilan yuboradi (bu guruh ichida ovozli push chiqaradi).
+    4. Agar bot guruhda bo'lmasa, zaxira sifatida Telethon orqali Vazifalar guruhiga joylashtiradi.
     """
     # 1. Atomar qulflash: Agar boshqa task allaqachon jo'natgan bo'lsa, takrorlamaslik
     if not memory_service.mark_reminder_sent_if_pending(rem_id):
@@ -38,93 +40,56 @@ async def send_due_reminder_notification(
     clean_task = re.sub(r"^\[.*?ga xabar\]:\s*", "", clean_task, flags=re.I)
     clean_task = re.sub(r"^🔔\s*(?:Eslatma|Напоминание):\s*", "", clean_task, flags=re.I).strip()
 
-    alert_text = (
-        "🔔 **DIQQAT, ESLATMA VAQTI KELDI!**\n\n"
+    target_user = config.mentor_user_id or 8105823872
+
+    # 3. Guruh ID sini aniqlash:
+    # Foydalanuvchi talabi: Barcha eslatmalar FAQAT Vazifalar guruhida bo'lishi shart!
+    vazifalar_chat_id = config.escalation_chat
+    target_chat = chat_id
+
+    # Agar chat_id noto'g'ri bo'lsa (0 yoki "me"), Vazifalar guruhiga yo'naltirish
+    if not target_chat or str(target_chat).strip() in ("0", "me", "o'zim", "o'zimga", ""):
+        target_chat = vazifalar_chat_id
+
+    if isinstance(target_chat, str) and target_chat.strip().lstrip("-").isdigit():
+        target_chat = int(target_chat.strip())
+
+    group_text = (
+        f"🔔 **DIQQAT, ESLATMA!** [Nuriddin aka](tg://user?id={target_user})\n\n"
         f"📌 **Vazifa:** {clean_task}\n"
         f"⏰ **Rejalashtirilgan vaqt:** `{remind_at}`\n"
         f"🆔 **ID:** `{rem_id}`"
     )
 
     sent_any = False
-    target_user = config.mentor_user_id or 8105823872
 
-    # 3. 🚨 ASOSIY UVIDOMLENIYA: Telegram Bot (@coddyassistanstbot) orqali yuborish
-    # Bot orqali kelgan xabar Telegramda INCOMING hisoblanadi va 100% ovozli push notification beradi!
-    group_sent_by_bot = False
-    if config.bot_token:
+    # 4. 🚨 VAZIFALAR GURUHIGA PUSH BILAN YUBORISH (Telegram Bot orqali):
+    # Bot guruhga xabar yuborganda, guruh a'zosi bo'lgan mentorga rasmiy kiruvchi xabar bo'ladi
+    # va Telegram telefonda push-uvidomleniya ko'rsatadi!
+    if config.bot_token and isinstance(target_chat, int) and target_chat < 0:
         try:
             bot_inst = Bot(token=config.bot_token)
             try:
-                # 3.1. Shaxsiy chat orqali 100% kafolatlangan ovozli Push Uvidomleniya:
                 await bot_inst.send_message(
-                    chat_id=target_user,
-                    text=alert_text,
+                    chat_id=target_chat,
+                    text=group_text,
                     parse_mode="Markdown",
-                    disable_notification=False,  # Ovozli va faol uvidomleniya!
+                    disable_notification=False,  # Ovozli push-uvidomleniya!
                 )
                 sent_any = True
-                logger.info("🔔 Eslatma #%d bot orqali ovozli uvidomleniya bilan mentorga yetkazildi.", rem_id)
-
-                # 3.2. Agar chat_id guruh bo'lsa (Vazifalar guruhi), bot orqali guruhga ham PUSH bilan yuborish:
-                c_id_check = chat_id
-                if isinstance(c_id_check, str) and c_id_check.strip().lstrip("-").isdigit():
-                    c_id_check = int(c_id_check.strip())
-
-                if isinstance(c_id_check, int) and c_id_check < 0:
-                    group_text = (
-                        f"🔔 **DIQQAT, ESLATMA!** [Nuriddin aka](tg://user?id={target_user})\n\n"
-                        f"📌 **Vazifa:** {clean_task}\n"
-                        f"⏰ **Rejalashtirilgan vaqt:** `{remind_at}`\n"
-                        f"🆔 **ID:** `{rem_id}`"
-                    )
-                    try:
-                        await bot_inst.send_message(
-                            chat_id=c_id_check,
-                            text=group_text,
-                            parse_mode="Markdown",
-                            disable_notification=False,
-                        )
-                        group_sent_by_bot = True
-                        sent_any = True
-                        logger.info("🔔 Eslatma #%d bot orqali Vazifalar guruhiga ham push bilan yuborildi.", rem_id)
-                    except Exception as bg_err:
-                        logger.debug("Bot orqali guruhga yuborishda ogohlantirish (Telethon zaxirasi ishlaydi): %s", bg_err)
+                logger.info("🔔 Eslatma #%d bot orqali Vazifalar guruhiga (%s) push bilan yuborildi.", rem_id, target_chat)
             finally:
                 await bot_inst.session.close()
         except Exception as b_err:
-            logger.warning("Bot orqali eslatma yuborishda ogohlantirish: %s", b_err)
+            logger.debug("Bot orqali Vazifalar guruhiga yuborishda ogohlantirish (Telethon zaxirasi ishlatiladi): %s", b_err)
 
-    # 4. Telethon (Agar guruhga bot tashlay olmagan bo'lsa, zaxira sifatida Telethon orqali joylashtirish)
-    if client and not group_sent_by_bot:
+    # 5. Zaxira: Agar bot guruhga yubora olmasa, Telethon orqali Vazifalar guruhiga yuborish:
+    if not sent_any and client:
         try:
-            c_id = chat_id
-            if isinstance(c_id, str):
-                c_id_str = c_id.strip()
-                if c_id_str.lstrip("-").isdigit():
-                    c_id = int(c_id_str)
-                elif c_id_str in ("me", "o'zim", "o'zimga"):
-                    c_id = "me"
-
-            if c_id and str(c_id).strip() not in ("0", ""):
-                group_text = alert_text
-                if isinstance(c_id, int) and c_id < 0:
-                    group_text = (
-                        f"🔔 **DIQQAT, ESLATMA!** [Nuriddin aka](tg://user?id={target_user})\n\n"
-                        f"📌 **Vazifa:** {clean_task}\n"
-                        f"⏰ **Rejalashtirilgan vaqt:** `{remind_at}`\n"
-                        f"🆔 **ID:** `{rem_id}`"
-                    )
-
-                await client.send_message(c_id, group_text, silent=False)
-                sent_any = True
-                logger.info("🔔 Eslatma #%d Telethon orqali chatga (%s) yuborildi.", rem_id, c_id)
+            await client.send_message(target_chat, group_text, silent=False)
+            sent_any = True
+            logger.info("🔔 Eslatma #%d Telethon orqali Vazifalar guruhiga (%s) yuborildi.", rem_id, target_chat)
         except Exception as c_err:
-            logger.warning("Telethon orqali eslatmani chatga yuborishda xatolik (%s): %s", chat_id, c_err)
-            if not sent_any:
-                try:
-                    await client.send_message("me", alert_text, silent=False)
-                    sent_any = True
-                except Exception:
-                    pass
+            logger.error("Telethon orqali Vazifalar guruhiga eslatma yuborishda xatolik (%s): %s", target_chat, c_err)
 
     return sent_any

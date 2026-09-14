@@ -555,8 +555,9 @@ async def schedule_telegram_message(
         delay_human = f"{delay_sec / 3600:.1f} soat"
 
     rem_chat_id = chat_id or (getattr(resolved_entity, "id", 0) if hasattr(resolved_entity, "id") else 0)
-    if not rem_chat_id or rem_chat_id == 0:
-        rem_chat_id = config.mentor_user_id or 8105823872
+    if not rem_chat_id or str(rem_chat_id).strip() in ("0", "me", ""):
+        # Barcha admin boshqaruvlari va eslatmalar FAQAT Vazifalar guruhida bo'lishi shart
+        rem_chat_id = config.escalation_chat or config.mentor_user_id
 
     rem_id = memory_service.add_reminder(
         chat_id=rem_chat_id,
