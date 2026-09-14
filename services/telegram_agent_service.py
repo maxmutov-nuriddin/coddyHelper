@@ -1253,7 +1253,7 @@ ACTION_WEB_SEARCH = re.compile(r'<<<ACTION:web_search\(["\'](.*?)["\']\)>>>', re
 
 
 
-async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_mode: bool = True) -> str:
+async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_mode: bool = True, chat_id: int | None = None) -> str:
     """
     AI javobidagi maxsus harakat buyruqlarini (Action Tools) yoki
     foydalanuvchining to'g'ridan-to'g'ri Telegram amallari talablarini (o'zbek va rus tillarida) bajaradi.
@@ -1468,19 +1468,53 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
                 "Uni darhol xotiraga aniq saqlab qo'yaman!"
             )
 
-    # Lokatsiyani ko'rish so'rovi (Qayerdaligimni ko'rsat, lokatsiyamni top, turgan joyim)
-    loc_query = re.search(r"\b(?:joyim|lokatsiyam|locatsiyam|manzilim|qayerdaman)\b.*?\b(?:qayerda|ko['’`]?rsat|top|qani)\b", orig_msg, re.I)
+    # Lokatsiyani ko'rish / jo'natish so'rovi (Qayerdaligimni ko'rsat, lokatsiyamni tashla, to'liq location jo'nat)
+    loc_query = re.search(
+        r"\b(?:joyim|lokatsiyam|locatsiyam|manzilim|qayerdaman|qayerda\s+turibman)\b|"
+        r"\b(?:lokatsiya|joylashuv|geopozitsiya)\w*\s*(?:ni\s+)?(?:ko['’`]?rsat|tashla|jo['’`]?nat|yubor|ber|top|qani)\b|"
+        r"\b(?:где\s+я|мое\s+местоположение|моя\s+геопозиция|скинь\s+локацию|отправь\s+локацию|где\s+нахожусь)\b",
+        orig_msg,
+        re.I
+    )
     if loc_query:
         facts = memory_service.get_all_learned_facts(limit=50)
-        loc_fact = next((f for f in facts if any(k in f.get("topic", "").lower() for k in ("lokatsiya", "joylashuv", "joy"))), None)
+        loc_fact = next((f for f in facts if any(k in f.get("topic", "").lower() for k in ("lokatsiya", "joylashuv", "joy", "mentor_lokatsiyasi"))), None)
         if loc_fact:
+            content = loc_fact.get("content", "")
+            lat_m = re.search(r"(?:Lat|Kenglik)[^\d]*([0-9.]+)", content) or re.search(r"lat[=:]\s*([0-9.]+)", content, re.I)
+            long_m = re.search(r"(?:Long|Uzunlik)[^\d]*([0-9.]+)", content) or re.search(r"long[=:]\s*([0-9.]+)", content, re.I)
+            if not (lat_m and long_m):
+                coords_m = re.search(r"(\d{1,2}\.\d{4,})[,\s]+(\d{1,2}\.\d{4,})", content)
+                lat_val = float(coords_m.group(1)) if coords_m else None
+                long_val = float(coords_m.group(2)) if coords_m else None
+            else:
+                lat_val = float(lat_m.group(1))
+                long_val = float(long_m.group(1))
+
+            # Agar chat_id va client mavjud bo'lsa, Telegramning haqiqiy interaktiv xaritali Location Pin xabarini jo'natamiz!
+            if lat_val and long_val and client and chat_id:
+                try:
+                    from telethon.tl.types import InputMediaGeoPoint, InputGeoPoint
+                    media = InputMediaGeoPoint(InputGeoPoint(lat=lat_val, long=long_val))
+                    await client.send_file(chat_id, media)
+                except Exception as pin_err:
+                    logger.warning("Telegram Location pin jo'natishda xatolik: %s", pin_err)
+
             if is_ru:
-                return f"📍 **Ваше сохранённое местоположение:**\n\n{loc_fact.get('content')}"
-            return f"📍 **Sizning saqlangan joylashuvingiz:**\n\n{loc_fact.get('content')}"
+                return f"📍 **Ваше сохранённое местоположение (Геопозиция отправлена выше):**\n\n{content}"
+            return f"📍 **Sizning saqlangan joylashuvingiz (Xaritadagi lokatsiya yuqorida yuborildi):**\n\n{content}"
         else:
             if is_ru:
-                return "⚠️ **В памяти пока нет сохранённой геопозиции.** Отправьте геопозицию (📍 Location), чтобы я её сохранил."
-            return "⚠️ **Xotirada hali saqlangan geolokatsiya mavjud emas.** Geolokatsiyangizni (📍 Location) yuborsangiz, uni darhol saqlab qo'yaman."
+                return (
+                    "⚠️ **В памяти пока нет сохранённой геопозиции.**\n\n"
+                    "Пожалуйста, нажмите **📎 (Скрепка)** -> **📍 Геопозиция (Location)** в Telegram "
+                    "и отправьте ваше текущее местоположение. Я сразу же сохраню его и смогу отправлять вам полноценную геопозицию на карте!"
+                )
+            return (
+                "⚠️ **Xotirada hali saqlangan geolokatsiya mavjud emas.**\n\n"
+                "Iltimos, Telegram orqali **📎 (Skrepka)** -> **📍 Geopozitsiya (Location)** tugmasini bosib, "
+                "joriy joylashuvingizni yuboring. Uni darhol xotiraga saqlab, to'liq Telegram xarita lokatsiyasi (Location Pin) qilib jo'natib beraman!"
+            )
 
     # 3.5. Action: web_search (Internet va IT hujjatlaridan qidirish / Поиск в интернете)
     m_web = ACTION_WEB_SEARCH.search(reply_text)

@@ -340,10 +340,48 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
         CURRENT_SENDING_CHATS.add(chat_id)
         try:
+            message_text = event.raw_text or event.message.message or ""
+
             # 0. Telegram Geolokatsiyasi (📍 Location) bormi?
             geo = getattr(event.message, "geo", None) or (
                 getattr(event.message, "media", None) and getattr(event.message.media, "geo", None)
             )
+
+            # 0.1. Agar xabar reply bo'lsa va reply qilingan xabarda geo bo'lsa:
+            if not geo and event.message.is_reply:
+                try:
+                    reply_msg = await event.get_reply_message()
+                    if reply_msg:
+                        geo = getattr(reply_msg, "geo", None) or (
+                            getattr(reply_msg, "media", None) and getattr(reply_msg.media, "geo", None)
+                        )
+                except Exception as r_err:
+                    logger.debug("Reply geolokatsiyasini olishda ogohlantirish: %s", r_err)
+
+            # 0.2. Agar matnda lokatsiyani saqlash so'ralgan bo'lsa:
+            is_save_location_req = bool(re.search(
+                r"\b(?:men\s+turgan\s+)?(?:lokatsiya\w*|joylashuv\w*|manzil\w*|geopozitsiya\w*)\b.*?\b(?:saqla\w*|yozib\s+qo['’`]?y|eslab\s+qol)\b|"
+                r"\b(?:saqla\w*|yozib\s+qo['’`]?y)\b.*?\b(?:lokatsiya\w*|joylashuv\w*|manzil\w*)\b",
+                message_text,
+                re.I
+            ))
+
+            # Agar joriy xabarda geo yo'q, lekin ustoz "lokatsiyani saqlab qoy" deb yozgan bo'lsa:
+            # Vazifalar chatidagi oxirgi 20 ta xabardan ustoz yuborgan geolokatsiyani qidiramiz!
+            if not geo and is_save_location_req:
+                try:
+                    recent_msgs = await client.get_messages(chat_id, limit=20)
+                    for rm in recent_msgs:
+                        r_geo = getattr(rm, "geo", None) or (
+                            getattr(rm, "media", None) and getattr(rm.media, "geo", None)
+                        )
+                        if r_geo and getattr(r_geo, "lat", None) is not None and getattr(r_geo, "long", None) is not None:
+                            geo = r_geo
+                            logger.info("Vazifalar chatidagi oxirgi xabarlar orasidan geolokatsiya topildi: lat=%s, long=%s", geo.lat, geo.long)
+                            break
+                except Exception as scan_err:
+                    logger.warning("Oxirgi xabarlardan geolokatsiyani skanerlashda xatolik: %s", scan_err)
+
             if geo and getattr(geo, "lat", None) is not None and getattr(geo, "long", None) is not None:
                 lat = float(geo.lat)
                 long = float(geo.long)
@@ -361,18 +399,79 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 )
                 memory_service.add_learned_fact("mentor_lokatsiyasi", loc_content, category="mentor_location")
 
+                # 1. Telegramning rasmiy interaktiv xaritali Location Pin xabarini jo'natamiz!
+                try:
+                    from telethon.tl.types import InputMediaGeoPoint, InputGeoPoint
+                    media = InputMediaGeoPoint(InputGeoPoint(lat=lat, long=long))
+                    sent_pin = await client.send_file(chat_id, media)
+                    if sent_pin:
+                        BOT_SENT_MESSAGE_IDS.add(sent_pin.id)
+                except Exception as pin_err:
+                    logger.warning("Location pin yuborishda ogohlantirish: %s", pin_err)
+
                 reply_geo = (
-                    "📍 **Geolokatsiya muvaffaqiyatli qabul qilindi va xotiraga saqlandi!**\n\n"
-                    f"• 🌐 **Koordinatalar:** `{lat:.6f}, {long:.6f}`\n"
+                    "📍 **Nuriddin ustoz, joriy geolokatsiyangiz to'liq qabul qilindi va xotiraga saqlandi!**\n\n"
+                    f"• 🌐 **GPS Koordinatalar:** `{lat:.6f}, {long:.6f}`\n"
                     f"• 🗺 [Google Maps orqali ochish]({gmaps_link})\n"
                     f"• 🗺 [Yandex Maps orqali ochish]({yandex_link})\n\n"
-                    "✅ _Ushbu joylashuv xotiraga saqlandi. Istalgan payt 'turgan joyim qayerda' yoki 'lokatsiyamni ko'rsat' desangiz, uni chiqarib beraman!_"
+                    "✅ Yuqoridagi xaritada turgan joyingiz ko'rsatildi. Istalgan payt *'lokatsiyamni tashla'* yoki *'turgan joyim qayerda'* desangiz, uni to'liq xarita va Telegram location qilib chiqarib beraman!"
                 )
                 sent_msg = await event.reply(reply_geo)
                 if sent_msg:
                     BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
                 log_activity(f"📍 Mentor geolokatsiyasi saqlandi: {lat:.4f}, {long:.4f}")
                 return
+
+            if is_save_location_req:
+                # Koordinatalar matnda bormi? (masalan 41.2234, 69.2155)
+                coord_m = re.search(r"(\d{1,2}\.\d{4,})[,\s]+(\d{1,2}\.\d{4,})", message_text)
+                if coord_m:
+                    lat = float(coord_m.group(1))
+                    long = float(coord_m.group(2))
+                    from zoneinfo import ZoneInfo
+                    now_t = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%d.%m.%Y %H:%M")
+                    gmaps_link = f"https://www.google.com/maps?q={lat},{long}"
+                    yandex_link = f"https://yandex.com/maps/?pt={long},{lat}&z=16&l=map"
+
+                    loc_content = (
+                        f"📍 **Nuriddin ustozning joylashuvi** (saqlangan vaqt: {now_t}):\n"
+                        f"• Kenglik (Lat): `{lat:.6f}`\n"
+                        f"• Uzunlik (Long): `{long:.6f}`\n"
+                        f"• 🗺 [Google Maps orqali ochish]({gmaps_link})\n"
+                        f"• 🗺 [Yandex Maps orqali ochish]({yandex_link})"
+                    )
+                    memory_service.add_learned_fact("mentor_lokatsiyasi", loc_content, category="mentor_location")
+
+                    try:
+                        from telethon.tl.types import InputMediaGeoPoint, InputGeoPoint
+                        media = InputMediaGeoPoint(InputGeoPoint(lat=lat, long=long))
+                        sent_pin = await client.send_file(chat_id, media)
+                        if sent_pin:
+                            BOT_SENT_MESSAGE_IDS.add(sent_pin.id)
+                    except Exception as pin_err:
+                        logger.warning("Location pin yuborishda ogohlantirish: %s", pin_err)
+
+                    reply_geo = (
+                        "📍 **GPS Koordinatalar qabul qilindi va xotiraga saqlandi!**\n\n"
+                        f"• 🌐 **Koordinatalar:** `{lat:.6f}, {long:.6f}`\n"
+                        f"• 🗺 [Google Maps orqali ochish]({gmaps_link})\n"
+                        f"• 🗺 [Yandex Maps orqali ochish]({yandex_link})\n\n"
+                        "✅ Yuqoridagi xaritada turgan joyingiz belgilandi!"
+                    )
+                    sent_msg = await event.reply(reply_geo)
+                    if sent_msg:
+                        BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+                    return
+                else:
+                    reply_no_geo = (
+                        "📍 **Ustoz, hozir turgan joyingizni to'liq saqlashim uchun:**\n\n"
+                        "Iltimos, Telegram orqali **📎 (Skrepka)** -> **📍 Geopozitsiya (Location)** tugmasini bosing va *«Отправить геопозицию» (Joriy joylashuvimni yuborish)* ni tanlang.\n\n"
+                        "Lokatsiyani yuborishingiz bilan uni darhol xotiraga saqlab olaman va sizga to'liq Telegram xarita lokatsiyasi (Location Pin) qilib jo'natib beraman! 🚀"
+                    )
+                    sent_msg = await event.reply(reply_no_geo)
+                    if sent_msg:
+                        BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+                    return
 
             message_text = event.raw_text or event.message.message or ""
             has_voice = bool(
@@ -453,8 +552,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 is_admin_mode=True,
             )
 
-            # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, xabar yuborish)
-            final_reply = await execute_agent_action(str(raw_reply), client, input_text)
+            # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, xabar yuborish, lokatsiya)
+            final_reply = await execute_agent_action(str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id)
 
             if final_reply != str(raw_reply):
                 # Web App'dagi kabi xotiradagi oxirgi xabarni amaliy natija bilan yangilash:
