@@ -287,9 +287,11 @@ async def main():
     except Exception as sh_err:
         logger.debug("Shutdown handler sozlashda ogohlantirish: %s", sh_err)
 
-    # Doimiy eslatmalar va avto-backup xizmatlarini fonda ishga tushirish
+    # Doimiy eslatmalar, tongi brifing va avto-backup xizmatlarini fonda ishga tushirish
     asyncio.create_task(start_reminder_worker(client))
     asyncio.create_task(start_backup_worker(client))
+    from services.morning_service import start_morning_worker
+    asyncio.create_task(start_morning_worker(client))
 
     # Telegram Bot xizmatini fonda ishga tushirish (Guruh Mini App tugmasi va faqat admin boshqaruvi)
     if config.bot_token:

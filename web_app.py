@@ -899,6 +899,102 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             logger.error("Agentni qayta ishga tushirishda xatolik: %s", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+    # -----------------------------------------------------------
+    # Agent IQ, Level va Ko'nikmalar (Agent Skills) API
+    # -----------------------------------------------------------
+    async def handle_api_agent_stats(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            stats = memory_service.get_agent_stats()
+            saved_locations = memory_service.list_saved_locations(limit=20)
+            tashkent_tz = ZoneInfo("Asia/Tashkent")
+            today_str = datetime.now(tashkent_tz).strftime("%Y-%m-%d")
+            today_plans = memory_service.get_plans_for_date(today_str)
+
+            skills = [
+                {
+                    "id": "morning_briefing",
+                    "name": "Ertalabki Brifing & Uyg'onish (08:00)",
+                    "desc": "Toshkent ob-havosi, kunlik rejalar va 10 daqiqalik nazorat",
+                    "icon": "🌅",
+                    "unlocked": True,
+                },
+                {
+                    "id": "voice_commander",
+                    "name": "Hands-Free Voice Commander",
+                    "desc": "Whisper ovozli buyruqlar orqali rejalashtirish va vazifalar",
+                    "icon": "🎙️",
+                    "unlocked": True,
+                },
+                {
+                    "id": "location_memory",
+                    "name": "Aqlli Lokatsiya Xotirasi",
+                    "desc": "Joylashuvlarni maxsus nomlar bilan saqlash va xaritada ko'rsatish",
+                    "icon": "📍",
+                    "unlocked": True,
+                },
+                {
+                    "id": "wellbeing_guardian",
+                    "name": "Digital Well-being Guardian",
+                    "desc": "Telegramda uzluksiz 90 daqiqa ishlaganda dam olish eslatmasi",
+                    "icon": "🌿",
+                    "unlocked": True,
+                },
+                {
+                    "id": "curriculum_tutor",
+                    "name": "Coddy Curriculum & O'quvchilar Tahlili",
+                    "desc": "O'quvchilar savollari, kuchi va bo'shliqlarini tahlil qilish",
+                    "icon": "📚",
+                    "unlocked": True,
+                },
+                {
+                    "id": "smart_negotiator",
+                    "name": "Nuriddin Uslubidagi Mimika & Javoblar",
+                    "desc": "Shaxsiy muloqot va do'stona avto-reaksiyalar",
+                    "icon": "🧠",
+                    "unlocked": True,
+                },
+            ]
+
+            return web.json_response({
+                "ok": True,
+                "level": stats.get("level", 1),
+                "title": stats.get("title", "Kichik AI Yordamchi"),
+                "xp": stats.get("total_xp", 0),
+                "current_level_xp": stats.get("current_level_xp", 0),
+                "next_level_xp": stats.get("next_level_xp", 250),
+                "progress_pct": stats.get("progress_pct", 0),
+                "emergency_contact_id": stats.get("emergency_contact_id", "5023430798"),
+                "stats": {
+                    "saved_locations": len(saved_locations),
+                    "today_plans": len(today_plans),
+                    "learned_knowledge": stats.get("total_learned_facts", 0),
+                    "total_messages": stats.get("total_messages", 0),
+                    "total_students": stats.get("total_students", 0),
+                    "sent_reminders": stats.get("sent_reminders", 0),
+                },
+                "skills": skills,
+                "saved_locations_list": saved_locations,
+                "today_plans_list": today_plans,
+            })
+        except Exception as e:
+            logger.error("Agent statistikasini olishda xatolik: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_agent_update_settings(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+            if "emergency_contact_id" in data:
+                raw_id = str(data["emergency_contact_id"]).strip()
+                if raw_id:
+                    memory_service.set_setting("emergency_contact_id", raw_id)
+            return web.json_response({"ok": True})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
@@ -930,6 +1026,8 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_get("/api/curriculum-topics", handle_api_get_curriculum_topics)
     app.router.add_post("/api/curriculum-topics/add", handle_api_add_curriculum_topic)
     app.router.add_post("/api/curriculum-topics/delete", handle_api_delete_curriculum_topic)
+    app.router.add_get("/api/agent/stats", handle_api_agent_stats)
+    app.router.add_post("/api/agent/settings", handle_api_agent_update_settings)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

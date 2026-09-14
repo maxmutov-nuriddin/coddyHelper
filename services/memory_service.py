@@ -118,6 +118,38 @@ class SQLiteMemoryService:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_learned_topic ON learned_memory (topic)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS saved_locations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        name_clean TEXT NOT NULL,
+                        lat REAL NOT NULL,
+                        long REAL NOT NULL,
+                        address TEXT DEFAULT '',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_saved_locations_name ON saved_locations (name_clean)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS daily_plans (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        title TEXT NOT NULL,
+                        plan_date TEXT NOT NULL,
+                        plan_time TEXT DEFAULT '',
+                        is_completed INTEGER DEFAULT 0,
+                        priority TEXT DEFAULT 'normal',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_daily_plans_date ON daily_plans (plan_date, is_completed)"
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -916,6 +948,257 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("O'quvchini o'chirishda xatolik: %s", e)
             return False
+
+    # -----------------------------------------------------------
+    # Aqlli Lokatsiya Xotirasi (Saved Locations)
+    # -----------------------------------------------------------
+    def add_saved_location(self, name: str, lat: float, long: float, address: str = "") -> int:
+        """Yangi joylashuvni nom bilan saqlaydi."""
+        clean = name.lower().strip()
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO saved_locations (name, name_clean, lat, long, address)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (name.strip(), clean, lat, long, address.strip()),
+                )
+                conn.commit()
+                return cursor.lastrowid
+        except Exception as e:
+            logger.error("Lokatsiyani saqlashda xatolik: %s", e)
+            return 0
+
+    def get_saved_location(self, query: str) -> dict | None:
+        """Nom bo'yicha eng mos lokatsiyani topadi."""
+        clean = query.lower().strip()
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # 1. Aniq moslik
+                cursor.execute("SELECT id, name, lat, long, address, created_at FROM saved_locations WHERE name_clean = ? ORDER BY id DESC LIMIT 1", (clean,))
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "id": row[0],
+                        "name": row[1],
+                        "lat": row[2],
+                        "long": row[3],
+                        "latitude": row[2],
+                        "longitude": row[3],
+                        "address": row[4],
+                        "created_at": str(row[5]),
+                    }
+
+                # 2. Qidiruv mosligi (LIKE)
+                cursor.execute("SELECT id, name, lat, long, address, created_at FROM saved_locations WHERE name_clean LIKE ? ORDER BY id DESC LIMIT 1", (f"%{clean}%",))
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "id": row[0],
+                        "name": row[1],
+                        "lat": row[2],
+                        "long": row[3],
+                        "latitude": row[2],
+                        "longitude": row[3],
+                        "address": row[4],
+                        "created_at": str(row[5]),
+                    }
+                return None
+        except Exception as e:
+            logger.error("Lokatsiyani qidirishda xatolik: %s", e)
+            return None
+
+    def list_saved_locations(self, limit: int = 50) -> list[dict]:
+        """Barcha saqlangan joylashuvlar ro'yxatini qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, name, lat, long, address, created_at FROM saved_locations ORDER BY id DESC LIMIT ?", (limit,))
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "id": r[0],
+                        "name": r[1],
+                        "lat": r[2],
+                        "long": r[3],
+                        "latitude": r[2],
+                        "longitude": r[3],
+                        "address": r[4],
+                        "created_at": str(r[5]),
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("Lokatsiyalar ro'yxatini olishda xatolik: %s", e)
+            return []
+
+    def delete_saved_location(self, loc_id: int) -> bool:
+        """Lokatsiyani o'chiradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM saved_locations WHERE id = ?", (loc_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Lokatsiyani o'chirishda xatolik: %s", e)
+            return False
+
+    # -----------------------------------------------------------
+    # Kunlik Rejalar va Vazifalar (Daily Plans / Checklist)
+    # -----------------------------------------------------------
+    def add_daily_plan(self, title: str, plan_date: str, plan_time: str = "", priority: str = "normal") -> int:
+        """Kunlik rejaga yangi vazifa qo'shadi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO daily_plans (title, plan_date, plan_time, is_completed, priority)
+                    VALUES (?, ?, ?, 0, ?)
+                    """,
+                    (title.strip(), plan_date.strip(), plan_time.strip(), priority),
+                )
+                conn.commit()
+                return cursor.lastrowid
+        except Exception as e:
+            logger.error("Rejani saqlashda xatolik: %s", e)
+            return 0
+
+    def get_plans_for_date(self, plan_date: str) -> list[dict]:
+        """Muayyan sanadagi barcha rejalarni qaytaradi (YYYY-MM-DD)."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, title, plan_date, plan_time, is_completed, priority, created_at
+                    FROM daily_plans
+                    WHERE plan_date = ?
+                    ORDER BY plan_time ASC, id ASC
+                    """,
+                    (plan_date,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "id": r[0],
+                        "title": r[1],
+                        "plan_text": r[1],
+                        "plan_date": r[2],
+                        "plan_time": r[3],
+                        "is_completed": bool(r[4]),
+                        "status": "completed" if r[4] else "pending",
+                        "priority": r[5],
+                        "created_at": str(r[6]),
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("Sanadagi rejalarni olishda xatolik: %s", e)
+            return []
+
+    def mark_plan_completed(self, plan_id: int, is_completed: bool = True) -> bool:
+        """Rejadagi vazifani bajarilgan yoki kutilayotgan deb belgilaydi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE daily_plans SET is_completed = ? WHERE id = ?", (1 if is_completed else 0, plan_id))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Reja holatini yangilashda xatolik: %s", e)
+            return False
+
+    def delete_daily_plan(self, plan_id: int) -> bool:
+        """Rejani o'chiradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM daily_plans WHERE id = ?", (plan_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Rejani o'chirishda xatolik: %s", e)
+            return False
+
+    # -----------------------------------------------------------
+    # Agent IQ, Level va Ko'nikmalar Statistikasi
+    # -----------------------------------------------------------
+    def get_agent_stats(self) -> dict:
+        """Agentning real-time intellekt darajasi, leveli, XP va o'rganilgan bilimlarini hisoblaydi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM messages")
+                total_msgs = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM students")
+                total_students = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM reminders WHERE is_sent = 1")
+                sent_reminders = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM saved_locations")
+                total_locations = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM learned_memory")
+                total_learned = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM daily_plans WHERE is_completed = 1")
+                completed_plans = cursor.fetchone()[0]
+
+                # Tajriba ballari (XP) formulasi:
+                # Har bir xabar: 1 XP
+                # Har bir o'quvchi: 10 XP
+                # Har bir bajarilgan eslatma/reja: 15 XP
+                # Har bir o'rganilgan fakt/manzil: 25 XP
+                xp = (total_msgs * 1) + (total_students * 10) + ((sent_reminders + completed_plans) * 15) + ((total_locations + total_learned) * 25)
+                
+                # Level hisoblash: Har 250 XP da yangi Level
+                level = max(1, (xp // 250) + 1)
+                xp_current_level = xp % 250
+                progress_pct = int((xp_current_level / 250) * 100)
+
+                # Unvonlar
+                if level < 5:
+                    title = "Kichik AI Yordamchi (Junior Co-Pilot)"
+                elif level < 12:
+                    title = "O'rta Darajadagi Shaxsiy Assistent (Middle Co-Pilot)"
+                elif level < 25:
+                    title = "Katta Hayotiy va Ish Boshqaruvchisi (Senior Executive Co-Pilot)"
+                else:
+                    title = "Master Avtonom AI Hamkor (Master Autonomous AI)"
+
+                emergency_id = self.get_setting("emergency_contact_id", "5023430798")
+
+                return {
+                    "level": level,
+                    "title": title,
+                    "total_xp": xp,
+                    "current_level_xp": xp_current_level,
+                    "next_level_xp": 250,
+                    "progress_pct": progress_pct,
+                    "total_messages": total_msgs,
+                    "total_students": total_students,
+                    "sent_reminders": sent_reminders,
+                    "total_locations": total_locations,
+                    "total_learned_facts": total_learned,
+                    "completed_plans": completed_plans,
+                    "emergency_contact_id": emergency_id,
+                }
+        except Exception as e:
+            logger.error("Agent statistikasini hisoblashda xatolik: %s", e)
+            return {
+                "level": 1,
+                "title": "Boshlang'ich AI Yordamchi",
+                "total_xp": 0,
+                "progress_pct": 0,
+                "emergency_contact_id": "5023430798",
+            }
 
     # -----------------------------------------------------------
     # Baza xavfsizligi, tiklash va birlashtirish (Database Merge)

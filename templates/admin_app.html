@@ -882,14 +882,14 @@
         <!-- TPM (TOKENS PER MINUTE) RATE LIMIT BAR -->
         <div style="margin-bottom: 12px; background: rgba(0,0,0,0.15); border-radius: 8px; padding: 10px; border: 1px solid var(--border-color);">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-            <span style="font-size: 12px; font-weight: 600; color: #fff;">📊 Daqiqalik Token Limiti (TPM):</span>
-            <span id="ai-tpm-text" style="font-size: 12px; font-weight: 700; color: #22c55e;">12,000 / 12,000</span>
+            <span style="font-size: 12px; font-weight: 600; color: #fff;">📊 Daqiqalik Token Sarfi (TPM):</span>
+            <span id="ai-tpm-text" style="font-size: 12px; font-weight: 700; color: #22c55e;">0 / 12,000 token (100% bo'sh)</span>
           </div>
           <div style="height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; margin: 6px 0;">
             <div id="ai-tpm-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #22c55e, #10b981); transition: width 0.3s ease;"></div>
           </div>
           <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--hint-color);">
-            <span id="ai-tpm-used-pct">0% ishlatildi (100% bo'sh)</span>
+            <span id="ai-tpm-used-pct">0% sarflandi (100% bo'sh)</span>
             <span id="ai-tpm-reset">⏳ Yangilanish: 0s</span>
           </div>
         </div>
@@ -897,12 +897,12 @@
         <!-- RPM (REQUESTS PER MINUTE) RATE LIMIT -->
         <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.15); border-radius: 8px; padding: 8px 10px; border: 1px solid var(--border-color); margin-bottom: 12px;">
           <div>
-            <span style="font-size: 12px; font-weight: 600; color: #fff;">⚡ Daqiqalik So'rovlar (RPM):</span>
+            <span style="font-size: 12px; font-weight: 600; color: #fff;">⚡ Daqiqalik So'rovlar Sarfi (RPM):</span>
             <div id="ai-rpm-reset" style="font-size: 10px; color: var(--hint-color);">⏳ Reset: 0s</div>
           </div>
           <div style="text-align: right;">
-            <div id="ai-rpm-text" style="font-size: 14px; font-weight: 700; color: #2ea6ff;">30 / 30</div>
-            <div style="font-size: 10px; color: var(--hint-color);">so'rov qoldi</div>
+            <div id="ai-rpm-text" style="font-size: 14px; font-weight: 700; color: #2ea6ff;">0 / 30</div>
+            <div id="ai-rpm-sub" style="font-size: 10px; color: var(--hint-color);">30 ta so'rov mavjud</div>
           </div>
         </div>
 
@@ -1326,6 +1326,111 @@
       </div>
     </div> <!-- /tab-security -->
 
+    <!-- ================= TAB: AGENT IQ & CO-PILOT ================= -->
+    <div class="tab-pane" id="tab-agent">
+      <!-- LEVEL & XP HERO CARD -->
+      <div class="card" style="background: linear-gradient(135deg, rgba(36, 129, 204, 0.15), rgba(74, 222, 128, 0.1)); border: 1px solid rgba(36, 129, 204, 0.3);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--hint-color);">Avtonom AI Yordamchi</div>
+            <h2 style="font-size: 20px; font-weight: 700; margin: 2px 0 0 0;" id="agent-title-display">Coddy Executive Co-Pilot</h2>
+          </div>
+          <div style="background: var(--accent); color: #fff; font-weight: 800; font-size: 14px; padding: 6px 12px; border-radius: 20px; box-shadow: 0 2px 8px rgba(36, 129, 204, 0.4);" id="agent-level-badge">
+            LVL 1
+          </div>
+        </div>
+
+        <!-- Progress bar -->
+        <div style="margin: 10px 0 6px 0;">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+            <span style="color: var(--hint-color);">Tajriba (XP): <strong id="agent-xp-text" style="color: var(--text-color);">0 / 250 XP</strong></span>
+            <span style="color: var(--accent); font-weight: 600;" id="agent-progress-text">0%</span>
+          </div>
+          <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden;">
+            <div id="agent-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #2481cc, #4ade80); border-radius: 4px; transition: width 0.4s ease;"></div>
+          </div>
+        </div>
+        <p style="font-size: 11px; color: var(--hint-color); margin: 6px 0 0 0;">
+          * Agent har bir muloqot, saqlangan lokatsiya, reja va o'quvchilar tahlili orqali avtomatik aqllashib boradi.
+        </p>
+      </div>
+
+      <!-- METRICS GRID -->
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px;">
+        <div class="card" style="padding: 12px; margin: 0; text-align: center;">
+          <div style="font-size: 18px;">📍</div>
+          <div style="font-size: 18px; font-weight: 700; margin-top: 4px;" id="agent-stat-locations">0</div>
+          <div style="font-size: 11px; color: var(--hint-color);">Saqlangan Lokatsiyalar</div>
+        </div>
+        <div class="card" style="padding: 12px; margin: 0; text-align: center;">
+          <div style="font-size: 18px;">📅</div>
+          <div style="font-size: 18px; font-weight: 700; margin-top: 4px;" id="agent-stat-plans">0</div>
+          <div style="font-size: 11px; color: var(--hint-color);">Bugungi Rejalar</div>
+        </div>
+        <div class="card" style="padding: 12px; margin: 0; text-align: center;">
+          <div style="font-size: 18px;">🧠</div>
+          <div style="font-size: 18px; font-weight: 700; margin-top: 4px;" id="agent-stat-knowledge">0</div>
+          <div style="font-size: 11px; color: var(--hint-color);">O'rganilgan Bilimlar</div>
+        </div>
+        <div class="card" style="padding: 12px; margin: 0; text-align: center;">
+          <div style="font-size: 18px;">💬</div>
+          <div style="font-size: 18px; font-weight: 700; margin-top: 4px;" id="agent-stat-messages">0</div>
+          <div style="font-size: 11px; color: var(--hint-color);">Tahlil qilingan Xabarlar</div>
+        </div>
+      </div>
+
+      <!-- EMERGENCY CONTACT & SAFETY SETTINGS -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🚨 Favqulodda Uyg'otish Kontaktlari</span>
+          <span class="badge badge-success">Faol</span>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px; line-height: 1.4;">
+          Ertalab soat 08:00 dagi brifingga 10 daqiqa (08:10 gacha) "Turdim" deb javob berilmasa, agent avtomatik ushbu <strong>barcha</strong> ko'rsatilgan kontaktlarga sizni uyg'otib qo'yishni iltimos qilib xabar yuboradi. Bir nechta bo'lsa vergul bilan ajrating.
+        </p>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="agent-emergency-contact-input" class="form-input" placeholder="Telegram ID lar (masalan: 5023430798, 987654321)" style="flex: 1;" />
+          <button class="btn btn-primary" onclick="saveEmergencyContact()">Saqlash</button>
+        </div>
+      </div>
+
+      <!-- AGENT SKILLS & CAPABILITIES -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">⚡ O'rnatilgan Qobiliyatlar & Modullar</span>
+          <span style="font-size: 11px; color: var(--accent); font-weight: 600;">6/6 Faol</span>
+        </div>
+        <div id="agent-skills-list" style="display: flex; flex-direction: column; gap: 8px;">
+          <!-- JS to'ldiradi -->
+        </div>
+      </div>
+
+      <!-- SAVED LOCATIONS -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📍 Saqlangan Shaxsiy Lokatsiyalar</span>
+          <span style="font-size: 11px; color: var(--hint-color);" id="saved-locations-count">0 ta</span>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
+          "Vazifalar" guruhida geolokatsiya tashlab nom berilganda avtomatik saqlanadi. Keyinchalik qayerda ekanligini so'rasangiz bot xaritada ochib beradi.
+        </p>
+        <div id="agent-locations-list">
+          <div style="text-align: center; color: var(--hint-color); padding: 12px; font-size: 12px;">Lokatsiyalar mavjud emas</div>
+        </div>
+      </div>
+
+      <!-- TODAY'S PLANS -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📅 Bugungi Kun Tartibi & Rejalar</span>
+          <span style="font-size: 11px; color: var(--hint-color);" id="today-plans-count">0 ta</span>
+        </div>
+        <div id="agent-plans-list">
+          <div style="text-align: center; color: var(--hint-color); padding: 12px; font-size: 12px;">Rejalar belgilanmagan</div>
+        </div>
+      </div>
+    </div> <!-- /tab-agent -->
+
   </main>
 
   <!-- STUDENT MODAL -->
@@ -1396,6 +1501,10 @@
     <button class="nav-item" id="nav-security" onclick="switchTab('security', this)">
       <span class="nav-icon">🛡</span>
       <span>Xavfsizlik</span>
+    </button>
+    <button class="nav-item" id="nav-agent" onclick="switchTab('agent', this)">
+      <span class="nav-icon">🤖</span>
+      <span>Agent IQ</span>
     </button>
   </nav>
   </div> <!-- /app-shell -->
@@ -1503,6 +1612,8 @@
       } else if (tabId === "security") {
         loadStatus();
         loadIgnored();
+      } else if (tabId === "agent") {
+        loadAgentStats();
       }
     }
 
@@ -1558,7 +1669,8 @@
           loadKnowledge(),
           loadIgnored(),
           loadTrustedSites(),
-          loadCurriculumTopics()
+          loadCurriculumTopics(),
+          loadAgentStats()
         ]);
       } catch (err) {
         console.error("loadAllData xatosi:", err);
@@ -1714,10 +1826,19 @@
       const rl = metrics.rate_limits || {};
       const remTokens = rl.remaining_tokens !== undefined ? rl.remaining_tokens : 12000;
       const limTokens = rl.limit_tokens !== undefined ? rl.limit_tokens : 12000;
-      const usedPct = rl.used_tokens_pct !== undefined ? rl.used_tokens_pct : (limTokens > 0 ? Math.round(((limTokens - remTokens) / limTokens) * 100) : 0);
+      const usedTokens = Math.max(0, limTokens - remTokens);
+      const usedPct = rl.used_tokens_pct !== undefined ? rl.used_tokens_pct : (limTokens > 0 ? Math.round((usedTokens / limTokens) * 100) : 0);
 
       const tpmText = document.getElementById('ai-tpm-text');
-      if (tpmText) tpmText.innerText = `${remTokens.toLocaleString()} / ${limTokens.toLocaleString()} token`;
+      if (tpmText) {
+        if (usedTokens === 0) {
+          tpmText.innerText = `0 / ${limTokens.toLocaleString()} token (100% bo'sh)`;
+          tpmText.style.color = '#22c55e';
+        } else {
+          tpmText.innerText = `${usedTokens.toLocaleString()} / ${limTokens.toLocaleString()} sarflandi (${remTokens.toLocaleString()} bo'sh)`;
+          tpmText.style.color = usedPct > 80 ? '#ef4444' : (usedPct > 50 ? '#f59e0b' : '#22c55e');
+        }
+      }
       
       const tpmBar = document.getElementById('ai-tpm-bar');
       if (tpmBar) {
@@ -1732,7 +1853,7 @@
       }
 
       const tpmPct = document.getElementById('ai-tpm-used-pct');
-      if (tpmPct) tpmPct.innerText = `${usedPct}% ishlatildi (${Math.max(0, Math.round(100 - usedPct))}% bo'sh)`;
+      if (tpmPct) tpmPct.innerText = `${usedPct}% sarflandi (${Math.max(0, Math.round(100 - usedPct))}% bo'sh)`;
 
       const tpmReset = document.getElementById('ai-tpm-reset');
       if (tpmReset) tpmReset.innerText = `⏳ Yangilanish: ${rl.reset_tokens || '0s'}`;
@@ -1740,8 +1861,11 @@
       // RPM (Requests Per Minute)
       const remReq = rl.remaining_requests !== undefined ? rl.remaining_requests : 30;
       const limReq = rl.limit_requests !== undefined ? rl.limit_requests : 30;
+      const usedReq = Math.max(0, limReq - remReq);
       const rpmText = document.getElementById('ai-rpm-text');
-      if (rpmText) rpmText.innerText = `${remReq} / ${limReq}`;
+      if (rpmText) rpmText.innerText = `${usedReq} / ${limReq}`;
+      const rpmSub = document.getElementById('ai-rpm-sub');
+      if (rpmSub) rpmSub.innerText = `${remReq} ta so'rov mavjud`;
       const rpmReset = document.getElementById('ai-rpm-reset');
       if (rpmReset) rpmReset.innerText = `⏳ Reset: ${rl.reset_requests || '0s'}`;
 
@@ -2676,6 +2800,142 @@
       return out;
     }
 
+    // ================= AGENT IQ & CO-PILOT FUNCTIONS =================
+    async function loadAgentStats() {
+      try {
+        const res = await apiRequest("/api/agent/stats");
+        if (!res || !res.ok) return;
+
+        // Level & Title
+        const levelBadge = document.getElementById("agent-level-badge");
+        if (levelBadge) levelBadge.innerText = "LVL " + (res.level || 1);
+
+        const titleDisplay = document.getElementById("agent-title-display");
+        if (titleDisplay) titleDisplay.innerText = res.title || "Coddy Executive Co-Pilot";
+
+        const xpText = document.getElementById("agent-xp-text");
+        if (xpText) xpText.innerText = `${res.xp || 0} / ${res.next_level_xp || 250} XP`;
+
+        const progressText = document.getElementById("agent-progress-text");
+        if (progressText) progressText.innerText = (res.progress_pct || 0) + "%";
+
+        const progressBar = document.getElementById("agent-progress-bar");
+        if (progressBar) progressBar.style.width = Math.min(100, Math.max(0, res.progress_pct || 0)) + "%";
+
+        // Metrics
+        const st = res.stats || {};
+        if (document.getElementById("agent-stat-locations")) {
+          document.getElementById("agent-stat-locations").innerText = st.saved_locations || 0;
+        }
+        if (document.getElementById("agent-stat-plans")) {
+          document.getElementById("agent-stat-plans").innerText = st.today_plans || 0;
+        }
+        if (document.getElementById("agent-stat-knowledge")) {
+          document.getElementById("agent-stat-knowledge").innerText = st.learned_knowledge || 0;
+        }
+        if (document.getElementById("agent-stat-messages")) {
+          document.getElementById("agent-stat-messages").innerText = st.total_messages || 0;
+        }
+
+        // Emergency Contact
+        const emInput = document.getElementById("agent-emergency-contact-input");
+        if (emInput && !emInput.matches(":focus")) {
+          emInput.value = res.emergency_contact_id || "5023430798";
+        }
+
+        // Skills List
+        const skillsContainer = document.getElementById("agent-skills-list");
+        if (skillsContainer && res.skills) {
+          skillsContainer.innerHTML = res.skills.map(s => `
+            <div style="display: flex; align-items: flex-start; gap: 10px; background: var(--card-bg); padding: 10px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <div style="font-size: 20px; line-height: 1;">${s.icon || "⚡"}</div>
+              <div style="flex: 1;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <strong style="font-size: 13px;">${s.name}</strong>
+                  <span class="badge badge-success" style="font-size: 10px;">Faol</span>
+                </div>
+                <div style="font-size: 11px; color: var(--hint-color); margin-top: 2px;">${s.desc}</div>
+              </div>
+            </div>
+          `).join("");
+        }
+
+        // Saved Locations List
+        const locContainer = document.getElementById("agent-locations-list");
+        const locCount = document.getElementById("saved-locations-count");
+        if (locContainer) {
+          const locs = res.saved_locations_list || [];
+          if (locCount) locCount.innerText = locs.length + " ta";
+          if (locs.length === 0) {
+            locContainer.innerHTML = '<div style="text-align: center; color: var(--hint-color); padding: 12px; font-size: 12px;">Hozircha saqlangan lokatsiyalar yo\'q</div>';
+          } else {
+            locContainer.innerHTML = locs.map(l => `
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: var(--card-bg); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--border-color);">
+                <div>
+                  <div style="font-weight: 600; font-size: 13px;">📍 ${escapeHtml(l.name)}</div>
+                  <div style="font-size: 11px; color: var(--hint-color); margin-top: 2px;">
+                    ${l.latitude.toFixed(4)}, ${l.longitude.toFixed(4)} ${l.created_at ? '• ' + l.created_at.substring(0, 10) : ''}
+                  </div>
+                </div>
+                <a href="https://maps.google.com/?q=${l.latitude},${l.longitude}" target="_blank" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; text-decoration: none;">
+                  Xarita ↗
+                </a>
+              </div>
+            `).join("");
+          }
+        }
+
+        // Today Plans List
+        const plansContainer = document.getElementById("agent-plans-list");
+        const plansCount = document.getElementById("today-plans-count");
+        if (plansContainer) {
+          const plans = res.today_plans_list || [];
+          if (plansCount) plansCount.innerText = plans.length + " ta";
+          if (plans.length === 0) {
+            plansContainer.innerHTML = '<div style="text-align: center; color: var(--hint-color); padding: 12px; font-size: 12px;">Bugun uchun kiritilgan rejalar mavjud emas</div>';
+          } else {
+            plansContainer.innerHTML = plans.map(p => `
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--card-bg); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 16px;">${p.status === 'completed' ? '✅' : '⏳'}</span>
+                  <div>
+                    <div style="font-size: 13px; ${p.status === 'completed' ? 'text-decoration: line-through; opacity: 0.7;' : 'font-weight: 500;'}">${escapeHtml(p.plan_text)}</div>
+                    ${p.plan_time ? `<div style="font-size: 11px; color: var(--accent);">⏰ ${escapeHtml(p.plan_time)}</div>` : ''}
+                  </div>
+                </div>
+                <span class="badge ${p.status === 'completed' ? 'badge-success' : 'badge-warning'}" style="font-size: 10px;">
+                  ${p.status === 'completed' ? 'Bajarildi' : 'Kutilmoqda'}
+                </span>
+              </div>
+            `).join("");
+          }
+        }
+
+      } catch (err) {
+        console.error("loadAgentStats xatosi:", err);
+      }
+    }
+
+    async function saveEmergencyContact() {
+      const input = document.getElementById("agent-emergency-contact-input");
+      if (!input) return;
+      const contactIds = input.value.trim();
+      if (!contactIds) {
+        showToast("Iltimos, kamida bitta Telegram ID kiriting!");
+        return;
+      }
+      try {
+        const res = await apiRequest("/api/agent/settings", "POST", { emergency_contact_id: contactIds });
+        if (res && res.ok) {
+          showToast("Favqulodda kontaktlar saqlandi ✅");
+          loadAgentStats();
+        } else {
+          showToast("Xatolik: " + (res?.error || "Saqlab bo'lmadi"));
+        }
+      } catch (e) {
+        showToast("Saqlashda xatolik yuz berdi");
+      }
+    }
 
     // Start authentication on page load
     initAuth();

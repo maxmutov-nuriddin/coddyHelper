@@ -457,85 +457,67 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         try:
             message_text = event.raw_text or event.message.message or ""
 
-            # 0. Telegram Geolokatsiyasi (📍 Location) bormi?
+            # 0. Salomatlik va faollik (Well-being Screen-time monitoring)
+            from services.wellbeing_service import record_mentor_activity_and_check
+            asyncio.create_task(record_mentor_activity_and_check(client))
+
+            # 0.1. Tongi uyg'onish tasdig'i ("Turdingizmi?" savoliga javob)
+            from services.morning_service import is_wakeup_confirmation_text, confirm_wakeup_success
+            if is_wakeup_confirmation_text(message_text):
+                wakeup_reply = confirm_wakeup_success()
+                sent_msg = await event.reply(wakeup_reply)
+                if sent_msg:
+                    BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+                return
+
+            # 0.2. Telegram Geolokatsiyasi (📍 Location) tekshiruvi
             geo = getattr(event.message, "geo", None) or (
                 getattr(event.message, "media", None) and getattr(event.message.media, "geo", None)
             )
 
-            # 0.1. Agar xabar reply bo'lsa va reply qilingan xabarda geo bo'lsa:
-            if not geo and event.message.is_reply:
-                try:
-                    reply_msg = await event.get_reply_message()
-                    if reply_msg:
-                        geo = getattr(reply_msg, "geo", None) or (
-                            getattr(reply_msg, "media", None) and getattr(reply_msg.media, "geo", None)
-                        )
-                except Exception as r_err:
-                    logger.debug("Reply geolokatsiyasini olishda ogohlantirish: %s", r_err)
+            from services.location_memory_service import (
+                has_pending_location_naming,
+                save_pending_location,
+                register_pending_location,
+                extract_location_query,
+                handle_find_location_request,
+            )
 
-            # 0.2. Agar matnda lokatsiyani saqlash so'ralgan bo'lsa:
+            # Agar oldin lokatsiya yuborilgan bo'lib, hozir uning nomini kiritayotgan bo'lsa:
+            if not geo and has_pending_location_naming(chat_id):
+                loc_reply = await save_pending_location(chat_id, message_text, client)
+                sent_msg = await event.reply(loc_reply)
+                if sent_msg:
+                    BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+                return
+
+            # Agar saqlangan lokatsiyalardan birini so'rayotgan bo'lsa:
+            loc_query = extract_location_query(message_text)
+            if not geo and loc_query:
+                loc_find_reply = await handle_find_location_request(client, chat_id, loc_query)
+                if loc_find_reply:
+                    sent_msg = await event.reply(loc_find_reply)
+                    if sent_msg:
+                        BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+                    return
+
+            # 0.3. Yangi geolokatsiya kelganda nomini so'rab olish:
+            if geo and getattr(geo, "lat", None) is not None and getattr(geo, "long", None) is not None:
+                lat = float(geo.lat)
+                long = float(geo.long)
+                ask_name_msg = register_pending_location(chat_id, lat, long)
+                sent_msg = await event.reply(ask_name_msg)
+                if sent_msg:
+                    BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+                log_activity(f"📍 Geolokatsiya qabul qilindi, nom so'ralmoqda: {lat:.4f}, {long:.4f}")
+                return
+
             is_save_location_req = bool(re.search(
                 r"\b(?:men\s+turgan\s+)?(?:lokatsiya\w*|joylashuv\w*|manzil\w*|geopozitsiya\w*)\b.*?\b(?:saqla\w*|yozib\s+qo['’`]?y|eslab\s+qol)\b|"
                 r"\b(?:saqla\w*|yozib\s+qo['’`]?y)\b.*?\b(?:lokatsiya\w*|joylashuv\w*|manzil\w*)\b",
                 message_text,
                 re.I
             ))
-
-            # Agar joriy xabarda geo yo'q, lekin ustoz "lokatsiyani saqlab qoy" deb yozgan bo'lsa:
-            # Vazifalar chatidagi oxirgi 20 ta xabardan ustoz yuborgan geolokatsiyani qidiramiz!
-            if not geo and is_save_location_req:
-                try:
-                    recent_msgs = await client.get_messages(chat_id, limit=20)
-                    for rm in recent_msgs:
-                        r_geo = getattr(rm, "geo", None) or (
-                            getattr(rm, "media", None) and getattr(rm.media, "geo", None)
-                        )
-                        if r_geo and getattr(r_geo, "lat", None) is not None and getattr(r_geo, "long", None) is not None:
-                            geo = r_geo
-                            logger.info("Vazifalar chatidagi oxirgi xabarlar orasidan geolokatsiya topildi: lat=%s, long=%s", geo.lat, geo.long)
-                            break
-                except Exception as scan_err:
-                    logger.warning("Oxirgi xabarlardan geolokatsiyani skanerlashda xatolik: %s", scan_err)
-
-            if geo and getattr(geo, "lat", None) is not None and getattr(geo, "long", None) is not None:
-                lat = float(geo.lat)
-                long = float(geo.long)
-                from zoneinfo import ZoneInfo
-                now_t = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%d.%m.%Y %H:%M")
-                gmaps_link = f"https://www.google.com/maps?q={lat},{long}"
-                yandex_link = f"https://yandex.com/maps/?pt={long},{lat}&z=16&l=map"
-
-                loc_content = (
-                    f"📍 **Nuriddin ustozning joylashuvi** (saqlangan vaqt: {now_t}):\n"
-                    f"• Kenglik (Lat): `{lat:.6f}`\n"
-                    f"• Uzunlik (Long): `{long:.6f}`\n"
-                    f"• 🗺 [Google Maps orqali ochish]({gmaps_link})\n"
-                    f"• 🗺 [Yandex Maps orqali ochish]({yandex_link})"
-                )
-                memory_service.add_learned_fact("mentor_lokatsiyasi", loc_content, category="mentor_location")
-
-                # 1. Telegramning rasmiy interaktiv xaritali Location Pin xabarini jo'natamiz!
-                try:
-                    from telethon.tl.types import InputMediaGeoPoint, InputGeoPoint
-                    media = InputMediaGeoPoint(InputGeoPoint(lat=lat, long=long))
-                    sent_pin = await client.send_file(chat_id, media)
-                    if sent_pin:
-                        BOT_SENT_MESSAGE_IDS.add(sent_pin.id)
-                except Exception as pin_err:
-                    logger.warning("Location pin yuborishda ogohlantirish: %s", pin_err)
-
-                reply_geo = (
-                    "📍 **Nuriddin ustoz, joriy geolokatsiyangiz to'liq qabul qilindi va xotiraga saqlandi!**\n\n"
-                    f"• 🌐 **GPS Koordinatalar:** `{lat:.6f}, {long:.6f}`\n"
-                    f"• 🗺 [Google Maps orqali ochish]({gmaps_link})\n"
-                    f"• 🗺 [Yandex Maps orqali ochish]({yandex_link})\n\n"
-                    "✅ Yuqoridagi xaritada turgan joyingiz ko'rsatildi. Istalgan payt *'lokatsiyamni tashla'* yoki *'turgan joyim qayerda'* desangiz, uni to'liq xarita va Telegram location qilib chiqarib beraman!"
-                )
-                sent_msg = await event.reply(reply_geo)
-                if sent_msg:
-                    BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
-                log_activity(f"📍 Mentor geolokatsiyasi saqlandi: {lat:.4f}, {long:.4f}")
-                return
 
             if is_save_location_req:
                 # Koordinatalar matnda bormi? (masalan 41.2234, 69.2155)
