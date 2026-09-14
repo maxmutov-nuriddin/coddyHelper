@@ -134,23 +134,85 @@
     .container {
       flex: 1;
       overflow-y: auto !important;
-      overflow-x: hidden;
+      overflow-x: hidden !important;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior-y: contain !important;
-      padding: 14px 14px calc(75px + max(10px, env(safe-area-inset-bottom))) 14px;
-      max-width: 600px;
+      padding: 12px 12px calc(80px + max(10px, env(safe-area-inset-bottom))) 12px;
+      max-width: 640px;
       margin: 0 auto;
       width: 100%;
+      box-sizing: border-box;
     }
 
-    /* TAB CONTENT */
-    .tab-pane {
+    /* CATEGORY NAV (TOP STICKY SEGMENT BAR) */
+    .category-nav-wrapper {
+      position: sticky;
+      top: 0;
+      z-index: 45;
+      background-color: var(--secondary-bg);
+      border-bottom: 1px solid var(--border-color);
+      padding: 8px 12px;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .category-nav {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+
+    .category-nav::-webkit-scrollbar {
       display: none;
-      animation: fadeIn 0.2s ease-in-out;
     }
 
-    .tab-pane.active {
-      display: block;
+    .cat-pill {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      color: var(--hint-color);
+      padding: 7px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .cat-pill.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      box-shadow: 0 2px 8px rgba(46, 166, 255, 0.4);
+    }
+
+    /* SECTIONS */
+    .app-section {
+      animation: fadeIn 0.25s ease-in-out;
+      margin-bottom: 16px;
+    }
+
+    .section-header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: rgba(46, 166, 255, 0.12);
+      color: #2ea6ff;
+      border: 1px solid rgba(46, 166, 255, 0.25);
+      margin-bottom: 10px;
+      margin-top: 4px;
     }
 
     @keyframes fadeIn {
@@ -163,9 +225,14 @@
       background-color: var(--secondary-bg);
       border: 1px solid var(--border-color);
       border-radius: var(--radius);
-      padding: 16px;
-      margin-bottom: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
       box-shadow: var(--shadow);
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+      word-break: break-word;
     }
 
     .card-header {
@@ -264,6 +331,8 @@
       grid-template-columns: 1fr 1fr;
       gap: 10px;
       margin-bottom: 14px;
+      width: 100%;
+      box-sizing: border-box;
     }
 
     .metric-box {
@@ -272,6 +341,9 @@
       border-radius: var(--radius-sm);
       padding: 12px;
       text-align: center;
+      box-sizing: border-box;
+      min-width: 0;
+      word-break: break-word;
     }
 
     .metric-value {
@@ -291,6 +363,8 @@
     /* BUTTONS */
     .btn {
       width: 100%;
+      box-sizing: border-box;
+      max-width: 100%;
       padding: 12px 16px;
       border-radius: var(--radius-sm);
       border: none;
@@ -302,6 +376,7 @@
       justify-content: center;
       gap: 8px;
       transition: all 0.2s ease;
+      word-break: break-word;
     }
 
     .btn-primary {
@@ -365,16 +440,23 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 100%;
+      word-break: break-word;
     }
 
     .reminder-info {
       flex: 1;
+      min-width: 0;
+      word-break: break-word;
     }
 
     .reminder-text {
       font-size: 14px;
       font-weight: 600;
       margin-bottom: 4px;
+      word-break: break-word;
     }
 
     .reminder-time {
@@ -383,11 +465,14 @@
       display: flex;
       align-items: center;
       gap: 4px;
+      flex-wrap: wrap;
     }
 
     /* INPUTS & FORM */
     .form-group {
       margin-bottom: 12px;
+      width: 100%;
+      box-sizing: border-box;
     }
 
     .form-label {
@@ -400,6 +485,8 @@
 
     .form-input {
       width: 100%;
+      box-sizing: border-box;
+      max-width: 100%;
       padding: 10px 12px;
       border-radius: var(--radius-sm);
       background: var(--card-bg);
@@ -772,17 +859,29 @@
     </div>
   </header>
 
+  <!-- TOP STICKY CATEGORY SEGMENT BAR -->
+  <div class="category-nav-wrapper">
+    <div class="category-nav">
+      <button class="cat-pill active" id="pill-all" onclick="switchCategory('all', this)">🌟 Barchasi</button>
+      <button class="cat-pill" id="pill-ai" onclick="switchCategory('ai', this)">🤖 AI Boshqaruv & Monitor</button>
+      <button class="cat-pill" id="pill-knowledge" onclick="switchCategory('knowledge', this)">🎓 Bilimlar & Stek</button>
+      <button class="cat-pill" id="pill-students" onclick="switchCategory('students', this)">👨‍🎓 O'quvchilar & E'lon</button>
+      <button class="cat-pill" id="pill-reminders" onclick="switchCategory('reminders', this)">⏰ Eslatma & Zaxira</button>
+    </div>
+  </div>
+
   <!-- MAIN VIEW CONTAINER -->
   <main class="container">
 
-    <!-- ==================== TAB 1: DASHBOARD ==================== -->
-    <div class="tab-pane active" id="tab-dashboard">
-      
+    <!-- ==================== BO'LIM 1: AI KLASTER & BOSHQARUV ==================== -->
+    <section class="app-section" id="section-ai">
+      <div class="section-header-badge">🤖 AI Klaster & Asosiy Boshqaruv</div>
+
       <!-- AI CLUSTER & REAL-TIME RATE LIMITS MONITOR -->
       <div class="card" id="ai-monitor-card" style="border: 1px solid rgba(46, 166, 255, 0.3); background: linear-gradient(180deg, rgba(46, 166, 255, 0.08) 0%, var(--card-bg) 100%);">
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="card-title">🤖 AI Klaster & Jonli Model Monitori</span>
+            <span class="card-title" style="color: #2ea6ff;">🤖 AI Klaster & Jonli Model Monitori</span>
           </div>
           <button onclick="refreshAiMetrics()" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; cursor: pointer; background: rgba(46,166,255,0.15); color: #2ea6ff; border: 1px solid rgba(46,166,255,0.3);">
             🔄 Yangilash
@@ -794,7 +893,7 @@
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <div>
               <div style="font-size: 11px; color: var(--hint-color); text-transform: uppercase; letter-spacing: 0.5px;">Ayni paytda faol model</div>
-              <div id="ai-active-model-name" style="font-size: 16px; font-weight: 700; color: #2ea6ff; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+              <div id="ai-active-model-name" style="font-size: 15px; font-weight: 700; color: #2ea6ff; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
                 <span class="status-dot" style="background-color: #22c55e; box-shadow: 0 0 8px #22c55e;"></span>
                 <span id="ai-active-model-text">llama-3.3-70b-versatile</span>
               </div>
@@ -839,11 +938,9 @@
             <span style="font-size: 12px; font-weight: 600; color: #fff;">📊 Daqiqalik Token Limiti (TPM):</span>
             <span id="ai-tpm-text" style="font-size: 12px; font-weight: 700; color: #22c55e;">12,000 / 12,000</span>
           </div>
-          
           <div style="height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; margin: 6px 0;">
-            <div id="ai-tpm-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #22c55e, #10b981); transition: width 0.3s ease, background-color 0.3s;"></div>
+            <div id="ai-tpm-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #22c55e, #10b981); transition: width 0.3s ease;"></div>
           </div>
-
           <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--hint-color);">
             <span id="ai-tpm-used-pct">0% ishlatildi (100% bo'sh)</span>
             <span id="ai-tpm-reset">⏳ Yangilanish: 0s</span>
@@ -871,13 +968,12 @@
             <!-- JS to'ldiradi -->
           </div>
         </div>
-
       </div>
 
       <!-- QUICK TOGGLE SWITCHES -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title">⚡ Asosiy Boshqaruv</span>
+          <span class="card-title">⚡ Avto-Javob Boshqaruvi</span>
         </div>
 
         <div class="toggle-row">
@@ -924,45 +1020,7 @@
           </label>
         </div>
 
-        <!-- TARGET WEBSITES (KASKADLI QIDIRUV UCHUN MANBALAR) -->
-        <div class="trusted-sites-box" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 8px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <div>
-              <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--text-color, #fff);">🎯 Ishonchli Manbalar (Kaskadli Qidiruv)</h4>
-              <p style="margin: 3px 0 0 0; font-size: 12px; color: var(--hint-color, #8e9ca8);">Savollarga avval shu saytlardan rasmiy fakt olinadi, topilmasa ochiq internetdan qidiriladi.</p>
-            </div>
-          </div>
-          
-          <div id="trusted-sites-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
-            <!-- JS to'ldiradi -->
-          </div>
-
-          <div style="display: flex; gap: 8px; margin-top: 8px;">
-            <input type="text" id="new-trusted-site" placeholder="Masalan: react.dev yoki metanit.com" style="flex: 1; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
-            <button type="button" onclick="addTrustedSite()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer;">➕ Qo'shish</button>
-          </div>
-        <!-- CURRICULUM TOPICS (O'QUV DASTURI & MAVZULAR CHEGARASI) -->
-        <div class="curriculum-topics-box" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 8px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <div>
-              <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--text-color, #fff);">🎓 O'quv Dasturi & Mavzular Chegarasi</h4>
-              <p style="margin: 3px 0 0 0; font-size: 12px; color: var(--hint-color, #8e9ca8);">
-                AI faqat shu stekingiz bo'yicha javob beradi (masalan: <i>for</i> sikli so'ralsa faqat JavaScript bo'yicha tushuntiradi, Python/C++ ga chalg'imaydi).
-              </p>
-            </div>
-          </div>
-          
-          <div id="curriculum-topics-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
-            <!-- JS to'ldiradi -->
-          </div>
-
-          <div style="display: flex; gap: 8px; margin-top: 8px;">
-            <input type="text" id="new-curriculum-topic" placeholder="Masalan: Vue.js yoki Docker" style="flex: 1; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
-            <button type="button" onclick="addCurriculumTopic()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer;">➕ Qo'shish</button>
-          </div>
-        </div>
-
-        <div class="toggle-row" style="align-items: center; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
+        <div class="toggle-row" style="align-items: center;">
           <div class="toggle-info">
             <h3>⏱ Lichkada AI Kutish Vaqti</h3>
             <p>Siz lichkada yozib chiqib ketgach, yangi savolga AI necha daqiqadan so'ng yordamga kelsin</p>
@@ -978,8 +1036,7 @@
           </select>
         </div>
 
-        <!-- DEBOUNCE WAIT TIME -->
-        <div class="toggle-row" style="align-items: center; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
+        <div class="toggle-row" style="align-items: center;">
           <div class="toggle-info">
             <h3>⏳ Xabarlarni Birlashtirish (Debounce)</h3>
             <p>O'quvchi xabarni bo'lib-bo'lib yozganda AI necha soniya kutsin</p>
@@ -991,8 +1048,7 @@
           </select>
         </div>
 
-        <!-- SMART REACTIONS TOGGLE -->
-        <div class="toggle-row" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
+        <div class="toggle-row">
           <div class="toggle-info">
             <h3>💡 Aqlli Reaksiyalar (👍, ❤️, 🔥)</h3>
             <p>"Rahmat", "Tushundim" kabi xabarlarga matnsiz emodzi bosish</p>
@@ -1003,8 +1059,7 @@
           </label>
         </div>
 
-        <!-- VAZIFALAR LIVE STATUS TOGGLE -->
-        <div class="toggle-row" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
+        <div class="toggle-row">
           <div class="toggle-info">
             <h3>👀 Vazifalar Jonli Status Indikatori</h3>
             <p>Vazifalar guruhida "O'qidi" -> "Yozmoqda" animatsiyasi</p>
@@ -1015,8 +1070,7 @@
           </label>
         </div>
 
-        <!-- EMERGENCY SILENT MODE -->
-        <div class="toggle-row" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px; background: rgba(239, 83, 80, 0.08); margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; border-radius: 8px;">
+        <div class="toggle-row" style="background: rgba(239, 83, 80, 0.08); margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px; border-radius: 8px;">
           <div class="toggle-info">
             <h3 style="color: #ef5350;">🛑 Favqulodda "Muzlatish" (Silent Mode)</h3>
             <p style="color: #ff8a80;">AI hech kimga javob qaytarmaydi, faqat kuzatuv rejimida bo'ladi</p>
@@ -1033,11 +1087,7 @@
         <div class="card-header">
           <span class="card-title">🎭 AI Uslubi & Xulq-atvori</span>
         </div>
-        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 12px;">
-          Agent o'quvchilarga qaysi mentorlik xarakterida javob berishini belgilang.
-        </p>
-
-        <div class="form-group" style="margin-bottom: 14px;">
+        <div class="form-group" style="margin-bottom: 12px;">
           <label class="form-label">🧑‍🏫 Mentorlik Metodikasi</label>
           <select id="select-ai-persona" onchange="changePersona(this.value)" class="form-input" style="background: var(--card-bg, #242f3d); color: var(--text-color, #fff); font-weight: 600;">
             <option value="socratic">🧑‍🏫 Sokratik Mentor (O'quvchini fikrlashga undaydi, yo'l ko'rsatadi)</option>
@@ -1045,7 +1095,6 @@
             <option value="friendly">🤝 Do'stona & Sabrli (Sodda tilda, yangi boshlovchilar uchun)</option>
           </select>
         </div>
-
         <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label">💻 Kod Berish Darajasi</label>
           <select id="select-ai-code-mode" onchange="changeCodeMode(this.value)" class="form-input" style="background: var(--card-bg, #242f3d); color: var(--text-color, #fff); font-weight: 600;">
@@ -1054,162 +1103,52 @@
           </select>
         </div>
       </div>
+    </section>
 
-      <!-- BROADCAST CARD -->
+    <!-- ==================== BO'LIM 2: O'QUV DASTURI & BILIMLAR BAZASI ==================== -->
+    <section class="app-section" id="section-knowledge">
+      <div class="section-header-badge">🎓 O'quv Dasturi & Bilimlar Bazasi</div>
+
+      <!-- CURRICULUM TOPICS -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title">📢 O'quvchilarga Ommaviy Xabar (Broadcast)</span>
+          <span class="card-title">🎓 O'quv Dasturi & Mavzular Chegarasi</span>
         </div>
         <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
-          Barcha ro'yxatdan o'tgan faol o'quvchilar lichkasiga muhim e'lon yoki xabarni birdaniga yuborish.
+          AI faqat shu stekingiz bo'yicha javob beradi (masalan: <i>for</i> sikli so'ralsa faqat JavaScript bo'yicha tushuntiradi, Python/C++ ga chalg'imaydi).
         </p>
-        <div class="form-group">
-          <textarea id="broadcast-text" class="form-input" rows="3" placeholder="Masalan: Aziz o'quvchilar, ertaga soat 16:00 da ochiq dars bo'lib o'tadi..."></textarea>
+        <div id="curriculum-topics-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
+          <!-- JS to'ldiradi -->
         </div>
-        <button class="btn btn-primary" onclick="sendBroadcast()">📢 Barcha O'quvchilarga Yuborish</button>
-      </div>
-
-      <!-- METRICS GRID -->
-      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));">
-        <div class="metric-box">
-          <div class="metric-value" id="metric-chats">0</div>
-          <div class="metric-label">Faol Chatlar</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-value" id="metric-students">0</div>
-          <div class="metric-label">O'quvchilar</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-value" id="metric-facts">0</div>
-          <div class="metric-label">Bilimlar & Qoidalar</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-value" id="metric-reminders">0</div>
-          <div class="metric-label">Eslatmalar</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-value" id="metric-ignored">0</div>
-          <div class="metric-label">Bloklanganlar</div>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <input type="text" id="new-curriculum-topic" placeholder="Masalan: Vue.js yoki Docker" style="flex: 1; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
+          <button type="button" onclick="addCurriculumTopic()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer; width: auto;">➕ Qo'shish</button>
         </div>
       </div>
 
-      <!-- ACTIONS & BACKUP -->
+      <!-- TARGET WEBSITES (KASKADLI QIDIRUV UCHUN MANBALAR) -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title">💾 Ma'lumotlar & Zaxira</span>
+          <span class="card-title">🎯 Ishonchli Manbalar (Kaskadli Qidiruv)</span>
         </div>
-        <p style="font-size: 13px; color: var(--hint-color); margin-bottom: 10px; line-height: 1.4;">
-          Baza zaxirasi botingizga (@coddyassistanstbot) yuboriladi. Yangi baza kelganda avvalgisi o'chiriladi.
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
+          Savollarga avval shu saytlardan rasmiy fakt olinadi, topilmasa ochiq internetdan qidiriladi.
         </p>
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-          <button class="btn btn-primary" onclick="sendBackupToBot()">
-            🚀 Baza Zaxirasini Yangilash (Botga Yuborish)
-          </button>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary" onclick="downloadBackup()" style="flex: 1;">
-              📥 Yuklab Olish
-            </button>
-            <button class="btn btn-secondary" onclick="document.getElementById('db-file-input').click()" style="flex: 1;">
-              📤 Baza Yuklash (Merge)
-            </button>
-            <input type="file" id="db-file-input" accept=".db,.sqlite,.sqlite3" style="display:none;" onchange="uploadDatabase(event)" />
-          </div>
+        <div id="trusted-sites-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
+          <!-- JS to'ldiradi -->
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <input type="text" id="new-trusted-site" placeholder="Masalan: react.dev yoki metanit.com" style="flex: 1; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
+          <button type="button" onclick="addTrustedSite()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer; width: auto;">➕ Qo'shish</button>
         </div>
       </div>
 
-      <!-- LIVE ACTIVITY FEED -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">📋 Jonli Faoliyat Jurnali</span>
-          <span style="font-size: 11px; color: var(--hint-color);" id="log-count">Oxirgi 15 ta</span>
-        </div>
-        <div class="log-list" id="log-list">
-          <div class="log-item">Jurnal yuklanmoqda...</div>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- ==================== TAB 2: STUDENTS CRM ==================== -->
-    <div class="tab-pane" id="tab-students">
-      
-      <!-- CONTROLS & SEARCH -->
-      <div class="card">
-        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-          <input type="text" id="student-search-input" class="form-input" placeholder="🔍 Ism, @username yoki guruh..." oninput="debounceStudentSearch()" style="flex: 1;" />
-          <button class="btn btn-primary" onclick="openStudentModal()" style="width: auto; padding: 0 14px; white-space: nowrap; font-size: 13px;">
-            ➕ Yangi
-          </button>
-        </div>
-        <div class="chat-chips" style="padding-bottom: 0;">
-          <div class="chip active-chip" id="chip-status-all" onclick="filterStudentStatus('all')">Barchasi</div>
-          <div class="chip" id="chip-status-yaxshi" onclick="filterStudentStatus('yaxshi')">🟢 A'lo / Yaxshi</div>
-          <div class="chip" id="chip-status-ortacha" onclick="filterStudentStatus('ortacha')">🟡 O'rtacha</div>
-          <div class="chip" id="chip-status-past" onclick="filterStudentStatus('past')">🔴 Past</div>
-        </div>
-      </div>
-
-      <!-- STUDENTS LIST -->
-      <div id="students-list">
-        <div class="card" style="text-align: center; color: var(--hint-color); padding: 30px 20px;">
-          O'quvchilar ro'yxati yuklanmoqda...
-        </div>
-      </div>
-    </div>
-
-    <!-- ==================== TAB 3: REMINDERS ==================== -->
-    <div class="tab-pane" id="tab-reminders">
-      
-      <!-- ADD REMINDER CARD -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">⏰ Yangi Eslatma Qo'shish</span>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Vazifa Matni</label>
-          <input type="text" id="rem-text" class="form-input" placeholder="Masalan: Ali vazifasini tekshirish" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Sana va Vaqt (xx xx xxxx yoki Kalendar)</label>
-          <div style="display: flex; gap: 8px;">
-            <input type="text" id="rem-time" class="form-input" placeholder="Masalan: 25 09 2026 15:00 yoki 25.09.2026 15:00" style="flex: 1;" />
-            <input type="datetime-local" id="rem-picker" class="form-input" style="width: 46px; padding: 10px 4px; cursor: pointer;" onchange="syncPickerToInput(this)" title="Kalendardan tanlash" />
-          </div>
-        </div>
-
-        <!-- TEZKOR VAQT TUGMALARI -->
-        <div class="chat-chips" style="margin-bottom: 12px;">
-          <span class="chip" onclick="setQuickTime('today_20')">Bugun 20:00</span>
-          <span class="chip" onclick="setQuickTime('tomorrow_10')">Ertaga 10:00</span>
-          <span class="chip" onclick="setQuickTime('tomorrow_18')">Ertaga 18:00</span>
-          <span class="chip" onclick="setQuickTime('plus_30m')">+30 daqiqa</span>
-          <span class="chip" onclick="setQuickTime('plus_1h')">+1 soat</span>
-          <span class="chip" onclick="setQuickTime('plus_2h')">+2 soat</span>
-        </div>
-
-        <button class="btn btn-primary" onclick="addReminder()">+ Eslatmani Saqlash</button>
-      </div>
-
-      <!-- ACTIVE REMINDERS LIST -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">📌 Faol Eslatmalar</span>
-        </div>
-        <div id="reminders-list">
-          <p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Yuklanmoqda...</p>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- ==================== TAB 4: AI BILIMLAR BAZASI & QOIDALAR ==================== -->
-    <div class="tab-pane" id="tab-knowledge">
       <!-- ADD KNOWLEDGE CARD -->
       <div class="card">
         <div class="card-header">
           <span class="card-title">🧠 Yangi Qoida / Fakt Qo'shish</span>
         </div>
-        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 12px;">
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
           AI bu qoidalarni xotirasiga saqlaydi va barcha o'quvchilarga javob berishda ularga qat'iy amal qiladi.
         </p>
         <div class="form-group">
@@ -1239,7 +1178,7 @@
           <span class="card-title">📚 Saqlangan Qoidalar & Bilimlar</span>
           <span style="font-size: 11px; color: var(--hint-color);" id="knowledge-count">0 ta</span>
         </div>
-        <div class="chat-chips" style="margin-bottom: 10px;">
+        <div class="chat-chips" style="margin-bottom: 10px; overflow-x: auto; flex-wrap: wrap;">
           <span class="chip active-chip" id="chip-know-all" onclick="filterKnowledge('all')">Barchasi</span>
           <span class="chip" id="chip-know-rule" onclick="filterKnowledge('rule')">📋 Qoidalar</span>
           <span class="chip" id="chip-know-fact" onclick="filterKnowledge('fact')">💡 Faktlar</span>
@@ -1247,25 +1186,170 @@
           <span class="chip" id="chip-know-location" onclick="filterKnowledge('location')">📍 Lokatsiya</span>
         </div>
         <div id="knowledge-list">
-          <p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Yuklanmoqda...</p>
+          <!-- JS to'ldiradi -->
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- ==================== TAB 4: IGNORED / SECURITY ==================== -->
-    <div class="tab-pane" id="tab-security">
+    <!-- ==================== BO'LIM 3: O'QUVCHILAR CRM & MULOQOT ==================== -->
+    <section class="app-section" id="section-students">
+      <div class="section-header-badge">👨‍🎓 O'quvchilar CRM & Ommaviy Xabar</div>
+
+      <!-- BROADCAST CARD -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📢 O'quvchilarga Ommaviy Xabar (Broadcast)</span>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
+          Barcha ro'yxatdan o'tgan faol o'quvchilar lichkasiga muhim e'lon yoki xabarni birdaniga yuborish.
+        </p>
+        <div class="form-group">
+          <textarea id="broadcast-text" class="form-input" rows="3" placeholder="Masalan: Aziz o'quvchilar, ertaga soat 16:00 da ochiq dars bo'lib o'tadi..."></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="sendBroadcast()">📢 Barcha O'quvchilarga Yuborish</button>
+      </div>
+
+      <!-- CONTROLS & SEARCH -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">👨‍🎓 O'quvchilar Ro'yxati</span>
+          <button class="btn btn-primary" onclick="openStudentModal()" style="width: auto; padding: 6px 12px; font-size: 12px;">
+            ➕ Yangi O'quvchi
+          </button>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <input type="text" id="student-search-input" class="form-input" placeholder="🔍 Ism, @username yoki guruh..." oninput="debounceStudentSearch()" style="flex: 1;" />
+        </div>
+        <div class="chat-chips" style="padding-bottom: 0; overflow-x: auto; flex-wrap: wrap;">
+          <div class="chip active-chip" id="chip-status-all" onclick="filterStudentStatus('all')">Barchasi</div>
+          <div class="chip" id="chip-status-yaxshi" onclick="filterStudentStatus('yaxshi')">🟢 A'lo / Yaxshi</div>
+          <div class="chip" id="chip-status-ortacha" onclick="filterStudentStatus('ortacha')">🟡 O'rtacha</div>
+          <div class="chip" id="chip-status-past" onclick="filterStudentStatus('past')">🔴 Past</div>
+        </div>
+      </div>
+
+      <!-- STUDENTS LIST -->
+      <div id="students-list">
+        <!-- JS to'ldiradi -->
+      </div>
+    </section>
+
+    <!-- ==================== BO'LIM 4: ESLATMALAR, ZAXIRA & XAVFSIZLIK ==================== -->
+    <section class="app-section" id="section-reminders">
+      <div class="section-header-badge">⏰ Eslatmalar, Zaxira & Xavfsizlik</div>
+
+      <!-- METRICS GRID -->
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));">
+        <div class="metric-box">
+          <div class="metric-value" id="metric-chats">0</div>
+          <div class="metric-label">Faol Chatlar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-students">0</div>
+          <div class="metric-label">O'quvchilar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-facts">0</div>
+          <div class="metric-label">Bilimlar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-reminders">0</div>
+          <div class="metric-label">Eslatmalar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-ignored">0</div>
+          <div class="metric-label">Bloklanganlar</div>
+        </div>
+      </div>
+
+      <!-- ADD REMINDER CARD -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">⏰ Yangi Eslatma Qo'shish</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Vazifa Matni</label>
+          <input type="text" id="rem-text" class="form-input" placeholder="Masalan: Ali vazifasini tekshirish" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Sana va Vaqt (xx xx xxxx yoki Kalendar)</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="rem-time" class="form-input" placeholder="Masalan: 25 09 2026 15:00 yoki 25.09.2026 15:00" style="flex: 1;" />
+            <input type="datetime-local" id="rem-picker" class="form-input" style="width: 46px; padding: 10px 4px; cursor: pointer;" onchange="syncPickerToInput(this)" title="Kalendardan tanlash" />
+          </div>
+        </div>
+
+        <!-- TEZKOR VAQT TUGMALARI -->
+        <div class="chat-chips" style="margin-bottom: 12px; overflow-x: auto; flex-wrap: wrap;">
+          <span class="chip" onclick="setQuickTime('today_20')">Bugun 20:00</span>
+          <span class="chip" onclick="setQuickTime('tomorrow_10')">Ertaga 10:00</span>
+          <span class="chip" onclick="setQuickTime('tomorrow_18')">Ertaga 18:00</span>
+          <span class="chip" onclick="setQuickTime('plus_30m')">+30 daqiqa</span>
+          <span class="chip" onclick="setQuickTime('plus_1h')">+1 soat</span>
+          <span class="chip" onclick="setQuickTime('plus_2h')">+2 soat</span>
+        </div>
+
+        <button class="btn btn-primary" onclick="addReminder()">+ Eslatmani Saqlash</button>
+      </div>
+
+      <!-- ACTIVE REMINDERS LIST -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📌 Faol Eslatmalar</span>
+        </div>
+        <div id="reminders-list">
+          <!-- JS to'ldiradi -->
+        </div>
+      </div>
+
+      <!-- ACTIONS & BACKUP -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">💾 Ma'lumotlar & Zaxira</span>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px; line-height: 1.4;">
+          Baza zaxirasi botingizga (@coddyassistanstbot) yuboriladi. Yangi baza kelganda avvalgisi o'chiriladi.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button class="btn btn-primary" onclick="sendBackupToBot()">
+            🚀 Baza Zaxirasini Yangilash (Botga Yuborish)
+          </button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" onclick="downloadBackup()" style="flex: 1;">
+              📥 Yuklab Olish
+            </button>
+            <button class="btn btn-secondary" onclick="document.getElementById('db-file-input').click()" style="flex: 1;">
+              📤 Baza Yuklash (Merge)
+            </button>
+            <input type="file" id="db-file-input" accept=".db,.sqlite,.sqlite3" style="display:none;" onchange="uploadDatabase(event)" />
+          </div>
+        </div>
+      </div>
+
+      <!-- IGNORED / SECURITY -->
       <div class="card">
         <div class="card-header">
           <span class="card-title">🛡 Bloklangan Spam O'quvchilar</span>
         </div>
-        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 12px;">
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
           Flood yoki spam qilgani sababli bot tomonidan avtomatik ignore qilingan chatlar ro'yxati.
         </p>
         <div id="ignored-list">
-          <p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Yuklanmoqda...</p>
+          <!-- JS to'ldiradi -->
         </div>
       </div>
-    </div>
+
+      <!-- LIVE ACTIVITY FEED -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📋 Jonli Faoliyat Jurnali</span>
+          <span style="font-size: 11px; color: var(--hint-color);" id="log-count">Oxirgi 15 ta</span>
+        </div>
+        <div class="log-list" id="log-list">
+          <div class="log-item">Jurnal yuklanmoqda...</div>
+        </div>
+      </div>
+    </section>
 
   </main>
 
@@ -1318,25 +1402,25 @@
 
   <!-- BOTTOM NAVIGATION BAR -->
   <nav class="bottom-nav">
-    <button class="nav-item active" onclick="switchTab('dashboard', this)">
-      <span class="nav-icon">🎛</span>
-      <span>Boshqaruv</span>
+    <button class="nav-item active" id="nav-all" onclick="switchCategory('all')">
+      <span class="nav-icon">🌟</span>
+      <span>Barchasi</span>
     </button>
-    <button class="nav-item" onclick="switchTab('students', this)">
+    <button class="nav-item" id="nav-ai" onclick="switchCategory('ai')">
+      <span class="nav-icon">🤖</span>
+      <span>AI Boshqaruv</span>
+    </button>
+    <button class="nav-item" id="nav-knowledge" onclick="switchCategory('knowledge')">
+      <span class="nav-icon">🎓</span>
+      <span>Bilimlar</span>
+    </button>
+    <button class="nav-item" id="nav-students" onclick="switchCategory('students')">
       <span class="nav-icon">👨‍🎓</span>
       <span>O'quvchilar</span>
     </button>
-    <button class="nav-item" onclick="switchTab('reminders', this)">
+    <button class="nav-item" id="nav-reminders" onclick="switchCategory('reminders')">
       <span class="nav-icon">⏰</span>
       <span>Eslatmalar</span>
-    </button>
-    <button class="nav-item" onclick="switchTab('knowledge', this)">
-      <span class="nav-icon">🧠</span>
-      <span>Bilimlar</span>
-    </button>
-    <button class="nav-item" onclick="switchTab('security', this)">
-      <span class="nav-icon">🛡</span>
-      <span>Xavfsizlik</span>
     </button>
   </nav>
   </div> <!-- /app-shell -->
@@ -1404,26 +1488,55 @@
       setTimeout(() => toast.classList.remove("show"), 2500);
     }
 
-    function switchTab(tabId, el) {
+    let currentCategory = "all";
+
+    function switchCategory(cat, el) {
       haptic();
       applyFullscreen();
-      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
-      document.querySelectorAll(".nav-item").forEach(i => i.classList.remove("active"));
-      document.getElementById("tab-" + tabId).classList.add("active");
-      if (el) el.classList.add("active");
+      currentCategory = cat;
 
-      const containerEl = document.querySelector(".container");
-      if (containerEl) {
-        containerEl.classList.remove("chat-active");
+      // Update pills
+      document.querySelectorAll(".cat-pill").forEach(p => p.classList.remove("active"));
+      const pill = document.getElementById("pill-" + cat) || (el && el.classList.contains("cat-pill") ? el : null);
+      if (pill) pill.classList.add("active");
+
+      // Update bottom nav
+      document.querySelectorAll(".bottom-nav .nav-item").forEach(n => n.classList.remove("active"));
+      const nav = document.getElementById("nav-" + cat) || (el && el.classList.contains("nav-item") ? el : null);
+      if (nav) nav.classList.add("active");
+
+      // Toggle sections
+      const sections = ["ai", "knowledge", "students", "reminders"];
+      if (cat === "all") {
+        sections.forEach(s => {
+          const sec = document.getElementById("section-" + s);
+          if (sec) sec.style.display = "block";
+        });
+      } else {
+        sections.forEach(s => {
+          const sec = document.getElementById("section-" + s);
+          if (sec) {
+            sec.style.display = (s === cat) ? "block" : "none";
+          }
+        });
       }
 
-      if (tabId === "students") loadStudents();
-      if (tabId === "reminders") loadReminders();
-      if (tabId === "knowledge") loadKnowledge();
-      if (tabId === "security") loadIgnored();
-      if (tabId === "dashboard") loadStatus();
+      // Smooth scroll back to top of container
+      const containerEl = document.querySelector(".container");
+      if (containerEl) {
+        containerEl.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
     }
 
+    // Backwards compatibility for any legacy callers
+    function switchTab(tabId, el) {
+      let cat = tabId;
+      if (tabId === "dashboard") cat = "ai";
+      if (tabId === "security") cat = "reminders";
+      switchCategory(cat, el);
+    }
 
     async function apiRequest(path, method = "GET", body = null) {
       const headers = {
@@ -1461,7 +1574,23 @@
       if (ls) ls.style.display = "none";
     }
 
-    // 1. Initial Authentication
+    // 1. Initial Authentication & Unified Data Load
+    async function loadAllData() {
+      try {
+        await Promise.allSettled([
+          loadStatus(),
+          loadStudents(),
+          loadReminders(),
+          loadKnowledge(),
+          loadIgnored(),
+          loadTrustedSites(),
+          loadCurriculumTopics()
+        ]);
+      } catch (err) {
+        console.error("loadAllData xatosi:", err);
+      }
+    }
+
     async function initAuth() {
       const user = tg?.initDataUnsafe?.user;
       const payload = {
@@ -1493,7 +1622,7 @@
           authToken = data.token;
           localStorage.setItem("coddy_admin_token", authToken);
           hideLockScreen();
-          loadStatus();
+          loadAllData();
         } else {
           showLockScreen();
         }
@@ -1501,7 +1630,7 @@
         if (!authToken) showLockScreen();
         else {
           hideLockScreen();
-          loadStatus();
+          loadAllData();
         }
       }
     }
@@ -1971,15 +2100,18 @@
 
       if (!data || !data.ok || !data.students || data.students.length === 0) {
         listEl.innerHTML = `
-          <div class="card" style="text-align: center; color: var(--hint-color); padding: 30px 20px;">
+          <div class="card" style="text-align: center; color: var(--hint-color); padding: 24px 16px;">
             <div style="font-size: 32px; margin-bottom: 8px;">👨‍🎓</div>
-            <p style="font-size: 14px;">Hozircha hech qanday o'quvchi topilmadi.</p>
-            <p style="font-size: 12px; margin-top: 4px;">Yangi o'quvchi qo'shish uchun yuqoridagi <b>➕ Yangi</b> tugmasini bosing.</p>
+            <p style="font-size: 14px; margin-bottom: 6px;">Hozircha hech qanday o'quvchi topilmadi.</p>
+            <p style="font-size: 12px; margin-bottom: 12px;">O'quvchi qo'shish va uning o'zlashtirishini kuzatish uchun bosing:</p>
+            <button class="btn btn-primary" onclick="openStudentModal()" style="width: auto; padding: 8px 18px; font-size: 13px; margin: 0 auto;">
+              ➕ Yangi O'quvchi Qo'shish
+            </button>
           </div>`;
         return;
       }
 
-      studentsCache = data.students;
+      studentsCache = data.students || [];
       listEl.innerHTML = data.students.map(s => {
         let badgeClass = "badge-yaxshi";
         let statusText = "🟢 A'lo / Yaxshi";
@@ -1996,12 +2128,14 @@
         const strengthsDisplay = s.strengths ? `<div style="font-size: 12px; color: var(--text-color);"><span style="color: var(--success); font-weight: 600;">+ Kuchli:</span> ${escapeHtml(s.strengths)}</div>` : '';
         const weaknessesDisplay = s.weaknesses ? `<div style="font-size: 12px; color: var(--text-color);"><span style="color: var(--warning); font-weight: 600;">- Qiynaladi:</span> ${escapeHtml(s.weaknesses)}</div>` : '';
         const notesDisplay = s.mentor_notes ? `<div style="font-size: 12px; color: var(--hint-color); font-style: italic; background: rgba(0,0,0,0.15); padding: 6px 8px; border-radius: 6px;">💬 "${escapeHtml(s.mentor_notes)}"</div>` : '';
+        const lastActiveStr = s.last_active ? String(s.last_active).split(' ')[0] : 'Yangi';
+        const qCount = s.questions_count !== undefined && s.questions_count !== null ? s.questions_count : 0;
 
         return `
           <div class="student-card">
             <div class="student-header">
               <div>
-                <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 2px;">${escapeHtml(s.full_name)}</h4>
+                <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 2px;">${escapeHtml(s.full_name || "O'quvchi")}</h4>
                 <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                   ${usernameDisplay}
                   ${groupDisplay}
@@ -2010,9 +2144,9 @@
               <span class="student-badge ${badgeClass}">${statusText}</span>
             </div>
             
-            <div style="font-size: 12px; color: var(--hint-color); display: flex; gap: 12px;">
-              <span>❓ Savollar: <b>${s.questions_count} ta</b></span>
-              <span>🕒 Oxirgi faollik: <b>${s.last_active.split(' ')[0]}</b></span>
+            <div style="font-size: 12px; color: var(--hint-color); display: flex; gap: 12px; flex-wrap: wrap;">
+              <span>❓ Savollar: <b>${qCount} ta</b></span>
+              <span>🕒 Oxirgi faollik: <b>${lastActiveStr}</b></span>
             </div>
 
             ${strengthsDisplay}
@@ -2042,7 +2176,7 @@
     function filterStudentStatus(status) {
       haptic();
       currentStudentFilter = status;
-      document.querySelectorAll("#tab-students .chip").forEach(c => c.classList.remove("active-chip"));
+      document.querySelectorAll("#section-students .chip").forEach(c => c.classList.remove("active-chip"));
       const chip = document.getElementById("chip-status-" + status);
       if (chip) chip.classList.add("active-chip");
       loadStudents();
@@ -2133,8 +2267,14 @@
     async function loadReminders() {
       const data = await apiRequest("/api/reminders");
       const container = document.getElementById("reminders-list");
+      if (!container) return;
       if (!data || !data.ok || !data.reminders || data.reminders.length === 0) {
-        container.innerHTML = '<p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Faol eslatmalar yo\'q.</p>';
+        container.innerHTML = `
+          <div style="text-align: center; color: var(--hint-color); padding: 18px 12px; background: rgba(255,255,255,0.02); border-radius: var(--radius-sm); border: 1px dashed var(--border-color);">
+            <div style="font-size: 26px; margin-bottom: 4px;">⏰</div>
+            <p style="font-size: 13px; margin-bottom: 4px;">Faol eslatmalar mavjud emas.</p>
+            <p style="font-size: 11px;">Yuqoridagi tezkor tugmalar orqali yangi eslatma qo'shishingiz mumkin.</p>
+          </div>`;
         return;
       }
 
@@ -2221,8 +2361,12 @@
     async function loadIgnored() {
       const data = await apiRequest("/api/ignored");
       const container = document.getElementById("ignored-list");
+      if (!container) return;
       if (!data || !data.ok || !data.ignored_users || data.ignored_users.length === 0) {
-        container.innerHTML = '<p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Bloklanganlar ro\'yxati bo\'sh.</p>';
+        container.innerHTML = `
+          <div style="text-align: center; color: var(--hint-color); padding: 14px 10px; background: rgba(255,255,255,0.02); border-radius: var(--radius-sm); border: 1px dashed var(--border-color);">
+            <p style="font-size: 12px; margin: 0;">🛡 Bloklangan (spam) foydalanuvchilar yo'q.</p>
+          </div>`;
         return;
       }
 
@@ -2262,7 +2406,7 @@
 
     function filterKnowledge(cat) {
       currentKnowledgeFilter = cat;
-      document.querySelectorAll("#tab-knowledge .chip").forEach(c => c.classList.remove("active-chip"));
+      document.querySelectorAll("#section-knowledge .chip").forEach(c => c.classList.remove("active-chip"));
       const activeChip = document.getElementById("chip-know-" + cat);
       if (activeChip) activeChip.classList.add("active-chip");
       renderKnowledge();
@@ -2281,7 +2425,12 @@
       if (countBadge) countBadge.innerText = `${filtered.length} ta`;
 
       if (!filtered || filtered.length === 0) {
-        container.innerHTML = '<div class="card" style="text-align: center; color: var(--hint-color); padding: 24px;">Hozircha bilimlar yoki qoidalar mavjud emas.</div>';
+        container.innerHTML = `
+          <div class="card" style="text-align: center; color: var(--hint-color); padding: 20px 14px; border: 1px dashed var(--border-color);">
+            <div style="font-size: 26px; margin-bottom: 4px;">🎓</div>
+            <p style="font-size: 13px; margin-bottom: 4px;">Hozircha ushbu toifada bilimlar yoki qoidalar yo'q.</p>
+            <p style="font-size: 11px;">Yuqoridagi formadan AI uchun yangi qoida yoki fakt kiriting.</p>
+          </div>`;
         return;
       }
 
@@ -2465,10 +2614,9 @@
     // Start authentication on page load
     initAuth();
 
-    // Dashboard faol bo'lganda AI metrikalarini har 10 soniyada avtomatik yangilab turish
+    // AI bo'limi ko'ringanda metrikalarni har 10 soniyada avtomatik yangilab turish
     setInterval(() => {
-      const dbTab = document.getElementById('tab-dashboard');
-      if (dbTab && dbTab.classList.contains('active')) {
+      if (currentCategory === "all" || currentCategory === "ai") {
         refreshAiMetrics();
       }
     }, 10000);
