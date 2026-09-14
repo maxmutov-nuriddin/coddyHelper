@@ -862,10 +862,100 @@
             <option value="1200">⏱ 20 daqiqa</option>
           </select>
         </div>
+
+        <!-- DEBOUNCE WAIT TIME -->
+        <div class="toggle-row" style="align-items: center; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
+          <div class="toggle-info">
+            <h3>⏳ Xabarlarni Birlashtirish (Debounce)</h3>
+            <p>O'quvchi xabarni bo'lib-bo'lib yozganda AI necha soniya kutsin</p>
+          </div>
+          <select id="select-debounce" onchange="changeDebounce(this.value)" style="background: var(--card-bg, #242f3d); color: var(--text-color, #fff); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 10px; font-size: 13px; font-weight: 600; cursor: pointer;">
+            <option value="3">⚡ 3 soniya (Tezkor)</option>
+            <option value="5">⏱ 5 soniya (Standart)</option>
+            <option value="7">⏱ 7 soniya (Keng)</option>
+          </select>
+        </div>
+
+        <!-- SMART REACTIONS TOGGLE -->
+        <div class="toggle-row" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
+          <div class="toggle-info">
+            <h3>💡 Aqlli Reaksiyalar (👍, ❤️, 🔥)</h3>
+            <p>"Rahmat", "Tushundim" kabi xabarlarga matnsiz emodzi bosish</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="switch-smart-reactions" onchange="toggleFeature('smart_reactions', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- VAZIFALAR LIVE STATUS TOGGLE -->
+        <div class="toggle-row" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px;">
+          <div class="toggle-info">
+            <h3>👀 Vazifalar Jonli Status Indikatori</h3>
+            <p>Vazifalar guruhida "O'qidi" -> "Yozmoqda" animatsiyasi</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="switch-vazifalar-status" onchange="toggleFeature('vazifalar_status', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- EMERGENCY SILENT MODE -->
+        <div class="toggle-row" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 14px; margin-top: 6px; background: rgba(239, 83, 80, 0.08); margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; border-radius: 8px;">
+          <div class="toggle-info">
+            <h3 style="color: #ef5350;">🛑 Favqulodda "Muzlatish" (Silent Mode)</h3>
+            <p style="color: #ff8a80;">AI hech kimga javob qaytarmaydi, faqat kuzatuv rejimida bo'ladi</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="switch-silent-mode" onchange="toggleFeature('silent_mode', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- AI PERSONA & BEHAVIOR CARD -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🎭 AI Uslubi & Xulq-atvori</span>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 12px;">
+          Agent o'quvchilarga qaysi mentorlik xarakterida javob berishini belgilang.
+        </p>
+
+        <div class="form-group" style="margin-bottom: 14px;">
+          <label class="form-label">🧑‍🏫 Mentorlik Metodikasi</label>
+          <select id="select-ai-persona" onchange="changePersona(this.value)" class="form-input" style="background: var(--card-bg, #242f3d); color: var(--text-color, #fff); font-weight: 600;">
+            <option value="socratic">🧑‍🏫 Sokratik Mentor (O'quvchini fikrlashga undaydi, yo'l ko'rsatadi)</option>
+            <option value="tech_lead">💻 Tech Lead (Aniq, lo'nda, to'g'ridan-to'g'ri texnik yechim)</option>
+            <option value="friendly">🤝 Do'stona & Sabrli (Sodda tilda, yangi boshlovchilar uchun)</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label">💻 Kod Berish Darajasi</label>
+          <select id="select-ai-code-mode" onchange="changeCodeMode(this.value)" class="form-input" style="background: var(--card-bg, #242f3d); color: var(--text-color, #fff); font-weight: 600;">
+            <option value="full_code">💻 To'liq ishlaydigan kod variantini taqdim etish</option>
+            <option value="hints_only">💡 Faqat maslahat va yo'nalish (Tayyor kod bermaslik)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- BROADCAST CARD -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📢 O'quvchilarga Ommaviy Xabar (Broadcast)</span>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
+          Barcha ro'yxatdan o'tgan faol o'quvchilar lichkasiga muhim e'lon yoki xabarni birdaniga yuborish.
+        </p>
+        <div class="form-group">
+          <textarea id="broadcast-text" class="form-input" rows="3" placeholder="Masalan: Aziz o'quvchilar, ertaga soat 16:00 da ochiq dars bo'lib o'tadi..."></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="sendBroadcast()">📢 Barcha O'quvchilarga Yuborish</button>
       </div>
 
       <!-- METRICS GRID -->
-      <div class="grid">
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));">
         <div class="metric-box">
           <div class="metric-value" id="metric-chats">0</div>
           <div class="metric-label">Faol Chatlar</div>
@@ -873,6 +963,10 @@
         <div class="metric-box">
           <div class="metric-value" id="metric-students">0</div>
           <div class="metric-label">O'quvchilar</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-value" id="metric-facts">0</div>
+          <div class="metric-label">Bilimlar & Qoidalar</div>
         </div>
         <div class="metric-box">
           <div class="metric-value" id="metric-reminders">0</div>
@@ -993,33 +1087,52 @@
 
     </div>
 
-    <!-- ==================== TAB 3: AI CO-PILOT ==================== -->
-    <div class="tab-pane" id="tab-chat">
-      <div class="card" style="margin-bottom: 0;">
+    <!-- ==================== TAB 4: AI BILIMLAR BAZASI & QOIDALAR ==================== -->
+    <div class="tab-pane" id="tab-knowledge">
+      <!-- ADD KNOWLEDGE CARD -->
+      <div class="card">
         <div class="card-header">
-          <span class="card-title">🤖 Tech Lead AI Co-Pilot</span>
-          <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px; width: auto;" onclick="clearAiChat()">Tozalash</button>
+          <span class="card-title">🧠 Yangi Qoida / Fakt Qo'shish</span>
         </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 12px;">
+          AI bu qoidalarni xotirasiga saqlaydi va barcha o'quvchilarga javob berishda ularga qat'iy amal qiladi.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Mavzu / Kalit So'z (Topic) *</label>
+          <input type="text" id="know-topic" class="form-input" placeholder="Masalan: dars_jadvali, uy_vazifasi, kurs_narxi..." />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Kategoriya</label>
+          <select id="know-category" class="form-input" style="background: var(--card-bg, #242f3d); color: var(--text-color, #fff);">
+            <option value="rule">📋 Qoida (Qat'iy ko'rsatma)</option>
+            <option value="fact">💡 Fakt (Ma'lumot / Ta'rif)</option>
+            <option value="schedule">📅 Dars Jadvali / Vaqt</option>
+            <option value="location">📍 Joylashuv / Manzil</option>
+            <option value="other">📌 Boshqa</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Qoida yoki Bilim Matni *</label>
+          <textarea id="know-content" class="form-input" rows="3" placeholder="Masalan: Uy vazifalari faqat GitHub orqali qabul qilinadi. Boshqa usulda yuborilgan kodlar tekshirilmaydi."></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="addKnowledge()">➕ Bilimlar Bazasiga Saqlash</button>
+      </div>
 
-        <div class="chat-container">
-          <div class="chat-chips">
-            <span class="chip" onclick="quickAiPrompt('Telegramdan \'vazifa\' so\'zi bo\'yicha xabarlarni qidir')">🔍 TG Qidiruv</span>
-            <span class="chip" onclick="quickAiPrompt('Akmal ismli o\'quvchini qidir, qaysi guruhdaligini va profilini top')">👨‍🎓 O'quvchini topish</span>
-            <span class="chip" onclick="quickAiPrompt('Haftalik mentorlik bo\'yicha qisqa, toza va lo\'nda hisobot ber (jadvallarsiz, faqat asosiy punktlar bilan)')">📊 Hisobot</span>
-            <span class="chip" onclick="quickAiPrompt('O\'quvchilar eng ko\'p yo\'l qo\'ygan xatolar bo\'yicha qisqa tavsiya ber')">💡 Xatolar</span>
-            <span class="chip" onclick="quickAiPrompt('Python bo\'yicha bitta qiziqarli va lo\'nda amaliy topshiriq tayyorla')">📝 Topshiriq</span>
-          </div>
-
-          <div class="chat-messages" id="chat-messages">
-            <div class="chat-bubble bubble-ai">
-              Assalomu alaykum, Ustoz! Men sizning shaxsiy AI yordamchingizman. Vazifalar guruhidagi topshiriqlar, kodlar yoki ta'lim jarayoni bo'yicha qanday yordam bera olaman?
-            </div>
-          </div>
-
-          <div class="chat-input-bar">
-            <input type="text" id="chat-input" class="form-input" placeholder="Savol yoki topshiriq yozing..." onkeydown="if(event.key==='Enter') sendAiMessage()" />
-            <button class="btn btn-primary" style="width: auto; padding: 10px 16px;" onclick="sendAiMessage()">Yuborish</button>
-          </div>
+      <!-- KNOWLEDGE LIST CARD -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📚 Saqlangan Qoidalar & Bilimlar</span>
+          <span style="font-size: 11px; color: var(--hint-color);" id="knowledge-count">0 ta</span>
+        </div>
+        <div class="chat-chips" style="margin-bottom: 10px;">
+          <span class="chip active-chip" id="chip-know-all" onclick="filterKnowledge('all')">Barchasi</span>
+          <span class="chip" id="chip-know-rule" onclick="filterKnowledge('rule')">📋 Qoidalar</span>
+          <span class="chip" id="chip-know-fact" onclick="filterKnowledge('fact')">💡 Faktlar</span>
+          <span class="chip" id="chip-know-schedule" onclick="filterKnowledge('schedule')">📅 Jadval</span>
+          <span class="chip" id="chip-know-location" onclick="filterKnowledge('location')">📍 Lokatsiya</span>
+        </div>
+        <div id="knowledge-list">
+          <p style="font-size: 13px; color: var(--hint-color); text-align: center; padding: 12px 0;">Yuklanmoqda...</p>
         </div>
       </div>
     </div>
@@ -1102,9 +1215,9 @@
       <span class="nav-icon">⏰</span>
       <span>Eslatmalar</span>
     </button>
-    <button class="nav-item" onclick="switchTab('chat', this)">
-      <span class="nav-icon">🤖</span>
-      <span>AI Chat</span>
+    <button class="nav-item" onclick="switchTab('knowledge', this)">
+      <span class="nav-icon">🧠</span>
+      <span>Bilimlar</span>
     </button>
     <button class="nav-item" onclick="switchTab('security', this)">
       <span class="nav-icon">🛡</span>
@@ -1186,18 +1299,12 @@
 
       const containerEl = document.querySelector(".container");
       if (containerEl) {
-        if (tabId === "chat") {
-          containerEl.classList.add("chat-active");
-          loadAiChatHistory();
-          const chatMsgs = document.getElementById("chat-messages");
-          if (chatMsgs) setTimeout(() => { chatMsgs.scrollTop = chatMsgs.scrollHeight; }, 60);
-        } else {
-          containerEl.classList.remove("chat-active");
-        }
+        containerEl.classList.remove("chat-active");
       }
 
       if (tabId === "students") loadStudents();
       if (tabId === "reminders") loadReminders();
+      if (tabId === "knowledge") loadKnowledge();
       if (tabId === "security") loadIgnored();
       if (tabId === "dashboard") loadStatus();
     }
@@ -1272,7 +1379,6 @@
           localStorage.setItem("coddy_admin_token", authToken);
           hideLockScreen();
           loadStatus();
-          loadAiChatHistory();
         } else {
           showLockScreen();
         }
@@ -1281,7 +1387,6 @@
         else {
           hideLockScreen();
           loadStatus();
-          loadAiChatHistory();
         }
       }
     }
@@ -1298,13 +1403,35 @@
       if (vSwitch) vSwitch.checked = data.voice_reply_enabled !== false;
       const wsSwitch = document.getElementById("switch-web-search");
       if (wsSwitch) wsSwitch.checked = data.web_search_enabled !== false;
+
+      const srSwitch = document.getElementById("switch-smart-reactions");
+      if (srSwitch) srSwitch.checked = data.smart_reactions_enabled !== false;
+
+      const vsSwitch = document.getElementById("switch-vazifalar-status");
+      if (vsSwitch) vsSwitch.checked = data.vazifalar_status_enabled !== false;
+
+      const smSwitch = document.getElementById("switch-silent-mode");
+      if (smSwitch) smSwitch.checked = data.silent_mode_enabled === true;
+
+      const dbSelect = document.getElementById("select-debounce");
+      if (dbSelect && data.debounce_seconds !== undefined) dbSelect.value = String(data.debounce_seconds);
+
+      const apSelect = document.getElementById("select-ai-persona");
+      if (apSelect && data.ai_persona) apSelect.value = data.ai_persona;
+
+      const acSelect = document.getElementById("select-ai-code-mode");
+      if (acSelect && data.ai_code_mode) acSelect.value = data.ai_code_mode;
+
       const qSelect = document.getElementById("select-quiet-window");
       if (qSelect) qSelect.value = String(data.private_quiet_window !== undefined ? data.private_quiet_window : 180);
 
       // Global status pill
       const pill = document.getElementById("global-status");
       const pillText = document.getElementById("global-status-text");
-      if (data.auto_reply_enabled) {
+      if (data.silent_mode_enabled) {
+        pill.classList.add("offline");
+        pillText.innerText = "🛑 Silent (Muzlatilgan)";
+      } else if (data.auto_reply_enabled) {
         pill.classList.remove("offline");
         pillText.innerText = "Online (Faol)";
       } else {
@@ -1318,6 +1445,8 @@
       document.getElementById("metric-ignored").innerText = data.ignored_users_count;
       const stMetric = document.getElementById("metric-students");
       if (stMetric) stMetric.innerText = data.students_count || 0;
+      const factMetric = document.getElementById("metric-facts");
+      if (factMetric) factMetric.innerText = data.learned_facts_count || 0;
 
       // Logs
       const logList = document.getElementById("log-list");
@@ -1388,6 +1517,7 @@
     }
 
     // 3. Toggle Feature & Quiet Window
+    // 3. Toggle Feature & Agent Controls
     async function toggleFeature(feature, enabled) {
       haptic();
       const res = await apiRequest("/api/toggle", "POST", { feature, enabled });
@@ -1397,6 +1527,9 @@
         else if (feature === "group_reply") name = "Guruhlar avto-javobi";
         else if (feature === "voice_reply") name = "Ovozli javob (Voice Reply)";
         else if (feature === "web_search") name = "Web Search & IT Dokumentatsiya";
+        else if (feature === "smart_reactions") name = "Aqlli reaksiyalar (👍, ❤️, 🔥)";
+        else if (feature === "vazifalar_status") name = "Vazifalar status indikatori";
+        else if (feature === "silent_mode") name = "🛑 Favqulodda Silent Mode";
         showToast(name + " " + (enabled ? "yoqildi ✅" : "to'xtatildi ⏸"));
         loadStatus();
       } else {
@@ -1416,6 +1549,62 @@
         showToast(`Lichka kutish vaqti ${txt} qilib saqlandi ✅`);
       } else {
         showToast("Sozlamani saqlashda xatolik yuz berdi!");
+      }
+    }
+
+    async function changeDebounce(val) {
+      haptic();
+      const res = await apiRequest("/api/toggle", "POST", {
+        feature: "debounce_seconds",
+        value: parseInt(val, 10)
+      });
+      if (res && res.ok) {
+        showToast(`Xabarlarni birlashtirish ${val} soniya qilib belgilandi ✅`);
+      }
+    }
+
+    async function changePersona(val) {
+      haptic();
+      const res = await apiRequest("/api/toggle", "POST", {
+        feature: "ai_persona",
+        value: val
+      });
+      if (res && res.ok) {
+        let name = "Sokratik Mentor";
+        if (val === "tech_lead") name = "Tech Lead";
+        else if (val === "friendly") name = "Do'stona & Sabrli";
+        showToast(`AI Uslubi: ${name} qilib belgilandi ✅`);
+      }
+    }
+
+    async function changeCodeMode(val) {
+      haptic();
+      const res = await apiRequest("/api/toggle", "POST", {
+        feature: "ai_code_mode",
+        value: val
+      });
+      if (res && res.ok) {
+        const txt = val === "full_code" ? "To'liq kod taqdim etish" : "Faqat maslahat (kod bermaslik)";
+        showToast(`Kod rejimi: ${txt} ✅`);
+      }
+    }
+
+    async function sendBroadcast() {
+      const input = document.getElementById("broadcast-text");
+      const text = input ? input.value.trim() : "";
+      if (!text) {
+        showToast("Iltimos, e'lon matnini yozing!", true);
+        return;
+      }
+      if (!confirm("Haqiqatan ham barcha o'quvchilarga ushbu xabarni yubormoqchimisiz?")) return;
+      haptic();
+      showToast("Xabarlar yuborilmoqda, kuting...");
+      const res = await apiRequest("/api/broadcast", "POST", { text });
+      if (res && res.ok) {
+        input.value = "";
+        showToast(`✅ ${res.sent_count} ta o'quvchiga xabar yuborildi!`);
+      } else {
+        showToast("Xatolik: " + (res?.error || "Yuborib bo'lmadi"), true);
       }
     }
 
@@ -1758,128 +1947,107 @@
       }
     }
 
-    // 7. AI Chat (Persistent across reloads, never lost until manually cleared)
-    const DEFAULT_AI_WELCOME = `
-      <div class="chat-bubble bubble-ai">
-        Assalomu alaykum, Ustoz! Men sizning shaxsiy AI yordamchingizman. Vazifalar guruhidagi topshiriqlar, kodlar yoki ta'lim jarayoni bo'yicha qanday yordam bera olaman?
-      </div>
-    `;
+    // 7. AI Bilimlar Bazasi (Learned Facts & Rules)
+    let allKnowledgeFacts = [];
+    let currentKnowledgeFilter = "all";
 
-    function getStoredAiChat() {
-      try {
-        const raw = localStorage.getItem("coddy_ai_chat_history");
-        return raw ? JSON.parse(raw) : null;
-      } catch (e) {
-        return null;
+    async function loadKnowledge() {
+      const res = await apiRequest("/api/learned-facts");
+      if (res && res.ok && res.facts) {
+        allKnowledgeFacts = res.facts;
+        renderKnowledge();
       }
     }
 
-    function setStoredAiChat(messages) {
-      try {
-        localStorage.setItem("coddy_ai_chat_history", JSON.stringify(messages));
-      } catch (e) {}
+    function filterKnowledge(cat) {
+      currentKnowledgeFilter = cat;
+      document.querySelectorAll("#tab-knowledge .chip").forEach(c => c.classList.remove("active-chip"));
+      const activeChip = document.getElementById("chip-know-" + cat);
+      if (activeChip) activeChip.classList.add("active-chip");
+      renderKnowledge();
     }
 
-    function renderAiChatMessages(messages) {
-      const container = document.getElementById("chat-messages");
+    function renderKnowledge() {
+      const container = document.getElementById("knowledge-list");
+      const countBadge = document.getElementById("knowledge-count");
       if (!container) return;
-      if (!messages || messages.length === 0) {
-        container.innerHTML = DEFAULT_AI_WELCOME;
+
+      let filtered = allKnowledgeFacts;
+      if (currentKnowledgeFilter !== "all") {
+        filtered = allKnowledgeFacts.filter(f => (f.category || "rule").toLowerCase() === currentKnowledgeFilter.toLowerCase());
+      }
+
+      if (countBadge) countBadge.innerText = `${filtered.length} ta`;
+
+      if (!filtered || filtered.length === 0) {
+        container.innerHTML = '<div class="card" style="text-align: center; color: var(--hint-color); padding: 24px;">Hozircha bilimlar yoki qoidalar mavjud emas.</div>';
         return;
       }
 
-      container.innerHTML = "";
-      messages.forEach(m => {
-        const bubble = document.createElement("div");
-        if (m.role === "user") {
-          bubble.className = "chat-bubble bubble-user";
-          bubble.innerText = m.content;
-        } else {
-          bubble.className = "chat-bubble bubble-ai";
-          bubble.innerHTML = formatMarkdown(m.content);
-        }
-        container.appendChild(bubble);
-      });
-
-      container.scrollTop = container.scrollHeight;
+      container.innerHTML = filtered.map(f => {
+        const catIcons = {
+          rule: "📋 Qoida",
+          fact: "💡 Fakt",
+          schedule: "📅 Dars Jadvali",
+          location: "📍 Lokatsiya",
+          other: "📌 Boshqa"
+        };
+        const catLabel = catIcons[f.category] || f.category;
+        const dateStr = f.created_at ? f.created_at.slice(0, 16) : "";
+        return `
+          <div class="card" style="margin-bottom: 10px; border-left: 3px solid #3390ec;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+              <div>
+                <span style="display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; background: rgba(51,144,236,0.15); color: #64b5f6; padding: 2px 6px; border-radius: 4px; margin-bottom: 4px;">${escapeHtml(catLabel)}</span>
+                <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: #fff;">${escapeHtml(f.topic)}</h4>
+              </div>
+              <button class="btn btn-secondary" onclick="deleteKnowledge(${f.id}, '${escapeHtml(f.topic)}')" style="padding: 4px 8px; font-size: 11px; width: auto; color: #ef5350;" title="O'chirish">🗑 O'chirish</button>
+            </div>
+            <p style="font-size: 13px; color: var(--text-color); margin: 0 0 6px 0; line-height: 1.4; white-space: pre-wrap;">${escapeHtml(f.content)}</p>
+            <div style="font-size: 11px; color: var(--hint-color); text-align: right;">${escapeHtml(dateStr)}</div>
+          </div>
+        `;
+      }).join("");
     }
 
-    async function loadAiChatHistory() {
-      // 1. Render immediately from local storage
-      const local = getStoredAiChat();
-      if (local && local.length > 0) {
-        renderAiChatMessages(local);
-      } else {
-        renderAiChatMessages([]);
+    async function addKnowledge() {
+      const topicInput = document.getElementById("know-topic");
+      const catSelect = document.getElementById("know-category");
+      const contentInput = document.getElementById("know-content");
+
+      const topic = topicInput ? topicInput.value.trim() : "";
+      const category = catSelect ? catSelect.value : "rule";
+      const content = contentInput ? contentInput.value.trim() : "";
+
+      if (!topic || !content) {
+        showToast("Mavzu va qoida matnini to'ldiring!", true);
+        return;
       }
-
-      // 2. Sync from backend SQLite in background
-      try {
-        const res = await apiRequest("/api/ai_chat/history", "GET");
-        if (res && res.ok && Array.isArray(res.messages) && res.messages.length > 0) {
-          setStoredAiChat(res.messages);
-          renderAiChatMessages(res.messages);
-        }
-      } catch (e) {
-        console.warn("Backend chat tarixi yuklanmadi:", e);
-      }
-    }
-
-    function quickAiPrompt(promptText) {
-      document.getElementById("chat-input").value = promptText;
-      sendAiMessage();
-    }
-
-    async function clearAiChat() {
-      haptic();
-      localStorage.removeItem("coddy_ai_chat_history");
-      renderAiChatMessages([]);
-      showToast("Suhbat tarixi tozalandi!");
-      try {
-        await apiRequest("/api/ai_chat/clear", "POST");
-      } catch (e) {}
-    }
-
-    async function sendAiMessage() {
-      const input = document.getElementById("chat-input");
-      const msg = input.value.trim();
-      if (!msg) return;
 
       haptic();
-      input.value = "";
-      const container = document.getElementById("chat-messages");
-
-      // Append user bubble
-      const userBubble = document.createElement("div");
-      userBubble.className = "chat-bubble bubble-user";
-      userBubble.innerText = msg;
-      container.appendChild(userBubble);
-
-      // Save user message to persistent storage
-      let history = getStoredAiChat() || [];
-      history.push({ role: "user", content: msg });
-      setStoredAiChat(history);
-
-      // Append thinking bubble
-      const aiBubble = document.createElement("div");
-      aiBubble.className = "chat-bubble bubble-ai";
-      aiBubble.innerText = "⏳ O'ylanmoqda...";
-      container.appendChild(aiBubble);
-      container.scrollTop = container.scrollHeight;
-
-      const res = await apiRequest("/api/ai_chat", "POST", { message: msg });
-      if (res && res.ok && res.reply) {
-        aiBubble.innerHTML = formatMarkdown(res.reply);
-        history.push({ role: "model", content: res.reply });
-        setStoredAiChat(history);
+      const res = await apiRequest("/api/learned-facts/add", "POST", { topic, category, content });
+      if (res && res.ok) {
+        topicInput.value = "";
+        contentInput.value = "";
+        showToast("✅ Yangi qoida/bilim xotiraga saqlandi!");
+        loadKnowledge();
+        loadStatus();
       } else {
-        const errText = res?.error ? res.error : "Javob olib bo'lmadi.";
-        const errMsg = "❌ Xatolik yuz berdi: " + errText;
-        aiBubble.innerText = errMsg;
-        history.push({ role: "model", content: errMsg });
-        setStoredAiChat(history);
+        showToast("Xatolik: " + (res?.error || "Saqlab bo'lmadi"), true);
       }
-      container.scrollTop = container.scrollHeight;
+    }
+
+    async function deleteKnowledge(id, topic) {
+      if (!confirm(`Haqiqatan ham '${topic}' qoidasini o'chirmoqchimisiz?`)) return;
+      haptic();
+      const res = await apiRequest("/api/learned-facts/delete", "POST", { id });
+      if (res && res.ok) {
+        showToast("🗑 Qoida o'chirildi: " + topic);
+        loadKnowledge();
+        loadStatus();
+      } else {
+        showToast("Xatolik: " + (res?.error || "O'chirib bo'lmadi"), true);
+      }
     }
 
     function escapeHtml(text) {

@@ -605,22 +605,22 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             if not input_text and not file_text and not image_bytes:
                 return
 
-            # 💡 Vazifalar guruhida jonli indikator:
-            # 1. "👀 Assistent xabarni o'qidi..." yuboriladi
+            # 💡 Vazifalar guruhida jonli indikator (Agar yoqilgan bo'lsa):
+            status_enabled = memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true"
             status_msg = None
-            try:
-                status_msg = await event.reply("👀 Assistent xabarni o'qidi...")
-                if status_msg:
-                    BOT_SENT_MESSAGE_IDS.add(status_msg.id)
-            except Exception as s_err:
-                logger.debug("Vazifalar status xabarida ogohlantirish: %s", s_err)
-
-            # 2. Keyin "✍️ Assistent javob tayyorlamoqda..." ga edit qilinadi
-            if status_msg:
+            if status_enabled:
                 try:
-                    await status_msg.edit("✍️ Assistent javob tayyorlamoqda...")
-                except Exception:
-                    pass
+                    status_msg = await event.reply("👀 Assistent xabarni o'qidi...")
+                    if status_msg:
+                        BOT_SENT_MESSAGE_IDS.add(status_msg.id)
+                except Exception as s_err:
+                    logger.debug("Vazifalar status xabarida ogohlantirish: %s", s_err)
+
+                if status_msg:
+                    try:
+                        await status_msg.edit("✍️ Assistent javob tayyorlamoqda...")
+                    except Exception:
+                        pass
 
             # 4. Telegram kontaktlar va guruhlar kontekstini olish (faqat zarur bo'lganda)
             chats_context = None
@@ -935,11 +935,13 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         # Aqlli Reaksiyalar (Telegram Reactions — 👍, ❤️, 🔥)
         # O'quvchi "Rahmat", "Tushundim", "Kodim ishladi" kabi qisqa xabar yozsa:
         # Chatni ortiqcha matn bilan to'ldirmasdan, xabariga mos emodzi bosiladi.
-        smart_rx = get_smart_reaction(message_text)
-        if smart_rx and not has_photo and not has_voice and not has_doc_file:
-            if is_private or (is_group and (reply_to_me or is_mentioned)):
-                await send_smart_reaction(client, event, smart_rx)
-                return
+        smart_reactions_enabled = memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true"
+        if smart_reactions_enabled:
+            smart_rx = get_smart_reaction(message_text)
+            if smart_rx and not has_photo and not has_voice and not has_doc_file:
+                if is_private or (is_group and (reply_to_me or is_mentioned)):
+                    await send_smart_reaction(client, event, smart_rx)
+                    return
 
         # Qisqa tasdiq va loqayd so'zlar (AI jim turishi shart, bot aralashmaydi)
         clean_text = message_text.lower().strip().rstrip("!?.,~ ")
@@ -977,7 +979,21 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         async def process_delayed_reply():
             try:
                 is_admin_chat = is_escalation_chat(chat_id)
-                wait_sec = 0 if is_admin_chat else (config.mentor_wait_seconds or 5.0)
+
+                # Favqulodda Silent Mode (Faqat kuzatish rejimi):
+                is_silent = memory_service.get_setting("silent_mode_enabled", "false").lower() == "true"
+                if is_silent and not is_admin_chat:
+                    logger.info("Favqulodda Silent Mode faol, xabar e'tiborsiz qoldirildi [%s]", chat_id)
+                    return
+
+                # Dinamik Debounce kutish vaqti:
+                debounce_val = memory_service.get_setting("debounce_seconds", "5")
+                try:
+                    base_wait = float(debounce_val)
+                except (ValueError, TypeError):
+                    base_wait = float(config.mentor_wait_seconds or 5.0)
+
+                wait_sec = 0 if is_admin_chat else base_wait
 
                 # Shaxsiy chatda (Lichkada) aqlli kutish:
                 # Agar mentor yaqinda xabar yozgan bo'lsa, AI darhol suhbatga aralashmaydi,

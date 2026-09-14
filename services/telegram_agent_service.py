@@ -1923,42 +1923,24 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
                 return f"⚠️ **В памяти не найдено правил по теме '{target}'.**"
             return f"⚠️ **'{target}' bo'yicha xotirada qoida topilmadi.**"
 
-    # 9. Action: set_private_delay (Lichka kutish vaqtini sozlash / Настройка задержки в личке)
+    # 9. Action: set_private_delay (Xavfsizlik: Barcha bot sozlamalari Web App ga ko'chirilgan)
     m_set_delay = ACTION_SET_PRIVATE_DELAY.search(reply_text)
-    delay_sec = None
-    if m_set_delay:
-        delay_sec = int(m_set_delay.group(1))
-    else:
-        fb_set_delay = (
-            re.search(r"lichka(?:da)?\s+(?:kutish\s+vaqtini|vaqtini|rejimini)\s+(\d+)\s*(daqiqa|minut|sekund|soniya)?", orig_msg, re.I) or
-            re.search(r"lichka(?:da)?\s+(\d+)\s*(daqiqa|minut|sekund|soniya)\s*(?:qil|kut|bo'lsin|sozla|qilib\s+qo'y)?", orig_msg, re.I) or
-            re.search(r"(?:время\s+ожидания\s+в\s+личке|в\s+личке\s+ждать|задержка\s+в\s+личке)\s+(\d+)\s*(минут|мин|сек|секунд)?", orig_msg, re.I) or
-            re.search(r"в\s+личке\s+(\d+)\s*(минут|мин|сек|секунд)", orig_msg, re.I)
-        )
-        if fb_set_delay:
-            num = int(fb_set_delay.group(1))
-            unit = (fb_set_delay.group(2) or "").lower()
-            if any(u in unit for u in ("daqiqa", "minut", "минут", "мин")):
-                delay_sec = num * 60
-            elif any(u in unit for u in ("sekund", "soniya", "сек", "секунд")):
-                delay_sec = num
-            else:
-                delay_sec = num * 60 if num <= 30 else num
-
-    if delay_sec is not None:
-        memory_service.set_private_quiet_window(delay_sec)
-        m_str = f"{delay_sec // 60} daqiqa" if delay_sec >= 60 and delay_sec % 60 == 0 else f"{delay_sec} soniya"
-        m_str_ru = f"{delay_sec // 60} мин." if delay_sec >= 60 and delay_sec % 60 == 0 else f"{delay_sec} сек."
+    is_delay_attempt = bool(
+        m_set_delay or
+        re.search(r"lichka(?:da)?\s+(?:kutish\s+vaqtini|vaqtini|rejimini)\s+\d+", orig_msg, re.I) or
+        re.search(r"(?:время\s+ожидания\s+в\s+личке|в\s+личке\s+ждать|задержка\s+в\s+личке)\s+\d+", orig_msg, re.I)
+    )
+    if is_delay_attempt:
         if is_ru:
             return (
-                f"⚙️ **Время ожидания в личке успешно обновлено:**\n\n"
-                f"• ⏱ **Новое значение:** `{m_str_ru}`\n\n"
-                f"💡 _Теперь после того, как вы напишете в личке и выйдете из чата, AI подождет **{m_str_ru}**. Если за это время вы не ответите, AI автоматически подключится и ответит ученику!_"
+                "⚙️ **Безопасность системы:**\n"
+                "Все системные настройки бота, задержки ответов и база знаний перенесены в защищенную панель **Web App**.\n\n"
+                "Вы можете безопасно настроить время ожидания и параметры агента в [🎛 Web App Панели](https://coddyhelper.onrender.com/app)."
             )
         return (
-            f"⚙️ **Lichka kutish vaqti muvaffaqiyatli yangilandi:**\n\n"
-            f"• ⏱ **Yangi muddat:** `{m_str}`\n\n"
-            f"💡 _Endi siz shaxsiy chatda (lichkada) yozib chiqib ketganingizdan so'ng, o'quvchi savol bersa, AI sizni **{m_str}** kutadi. Agar shu vaqt ichida javob bermasangiz, AI o'quvchining savoliga o'zi avtomatik to'liq javob beradi!_"
+            "⚙️ **Tizim xavfsizligi:**\n"
+            "Botning barcha sozlamalari, kutish vaqtlari va bilimlar bazasi xavfsizlik maqsadida to'liq **Web App (Admin Panel)** ga ko'chirilgan.\n\n"
+            "Lichka kutish vaqti va boshqa parametrlarni bevosita [🎛 Web App orqali sozlash](https://coddyhelper.onrender.com/app) mumkin."
         )
 
     # 10. Action: get_private_delay (Lichka sozlamasini ko'rish)
@@ -1974,11 +1956,11 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
         if is_ru:
             return (
                 f"⚙️ **Текущая настройка ожидания в личке:** `{m_str_ru}`\n\n"
-                f"💡 Чтобы изменить, напишите: _'время ожидания в личке 2 минуты'_ или _'в личке 5 минут'_."
+                f"💡 Вы можете изменить эту и другие настройки в [🎛 Web App Панели](https://coddyhelper.onrender.com/app)."
             )
         return (
             f"⚙️ **Lichkada AI yordamga kelish kutish vaqti:** `{m_str}`\n\n"
-            f"💡 O'zgartirish uchun: _'lichka kutish vaqtini 2 daqiqa qil'_ deb yozishingiz mumkin."
+            f"💡 Ushbu va boshqa sozlamalarni [🎛 Web App orqali o'zgartirish](https://coddyhelper.onrender.com/app) mumkin."
         )
 
     return reply_text

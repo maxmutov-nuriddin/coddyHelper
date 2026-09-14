@@ -843,10 +843,7 @@ class AIService:
             messages.append({"role": "user", "content": user_content})
             model_to_use = config.groq_vision_model
         else:
-            sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
-            knowledge_context = memory_service.get_knowledge_context()
-            if knowledge_context:
-                sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
+            sys_prompt = self._build_system_prompt(is_admin_mode)
             messages = [{"role": "system", "content": sys_prompt}]
 
             prev_assistant = ""
@@ -964,6 +961,34 @@ class AIService:
             raise last_error
         return "Javob olinmadi."
 
+    def _build_system_prompt(self, is_admin_mode: bool) -> str:
+        """Tizim promptini bilimlar bazasi va tanlangan mentorlik uslubi (persona) bilan boyitadi."""
+        sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
+        knowledge_context = memory_service.get_knowledge_context()
+        if knowledge_context:
+            sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
+
+        if not is_admin_mode:
+            persona = memory_service.get_setting("ai_persona", "socratic")
+            code_mode = memory_service.get_setting("ai_code_mode", "full_code")
+            extras = []
+            if persona == "socratic":
+                extras.append("• METODIKA: Sokratik ta'lim uslubi. O'quvchiga darhol tayyor kod yechimini bermasdan, avvalo uning xatosini tushuntirib, to'g'ri fikrlashga va yechimni o'zi topishiga yo'l ko'rsating.")
+            elif persona == "tech_lead":
+                extras.append("• METODIKA: Tech Lead uslubi. O'ta aniq, professional va to'g'ridan-to'g'ri texnik yechim va sintaksisni bering.")
+            elif persona == "friendly":
+                extras.append("• METODIKA: Do'stona va sabrli mentor uslubi. Sodda va iliq tilda, yangi boshlovchi ham oson tushunadigan qilib bosqichma-bosqich tushuntiring.")
+
+            if code_mode == "hints_only":
+                extras.append("• KOD REJIMI: Diqqat, to'liq tayyor kod yechimini bermang! Faqat qaysi qatorda yoki mantiqda xatolik borligini tushuntirib, maslahat (hint) bering.")
+            elif code_mode == "full_code":
+                extras.append("• KOD REJIMI: Koddagi xatoni tushuntirib, to'g'ri va ishlaydigan to'liq kod variantini taqdim eting.")
+
+            if extras:
+                sys_prompt = f"{sys_prompt}\n\n# JORIY USLUB VA MENTOR KO'RSATMALARI:\n" + "\n".join(extras)
+
+        return sys_prompt
+
     def _generate_with_genai(self, prompt: str, history_context: str, is_admin_mode: bool = False) -> str:
         """Google GenAI orqali javob generatsiya qilish (fallback)."""
         from google.genai import types
@@ -972,10 +997,7 @@ class AIService:
         if history_context:
             full_content = f"Avvalgi suhbat konteksti:\n{history_context}\n\nFoydalanuvchining yangi xabari:\n{prompt}"
 
-        sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
-        knowledge_context = memory_service.get_knowledge_context()
-        if knowledge_context:
-            sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
+        sys_prompt = self._build_system_prompt(is_admin_mode)
         response = self._gemini_client.models.generate_content(
             model=config.gemini_model,
             contents=full_content,

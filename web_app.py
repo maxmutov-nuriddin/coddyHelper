@@ -8,6 +8,7 @@ import re
 import time
 import secrets
 import logging
+import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -24,7 +25,7 @@ from services.telegram_agent_service import (
     get_students_summary,
     execute_agent_action,
 )
-from handlers.auto_reply import RECENT_ACTIVITY_LOGS
+from handlers.auto_reply import RECENT_ACTIVITY_LOGS, BOT_SENT_MESSAGE_IDS
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +311,12 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "group_reply_enabled": config.group_reply_enabled,
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
                 "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
+                "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
+                "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
+                "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",
+                "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "5")),
+                "ai_persona": memory_service.get_setting("ai_persona", "socratic"),
+                "ai_code_mode": memory_service.get_setting("ai_code_mode", "full_code"),
                 "private_quiet_window": memory_service.get_private_quiet_window(),
                 "students_count": len(memory_service.get_students(limit=1000)),
                 "active_ai": active_ai,
@@ -318,6 +325,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "active_chats_count": memory_service.total_active_chats(),
                 "active_reminders_count": len(memory_service.get_active_reminders(100)),
                 "ignored_users_count": len(memory_service.get_ignored_users()),
+                "learned_facts_count": len(memory_service.get_all_learned_facts(limit=100)),
                 "trusted_websites": memory_service.get_trusted_websites(),
                 "recent_activity_logs": list(reversed(RECENT_ACTIVITY_LOGS[-15:])),
                 "telegram_authorized": telegram_authorized,
@@ -359,6 +367,33 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         elif feature == "web_search":
             memory_service.set_setting("web_search_enabled", "true" if enabled else "false")
             logger.info("Admin Panel orqali web_search_enabled o'zgartirildi: %s", enabled)
+        elif feature == "smart_reactions":
+            memory_service.set_setting("smart_reactions_enabled", "true" if enabled else "false")
+            logger.info("Admin Panel orqali smart_reactions_enabled o'zgartirildi: %s", enabled)
+        elif feature == "vazifalar_status":
+            memory_service.set_setting("vazifalar_status_enabled", "true" if enabled else "false")
+            logger.info("Admin Panel orqali vazifalar_status_enabled o'zgartirildi: %s", enabled)
+        elif feature == "silent_mode":
+            memory_service.set_setting("silent_mode_enabled", "true" if enabled else "false")
+            logger.info("Admin Panel orqali silent_mode_enabled o'zgartirildi: %s", enabled)
+        elif feature == "debounce_seconds":
+            try:
+                val = int(data.get("value", 5))
+            except Exception:
+                val = 5
+            memory_service.set_setting("debounce_seconds", str(val))
+            logger.info("Admin Panel orqali debounce_seconds o'zgartirildi: %s soniya", val)
+            return web.json_response({"ok": True, "debounce_seconds": val})
+        elif feature == "ai_persona":
+            val = str(data.get("value", "socratic")).strip()
+            memory_service.set_setting("ai_persona", val)
+            logger.info("Admin Panel orqali ai_persona o'zgartirildi: %s", val)
+            return web.json_response({"ok": True, "ai_persona": val})
+        elif feature == "ai_code_mode":
+            val = str(data.get("value", "full_code")).strip()
+            memory_service.set_setting("ai_code_mode", val)
+            logger.info("Admin Panel orqali ai_code_mode o'zgartirildi: %s", val)
+            return web.json_response({"ok": True, "ai_code_mode": val})
         elif feature == "private_quiet_window":
             try:
                 val = int(data.get("value", 180))
@@ -378,6 +413,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "auto_reply_enabled": config.auto_reply_enabled,
                 "group_reply_enabled": config.group_reply_enabled,
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
+                "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
+                "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
+                "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",
             }
         )
 
@@ -677,6 +715,92 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         sites = memory_service.get_trusted_websites()
         return web.json_response({"ok": ok, "sites": sites, "message": "Sayt ro'yxatdan olib tashlandi"})
 
+    # -----------------------------------------------------------
+    # 13. Bilimlar Bazasi (Learned Facts & Rules) API
+    # -----------------------------------------------------------
+    async def handle_api_get_learned_facts(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        facts = memory_service.get_all_learned_facts(limit=100)
+        return web.json_response({"ok": True, "facts": facts})
+
+    async def handle_api_add_learned_fact(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
+
+        topic = str(data.get("topic", "")).strip()
+        content = str(data.get("content", "")).strip()
+        category = str(data.get("category", "rule")).strip()
+
+        if not topic or not content:
+            return web.json_response({"ok": False, "error": "Mavzu va mazmun kiritilishi shart!"}, status=400)
+
+        fact_id = memory_service.add_learned_fact(topic, content, category=category)
+        return web.json_response({"ok": True, "id": fact_id, "message": "Qoida/bilim saqlandi"})
+
+    async def handle_api_delete_learned_fact(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
+
+        target = data.get("id") or data.get("topic")
+        if not target:
+            return web.json_response({"ok": False, "error": "Qoida identifikatori kiritilmadi"}, status=400)
+
+        ok = memory_service.delete_learned_fact(target)
+        return web.json_response({"ok": ok, "message": "Qoida o'chirildi"})
+
+    # -----------------------------------------------------------
+    # 14. Ommaviy Xabar (Broadcast) API
+    # -----------------------------------------------------------
+    async def handle_api_broadcast(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
+
+        text = str(data.get("text", "")).strip()
+        if not text:
+            return web.json_response({"ok": False, "error": "Xabar matni kiritilmadi"}, status=400)
+
+        client = get_client_func()
+        if not client:
+            return web.json_response({"ok": False, "error": "Telegram mijoz ulanmagan"}, status=503)
+
+        students = memory_service.get_students(limit=500)
+        if not students:
+            return web.json_response({"ok": False, "error": "CRM da o'quvchilar topilmadi"}, status=400)
+
+        sent_count = 0
+        failed_count = 0
+        for s in students:
+            uname = (s.get("username") or "").strip()
+            tg_id = s.get("telegram_id")
+            target = uname if uname else tg_id
+            if not target:
+                continue
+            try:
+                entity = await client.get_input_entity(target)
+                msg = await client.send_message(entity, text)
+                if msg:
+                    BOT_SENT_MESSAGE_IDS.add(msg.id)
+                sent_count += 1
+                await asyncio.sleep(0.3)
+            except Exception as b_err:
+                logger.warning("Broadcast xabar jo'natishda ogohlantirish (%s): %s", target, b_err)
+                failed_count += 1
+
+        return web.json_response({"ok": True, "sent_count": sent_count, "failed_count": failed_count})
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
@@ -699,6 +823,10 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_get("/api/trusted-sites", handle_api_get_trusted_sites)
     app.router.add_post("/api/trusted-sites/add", handle_api_add_trusted_site)
     app.router.add_post("/api/trusted-sites/delete", handle_api_delete_trusted_site)
+    app.router.add_get("/api/learned-facts", handle_api_get_learned_facts)
+    app.router.add_post("/api/learned-facts/add", handle_api_add_learned_fact)
+    app.router.add_post("/api/learned-facts/delete", handle_api_delete_learned_fact)
+    app.router.add_post("/api/broadcast", handle_api_broadcast)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 
