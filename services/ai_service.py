@@ -787,8 +787,29 @@ class AIService:
                 lim_r = int(lim_r_str) if lim_r_str.isdigit() else self._metrics["rate_limits"]["limit_requests"]
 
                 used_pct = 0.0
-                if lim_t > 0:
-                    used_pct = round(max(0.0, min(100.0, (lim_t - rem_t) / lim_t * 100)), 1)
+                def _parse_duration_seconds(dur_str: str) -> float:
+                    if not dur_str:
+                        return 60.0
+                    d = dur_str.strip().lower()
+                    try:
+                        if d.endswith("ms"):
+                            return float(d[:-2]) / 1000.0
+                        if "m" in d and "s" in d:
+                            parts = d.split("m")
+                            m = float(parts[0])
+                            s = float(parts[1].replace("s", "")) if parts[1] else 0.0
+                            return m * 60.0 + s
+                        if d.endswith("s"):
+                            return float(d[:-1])
+                        if d.endswith("m"):
+                            return float(d[:-1]) * 60.0
+                        return float(d)
+                    except Exception:
+                        return 60.0
+
+                self._last_groq_metrics_ts = time.time()
+                self._reset_tokens_seconds = _parse_duration_seconds(rst_t_str)
+                self._reset_requests_seconds = _parse_duration_seconds(rst_r_str)
 
                 self._metrics["rate_limits"] = {
                     "remaining_tokens": rem_t,
@@ -980,6 +1001,39 @@ class AIService:
                 "status": "active" if team_is_active else "standby",
             })
 
+        # Real-time dinamik TPM va RPM tiklanishini hisoblash (O'tgan vaqt hisobga olinadi):
+        now_ts = time.time()
+        rl = dict(self._metrics.get("rate_limits", {}))
+        last_ts = getattr(self, "_last_groq_metrics_ts", 0)
+
+        if last_ts > 0 and rl:
+            elapsed = now_ts - last_ts
+            reset_t_sec = getattr(self, "_reset_tokens_seconds", 60.0)
+            reset_r_sec = getattr(self, "_reset_requests_seconds", 60.0)
+            lim_t = rl.get("limit_tokens", 8000)
+            lim_r = rl.get("limit_requests", 1000)
+
+            if elapsed >= reset_t_sec or elapsed >= 60.0:
+                # 60 soniyadan so'ng yoki reset vaqti o'tgach TPM 100% tiklangan!
+                rl["remaining_tokens"] = lim_t
+                rl["used_tokens_pct"] = 0.0
+                rl["reset_tokens"] = "0s (100% bo'sh)"
+            else:
+                rem_sec = max(0.0, reset_t_sec - elapsed)
+                rl["reset_tokens"] = f"{rem_sec:.1f}s"
+                ratio = min(1.0, elapsed / max(1.0, reset_t_sec))
+                initial_rem = rl.get("remaining_tokens", lim_t)
+                current_rem = int(initial_rem + (lim_t - initial_rem) * ratio)
+                rl["remaining_tokens"] = min(lim_t, max(initial_rem, current_rem))
+                rl["used_tokens_pct"] = round(max(0.0, (lim_t - rl["remaining_tokens"]) / lim_t * 100), 1)
+
+            if elapsed >= reset_r_sec or elapsed >= 60.0:
+                rl["remaining_requests"] = lim_r
+                rl["reset_requests"] = "0s"
+            else:
+                rem_r_sec = max(0.0, reset_r_sec - elapsed)
+                rl["reset_requests"] = f"{rem_r_sec:.1f}s"
+
         return {
             "ok": True,
             "active_model": self._metrics.get("active_model", config.groq_model),
@@ -989,7 +1043,7 @@ class AIService:
             "total_requests": self._metrics.get("total_requests", 0),
             "total_tokens": self._metrics.get("total_tokens", 0),
             "last_request": self._metrics.get("last_request", {}),
-            "rate_limits": self._metrics.get("rate_limits", {}),
+            "rate_limits": rl,
             "cascade_status": self._metrics.get("cascade_status", {}),
             "available_groq_keys": len(self._groq_clients),
             "frontline_keys_count": len(self._frontline_clients),
