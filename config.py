@@ -69,7 +69,7 @@ class Config:
         bot_token = os.getenv("BOT_TOKEN", "").strip()
         bot_username = os.getenv("BOT_USERNAME", "coddyassistanstbot").strip().lstrip("@")
         gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        gemini_model = os.getenv("GEMINI_MODEL", "gemini-flash-latest").strip()
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
         
         raw_frontline = os.getenv("GROQ_FRONTLINE_KEYS", "").strip()
         raw_vip = os.getenv("GROQ_VIP_KEYS", "").strip()

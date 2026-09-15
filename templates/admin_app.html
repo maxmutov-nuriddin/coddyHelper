@@ -1494,10 +1494,13 @@
           <span class="card-title">📚 Saqlangan Qoidalar & Bilimlar</span>
           <span style="font-size: 11px; color: var(--hint-color);" id="knowledge-count">0 ta</span>
         </div>
+        <div style="margin-bottom: 10px;">
+          <input type="text" id="search-knowledge" class="form-input" placeholder="🔍 Mavzu yoki matn bo'yicha qidirish..." oninput="onKnowledgeSearch(this.value)" style="margin-bottom: 8px; font-size: 13px; padding: 7px 12px; background: rgba(0,0,0,0.25);" />
+        </div>
         <div class="chat-chips" style="margin-bottom: 10px; overflow-x: auto; flex-wrap: wrap;">
           <span class="chip active-chip" id="chip-know-all" onclick="filterKnowledge('all')">Barchasi</span>
           <span class="chip" id="chip-know-rule" onclick="filterKnowledge('rule')">📋 Qoidalar</span>
-          <span class="chip" id="chip-know-fact" onclick="filterKnowledge('fact')">💡 Faktlar</span>
+          <span class="chip" id="chip-know-fact" onclick="filterKnowledge('fact')">💡 Faktlar & Saboqlar</span>
           <span class="chip" id="chip-know-schedule" onclick="filterKnowledge('schedule')">📅 Jadval</span>
           <span class="chip" id="chip-know-location" onclick="filterKnowledge('location')">📍 Lokatsiya</span>
         </div>
@@ -3570,6 +3573,9 @@
       }
     }
 
+    let currentKnowledgeFilter = "all";
+    let currentKnowledgeSearch = "";
+
     function filterKnowledge(cat) {
       currentKnowledgeFilter = cat;
       document.querySelectorAll("#tab-knowledge .chip").forEach(c => c.classList.remove("active-chip"));
@@ -3578,14 +3584,45 @@
       renderKnowledge();
     }
 
+    function onKnowledgeSearch(val) {
+      currentKnowledgeSearch = (val || "").trim().toLowerCase();
+      renderKnowledge();
+    }
+
     function renderKnowledge() {
       const container = document.getElementById("knowledge-list");
       const countBadge = document.getElementById("knowledge-count");
       if (!container) return;
 
-      let filtered = allKnowledgeFacts;
+      let filtered = allKnowledgeFacts || [];
+
+      // Kategoriya bo'yicha moslashuvchan filter
       if (currentKnowledgeFilter !== "all") {
-        filtered = allKnowledgeFacts.filter(f => (f.category || "rule").toLowerCase() === currentKnowledgeFilter.toLowerCase());
+        filtered = filtered.filter(f => {
+          const cat = (f.category || "general").toLowerCase();
+          if (currentKnowledgeFilter === "rule") {
+            return cat === "rule" || cat === "qoida" || cat === "general" || cat === "instruction";
+          }
+          if (currentKnowledgeFilter === "fact") {
+            return cat === "fact" || cat === "fakt" || cat === "agent_insight" || cat === "insight" || cat === "verified_insight" || cat === "knowledge";
+          }
+          if (currentKnowledgeFilter === "schedule") {
+            return cat === "schedule" || cat === "jadval" || cat === "vaqt" || cat === "dars";
+          }
+          if (currentKnowledgeFilter === "location") {
+            return cat === "location" || cat === "lokatsiya" || cat === "manzil" || cat === "joylashuv";
+          }
+          return cat === currentKnowledgeFilter.toLowerCase();
+        });
+      }
+
+      // Qidiruv so'zi bo'yicha filter
+      if (currentKnowledgeSearch) {
+        filtered = filtered.filter(f => {
+          const t = (f.topic || "").toLowerCase();
+          const c = (f.content || "").toLowerCase();
+          return t.includes(currentKnowledgeSearch) || c.includes(currentKnowledgeSearch);
+        });
       }
 
       if (countBadge) countBadge.innerText = `${filtered.length} ta`;
@@ -3594,8 +3631,8 @@
         container.innerHTML = `
           <div class="card" style="text-align: center; color: var(--hint-color); padding: 20px 14px; border: 1px dashed var(--border-color);">
             <div style="font-size: 26px; margin-bottom: 4px;">🎓</div>
-            <p style="font-size: 13px; margin-bottom: 4px;">Hozircha ushbu toifada bilimlar yoki qoidalar yo'q.</p>
-            <p style="font-size: 11px;">Yuqoridagi formadan AI uchun yangi qoida yoki fakt kiriting.</p>
+            <p style="font-size: 13px; margin-bottom: 4px;">Hozircha ushbu toifada yoki qidiruv bo'yicha bilimlar yo'q.</p>
+            <p style="font-size: 11px;">Yuqoridagi formadan yangi qoida kiriting yoki filterni tozalang.</p>
           </div>`;
         return;
       }
@@ -3603,21 +3640,27 @@
       container.innerHTML = filtered.map(f => {
         const catIcons = {
           rule: "📋 Qoida",
+          general: "📋 Qoida",
+          instruction: "📋 Ko'rsatma",
           fact: "💡 Fakt",
+          agent_insight: "🧬 Avtonom Saboq",
+          verified_insight: "✅ Tasdiqlangan Saboq",
           schedule: "📅 Dars Jadvali",
           location: "📍 Lokatsiya",
           other: "📌 Boshqa"
         };
-        const catLabel = catIcons[f.category] || f.category;
+        const catLabel = catIcons[f.category] || f.category || "Qoida";
         const dateStr = f.created_at ? f.created_at.slice(0, 16) : "";
+        const fId = escapeHtml(String(f.id));
+        const fTopic = escapeHtml(String(f.topic));
         return `
           <div class="card" style="margin-bottom: 10px; border-left: 3px solid #3390ec;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 8px; flex-wrap: wrap;">
               <div style="min-width: 0; flex: 1;">
                 <span style="display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; background: rgba(51,144,236,0.15); color: #64b5f6; padding: 2px 6px; border-radius: 4px; margin-bottom: 4px;">${escapeHtml(catLabel)}</span>
-                <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: #fff; word-break: break-word;">${escapeHtml(f.topic)}</h4>
+                <h4 style="margin: 0; font-size: 14px; font-weight: 600; color: #fff; word-break: break-word;">${fTopic}</h4>
               </div>
-              <button class="btn btn-secondary" onclick="deleteKnowledge(${f.id}, '${escapeHtml(f.topic)}')" style="padding: 4px 8px; font-size: 11px; width: auto; color: #ef5350; flex-shrink: 0; white-space: nowrap;" title="O'chirish">🗑 O'chirish</button>
+              <button class="btn btn-secondary" onclick="deleteKnowledge(this)" data-id="${fId}" data-topic="${fTopic}" style="padding: 4px 8px; font-size: 11px; width: auto; color: #ef5350; flex-shrink: 0; white-space: nowrap;" title="O'chirish">🗑 O'chirish</button>
             </div>
             <p style="font-size: 13px; color: var(--text-color); margin: 0 0 6px 0; line-height: 1.4; white-space: pre-wrap;">${escapeHtml(f.content)}</p>
             <div style="font-size: 11px; color: var(--hint-color); text-align: right;">${escapeHtml(dateStr)}</div>
@@ -3653,12 +3696,15 @@
       }
     }
 
-    async function deleteKnowledge(id, topic) {
-      if (!confirm(`Haqiqatan ham '${topic}' qoidasini o'chirmoqchimisiz?`)) return;
+    async function deleteKnowledge(el) {
+      const id = el.getAttribute ? el.getAttribute("data-id") : String(el);
+      const topic = el.getAttribute ? el.getAttribute("data-topic") : "";
+      const displayTitle = topic || "ushbu qoida";
+      if (!confirm(`Haqiqatan ham '${displayTitle}' xotiradan o'chirilsinmi?`)) return;
       haptic();
-      const res = await apiRequest("/api/learned-facts/delete", "POST", { id });
+      const res = await apiRequest("/api/learned-facts/delete", "POST", { id, topic });
       if (res && res.ok) {
-        showToast("🗑 Qoida o'chirildi: " + topic);
+        showToast("🗑 Qoida o'chirildi: " + displayTitle);
         loadKnowledge();
         loadStatus();
       } else {
@@ -3938,11 +3984,11 @@
 
               const actionsHtml = isVerified
                 ? `<div style="display: flex; justify-content: flex-end; margin-top: 8px;">
-                     <button onclick="deleteInsight(${item.id})" class="btn" style="padding: 4px 10px; font-size: 11px; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; cursor: pointer;">🗑 O'chirish</button>
+                     <button onclick="deleteInsight(this)" data-id="${escapeHtml(String(item.id))}" class="btn" style="padding: 4px 10px; font-size: 11px; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; cursor: pointer;">🗑 O'chirish</button>
                    </div>`
                 : `<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
-                     <button onclick="approveInsight(${item.id})" class="btn" style="padding: 5px 12px; font-size: 11px; background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); border-radius: 6px; font-weight: 600; cursor: pointer;">Tasdiqlash ✅</button>
-                     <button onclick="deleteInsight(${item.id})" class="btn" style="padding: 5px 12px; font-size: 11px; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; cursor: pointer;">O'chirish ❌</button>
+                     <button onclick="approveInsight(this)" data-id="${escapeHtml(String(item.id))}" class="btn" style="padding: 5px 12px; font-size: 11px; background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); border-radius: 6px; font-weight: 600; cursor: pointer;">Tasdiqlash ✅</button>
+                     <button onclick="deleteInsight(this)" data-id="${escapeHtml(String(item.id))}" class="btn" style="padding: 5px 12px; font-size: 11px; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; cursor: pointer;">O'chirish ❌</button>
                    </div>`;
 
               return `
@@ -4033,9 +4079,11 @@
       }
     }
 
-    async function approveInsight(id) {
+    async function approveInsight(el) {
+      const id = (el && el.getAttribute) ? el.getAttribute("data-id") : String(el);
+      if (!id) return;
       try {
-        const res = await apiRequest("/api/agent/insights/approve", "POST", { id: Number(id) });
+        const res = await apiRequest("/api/agent/insights/approve", "POST", { id: String(id) });
         if (res && res.ok) {
           showToast("Saboq tasdiqlandi va doimiy bilimga aylandi ✅");
           loadAgentStats();
@@ -4047,10 +4095,12 @@
       }
     }
 
-    async function deleteInsight(id) {
+    async function deleteInsight(el) {
+      const id = (el && el.getAttribute) ? el.getAttribute("data-id") : String(el);
+      if (!id) return;
       if (!confirm("Haqiqatan ham ushbu saboqni xotiradan o'chirmoqchimisiz?")) return;
       try {
-        const res = await apiRequest("/api/agent/insights/delete", "POST", { id: Number(id) });
+        const res = await apiRequest("/api/agent/insights/delete", "POST", { id: String(id) });
         if (res && res.ok) {
           showToast("Saboq xotiradan o'chirildi 🗑");
           loadAgentStats();

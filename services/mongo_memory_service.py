@@ -199,6 +199,53 @@ class MongoMemoryService:
             logger.error("MongoDB get_all_learned_insights xatolik: %s", e)
             return []
 
+    def delete_learned_insight(self, target: str) -> bool:
+        """MongoDB dan saboq/bilimni ObjectId yoki kalit/mavzusi bo'yicha o'chiradi."""
+        if not self.is_connected() or not target:
+            return False
+        try:
+            import re
+            from bson import ObjectId
+            col = self._db["brain_cognitive.learned_insights"]
+            target_str = str(target).strip()
+            # 1. ObjectId bo'yicha o'chirish
+            if ObjectId.is_valid(target_str):
+                res = col.delete_one({"_id": ObjectId(target_str)})
+                if res.deleted_count > 0:
+                    return True
+            # 2. Kalit / Mavzu bo'yicha o'chirish
+            res = col.delete_one({"key": target_str})
+            if res.deleted_count > 0:
+                return True
+            # 3. Registrga sezgir bo'lmagan holda o'chirish
+            res = col.delete_one({"key": {"$regex": f"^{re.escape(target_str)}$", "$options": "i"}})
+            return res.deleted_count > 0
+        except Exception as e:
+            logger.error("MongoDB delete_learned_insight xatolik: %s", e)
+            return False
+
+    def approve_learned_insight(self, target: str) -> bool:
+        """MongoDB da saboqni tasdiqlangan (verified_insight) deb belgilaydi."""
+        if not self.is_connected() or not target:
+            return False
+        try:
+            import re
+            from bson import ObjectId
+            col = self._db["brain_cognitive.learned_insights"]
+            target_str = str(target).strip()
+            if ObjectId.is_valid(target_str):
+                res = col.update_one({"_id": ObjectId(target_str)}, {"$set": {"category": "verified_insight", "is_verified": True}})
+                if res.modified_count > 0:
+                    return True
+            res = col.update_one({"key": target_str}, {"$set": {"category": "verified_insight", "is_verified": True}})
+            if res.modified_count > 0:
+                return True
+            res = col.update_one({"key": {"$regex": f"^{re.escape(target_str)}$", "$options": "i"}}, {"$set": {"category": "verified_insight", "is_verified": True}})
+            return res.modified_count > 0
+        except Exception as e:
+            logger.error("MongoDB approve_learned_insight xatolik: %s", e)
+            return False
+
     def update_cognitive_growth(self, xp_gain: int = 10, iq_points: int = 1, reason: str = "") -> dict:
         """Agent IQ va XP sini oshiradi va tarixga qayd qiladi."""
         if not self.is_connected():

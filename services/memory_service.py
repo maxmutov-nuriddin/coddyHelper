@@ -800,20 +800,43 @@ class SQLiteMemoryService:
             logger.error("O'rganilgan bilimlarni olishda xatolik: %s", e)
             return []
 
-    def delete_learned_fact(self, target: str | int) -> bool:
-        """Bilimni mavzusi yoki ID si bo'yicha o'chiradi."""
+    def delete_learned_fact(self, target: str | int, topic: str = None) -> bool:
+        """Bilimni mavzusi yoki ID si bo'yicha o'chiradi (MongoDB + SQLite)."""
+        deleted = False
+        target_str = str(target).strip() if target is not None else ""
+        topic_str = str(topic).strip() if topic is not None else ""
+
+        # 1. MongoDB Atlas dan o'chirish
+        try:
+            if mongo_memory_service.is_connected():
+                if target_str and mongo_memory_service.delete_learned_insight(target_str):
+                    deleted = True
+                if topic_str and mongo_memory_service.delete_learned_insight(topic_str):
+                    deleted = True
+        except Exception as me:
+            logger.debug("MongoDB dan bilim o'chirishda ogohlantirish: %s", me)
+
+        # 2. SQLite dan ham o'chirish
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                if str(target).isdigit():
-                    cursor.execute("DELETE FROM learned_memory WHERE id = ?", (int(target),))
-                else:
-                    cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (str(target).strip(),))
+                if target_str.isdigit():
+                    cursor.execute("DELETE FROM learned_memory WHERE id = ?", (int(target_str),))
+                    if cursor.rowcount > 0:
+                        deleted = True
+                elif target_str:
+                    cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (target_str,))
+                    if cursor.rowcount > 0:
+                        deleted = True
+                
+                if topic_str:
+                    cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (topic_str,))
+                    if cursor.rowcount > 0:
+                        deleted = True
                 conn.commit()
-                return cursor.rowcount > 0
         except Exception as e:
-            logger.error("Bilimni o'chirishda xatolik: %s", e)
-            return False
+            logger.error("SQLite bilimni o'chirishda xatolik: %s", e)
+        return deleted
 
     def get_knowledge_context(self, limit: int = 30) -> str:
         """AI promptiga qo'shish uchun barcha o'rganilgan qoidalar va faktlarni chiroyli formatda qaytaradi."""
@@ -917,20 +940,36 @@ class SQLiteMemoryService:
             logger.error("Avtonom saboqlarni olishda xatolik: %s", e)
             return []
 
-    def approve_autonomous_insight(self, insight_id: int) -> bool:
-        """Mentor tomonidan avtonom saboqni tasdiqlash (verified_insight ga o'tkazish)."""
+    def approve_autonomous_insight(self, insight_id: str | int) -> bool:
+        """Mentor tomonidan avtonom saboqni tasdiqlash (MongoDB + SQLite)."""
+        ok = False
+        target_str = str(insight_id).strip()
+        try:
+            if mongo_memory_service.is_connected():
+                if mongo_memory_service.approve_learned_insight(target_str):
+                    ok = True
+        except Exception as me:
+            logger.debug("MongoDB da tasdiqlashda ogohlantirish: %s", me)
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE learned_memory SET category = 'verified_insight', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (int(insight_id),),
-                )
+                if target_str.isdigit():
+                    cursor.execute(
+                        "UPDATE learned_memory SET category = 'verified_insight', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (int(target_str),),
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE learned_memory SET category = 'verified_insight', updated_at = CURRENT_TIMESTAMP WHERE LOWER(topic) = LOWER(?)",
+                        (target_str,),
+                    )
                 conn.commit()
-                return cursor.rowcount > 0
+                if cursor.rowcount > 0:
+                    ok = True
         except Exception as e:
-            logger.error("Saboqni tasdiqlashda xatolik: %s", e)
-            return False
+            logger.error("SQLite saboqni tasdiqlashda xatolik: %s", e)
+        return ok
 
     def add_autonomous_insight(self, topic: str, content: str, source: str = "agent") -> int:
         """Avtonom miya tomonidan o'rganilgan yangi saboqni bazaga saqlaydi (Har bir yangi saboq mustaqil saqlanadi)."""

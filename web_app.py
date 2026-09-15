@@ -794,10 +794,11 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
 
         target = data.get("id") or data.get("topic")
-        if not target:
+        topic = data.get("topic")
+        if not target and not topic:
             return web.json_response({"ok": False, "error": "Qoida identifikatori kiritilmadi"}, status=400)
 
-        ok = memory_service.delete_learned_fact(target)
+        ok = memory_service.delete_learned_fact(target, topic=topic)
         return web.json_response({"ok": ok, "message": "Qoida o'chirildi"})
 
     # -----------------------------------------------------------
@@ -1067,7 +1068,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             insight_id = data.get("id")
             if not insight_id:
                 return web.json_response({"ok": False, "error": "ID kiritilmadi"}, status=400)
-            ok = memory_service.approve_autonomous_insight(int(insight_id))
+            ok = memory_service.approve_autonomous_insight(str(insight_id))
             return web.json_response({"ok": ok})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
@@ -1080,7 +1081,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             insight_id = data.get("id")
             if not insight_id:
                 return web.json_response({"ok": False, "error": "ID kiritilmadi"}, status=400)
-            ok = memory_service.delete_learned_fact(int(insight_id))
+            ok = memory_service.delete_learned_fact(str(insight_id))
             return web.json_response({"ok": ok})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)

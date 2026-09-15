@@ -1962,16 +1962,39 @@ class AIService:
         if history_context:
             full_content = f"Avvalgi suhbat konteksti:\n{history_context}\n\nFoydalanuvchining yangi xabari:\n{prompt}"
 
-        sys_prompt = self._build_system_prompt(is_admin_mode)
-        response = self._gemini_client.models.generate_content(
-            model=config.gemini_model,
-            contents=full_content,
-            config=types.GenerateContentConfig(
-                system_instruction=sys_prompt,
-                temperature=0.6,
-            ),
-        )
-        return response.text.strip() if response.text else ""
+        sys_prompt = self._build_system_prompt(is_admin_mode, effective_prompt=prompt)
+        gemini_candidates = [
+            config.gemini_model,
+            "gemini-2.0-flash",
+            "gemini-flash-latest",
+            "gemini-2.5-flash",
+            "gemini-3.6-flash",
+        ]
+        unique_candidates = []
+        for m in gemini_candidates:
+            if m and m not in unique_candidates:
+                unique_candidates.append(m)
+
+        last_err = None
+        for m in unique_candidates:
+            try:
+                response = self._gemini_client.models.generate_content(
+                    model=m,
+                    contents=full_content,
+                    config=types.GenerateContentConfig(
+                        system_instruction=sys_prompt,
+                        temperature=0.6,
+                    ),
+                )
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as ge:
+                last_err = ge
+                logger.warning("Gemini modelida (%s) xatolik: %s", m, ge)
+                continue
+        if last_err:
+            raise last_err
+        return ""
 
     async def generate_reply(
         self,
