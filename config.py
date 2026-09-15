@@ -173,6 +173,7 @@ def is_escalation_chat(chat_id: int | str) -> bool:
     if c_id == target:
         return True
     c_norm = c_id.replace("-100", "-")
+    t_norm = target.replace("-100", "-")
     return c_norm == t_norm
 
 
