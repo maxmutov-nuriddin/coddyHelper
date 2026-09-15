@@ -617,6 +617,63 @@ class SQLiteMemoryService:
             lines.append(f"• [{f['topic'].upper()}]: {f['content']}")
         return "\n".join(lines)
 
+    def record_autonomous_insight(self, topic: str, content: str) -> int:
+        """Agent o'z tahlillari va tajribasidan chiqargan xulosasini saqlaydi."""
+        return self.add_learned_fact(topic=topic, content=content, category="autonomous_insight")
+
+    def get_relevant_learned_insights(self, query: str, limit: int = 4) -> list[dict]:
+        """
+        Berilgan so'rov (query) bo'yicha eng dolzarb o'rganilgan bilimlar va tajribalarni qidirib topadi (Epizodik xotira / RAG).
+        """
+        if not query or not query.strip():
+            return []
+        try:
+            import re
+            raw_words = [w.strip().lower() for w in query.split() if len(w.strip()) >= 3]
+            cleaned_words = []
+            for w in raw_words:
+                clean = re.sub(r"[^\w]", "", w)
+                if len(clean) >= 3 and clean not in cleaned_words:
+                    cleaned_words.append(clean)
+
+            if not cleaned_words:
+                return self.get_all_learned_facts(limit=limit)
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                where_clauses = []
+                params = []
+                for w in cleaned_words[:6]:
+                    where_clauses.append("(LOWER(topic) LIKE ? OR LOWER(content) LIKE ?)")
+                    like_pattern = f"%{w}%"
+                    params.extend([like_pattern, like_pattern])
+
+                sql = f"""
+                    SELECT id, category, topic, content, created_at, updated_at
+                    FROM learned_memory
+                    WHERE {' OR '.join(where_clauses)}
+                    ORDER BY id DESC LIMIT ?
+                """
+                params.append(limit)
+                cursor.execute(sql, tuple(params))
+                rows = cursor.fetchall()
+                if rows:
+                    return [
+                        {
+                            "id": r[0],
+                            "category": r[1],
+                            "topic": r[2],
+                            "content": r[3],
+                            "created_at": r[4],
+                            "updated_at": r[5],
+                        }
+                        for r in rows
+                    ]
+                return self.get_all_learned_facts(limit=min(limit, 2))
+        except Exception as e:
+            logger.error("Dolzarb bilimlarni qidirishda xatolik: %s", e)
+            return []
+
     # -----------------------------------------------------------
     # Eslatmalar (Reminders) Boshqaruvi
     # -----------------------------------------------------------

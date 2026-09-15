@@ -1036,6 +1036,56 @@ class AIService:
                         total_chars += len(part["text"])
         return int(total_chars / 3.5)
 
+    async def _extract_and_save_insight(self, prompt: str, reply: str) -> None:
+        """
+        Murakkab suhbat va yechimlardan avtomatik ravishda universal texnik xulosa/qoida
+        ajratib olib, doimiy bilimlar bazasiga (autonomous_insight) saqlaydi.
+        """
+        try:
+            if len(prompt.split()) < 6 or len(reply.split()) < 20:
+                return
+            # Telegram action yoki oddiy salom bo'lsa o'rganmaslik
+            if "<<<ACTION:" in reply or any(w in prompt.lower() for w in ("salom", "kim yozdi", "eslat", "rahmat", "lokatsiya")):
+                return
+
+            if not self._groq_clients:
+                return
+            client = self._groq_clients[self._groq_idx % len(self._groq_clients)]
+            extract_prompt = (
+                f"Quyidagi foydalanuvchi so'rovi va berilgan texnik yechimdan kelajakda AI agent uchun asqotadigan "
+                f"1 ta universal texnik xulosa, qoida yoki arxitekturaviy saboq bormi?\n\n"
+                f"So'rov: {prompt[:400]}\n"
+                f"Yechim: {reply[:600]}\n\n"
+                f"Agar bu oddiy gap yoki umumiy ma'lumot bo'lsa, FAQAT 'NO_INSIGHT' deb yozing.\n"
+                f"Agar muhim texnik saboq yoki doimiy qoida bo'lsa, FAQAT quyidagi JSON formatida bering:\n"
+                f'{{"topic": "qisqa_mavzu", "insight": "1 jumlalik aniq amaliy qoida"}}'
+            )
+            res = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=config.groq_model,
+                    messages=[
+                        {"role": "system", "content": "Siz bilim va xulosalarni ixcham ekstraksiya qiluvchi mutaxassissiz."},
+                        {"role": "user", "content": extract_prompt},
+                    ],
+                    temperature=0.1,
+                    max_tokens=150,
+                ),
+                timeout=6.0,
+            )
+            text = res.choices[0].message.content.strip()
+            if "NO_INSIGHT" in text or "{" not in text:
+                return
+            match = re.search(r"\{.*?\}", text, re.DOTALL)
+            if match:
+                data = json.loads(match.group(0))
+                topic = str(data.get("topic", "")).strip()
+                insight = str(data.get("insight", "")).strip()
+                if topic and insight and len(insight) > 10:
+                    memory_service.record_autonomous_insight(topic, insight)
+                    logger.info("🧠 Agent o'z tajribasidan yangi qoida o'rgandi: [%s] %s", topic, insight)
+        except Exception as e:
+            logger.debug("Avtonom bilim ekstraksiyasida xatolik (e'tiborsiz): %s", e)
+
     async def _generate_with_groq_pod(
         self,
         c_gen,
@@ -1048,96 +1098,153 @@ class AIService:
         model_name: str | None = None,
     ) -> str:
         """
-        3 talik komanda (Pod Klaster) orqali chuqur tahlil qilingan xatosiz javob generatsiya qilish:
-        1-Agent: Draft / Coder (Dastlabki yechim)
-        2-Agent: Senior Reviewer (Xatolik va kamchiliklarni sinchkovlik bilan tekshirish)
-        3-Agent: Master Mentor (Yakuniy mukammal, toza, 100% to'g'ri javobni sayqallash)
+        3 talik konsilium (Pod Klaster - System 2) orqali chuqur tahlil qilingan xatosiz javob generatsiya qilish:
+        1-Agent: Lead Architect / Generator (Yechim va maqsad dekompozitsiyasi)
+        2-Agent: Senior Critic / Devil's Advocate (Edge-cases, risklar, anti-patternlar va xavfsizlik)
+        -> 1 va 2 - Agentlar PARALLEL (asyncio.gather) ishlaydi (tezlik yo'qotilmaydi ~0.5s)!
+        3-Agent: Master Executive Synthesizer (O'zini tekshirish - Self-Correction, fakt-cheking va yakuniy sayqallash)
+        + Epizodik xotira RAG va Avtonom tajriba yig'ish (Self-Learning).
         """
         target_model = model_name or config.groq_model
-        # 1. Generator
+
+        # 0. Epizodik xotira va o'rganilgan prinsiplar (RAG)
+        relevant_insights = memory_service.get_relevant_learned_insights(effective_prompt, limit=3)
+        learned_context_str = ""
+        if relevant_insights:
+            learned_context_str = "\n".join([f"• [{f['topic'].upper()}]: {f['content']}" for f in relevant_insights])
+
+        # 1 & 2. Generator va Critic / Devil's Advocate ni parallel ishga tushirish
         calc_max_tokens = 800
-        res_gen = await self._call_groq_with_metrics(
-            c_gen,
-            model_name=target_model,
-            messages=messages,
-            temperature=0.6 if is_admin_mode else 0.4,
-            max_tokens=calc_max_tokens,
-        )
+
+        # Critic uchun maqsadli ko'rsatma
+        if is_admin_mode:
+            crit_prompt = (
+                f"Siz Senior Critic, Xavfsizlik tahlilchisi va Devil's Advocate arxitektori bo'lasiz.\n"
+                f"Mentor (Nuriddin aka) so'rovi: «{effective_prompt[:1000]}»\n\n"
+                f"Vazifangiz:\n"
+                f"1. Ushbu topshiriqda qanday yashirin xavflar, cheklovlar, edge-case lar (burchakli holatlar) va anti-patternlar bor?\n"
+                f"2. Qanday yondashuv bu yerda eng to'g'ri, mustahkam (robust) va xavfsiz bo'ladi? Yomon yondashuvlardan ogohlantiring.\n"
+                f"Qisqa, lo'nda 2-4 ta punktda tahliliy xulosa bering."
+            )
+            crit_sys = "Siz Senior Technical Critic, Security & Edge-Case Specialist va Devil's Advocate tahlilchisisiz."
+        else:
+            crit_prompt = (
+                f"Siz Senior Code Reviewer mutaxassisisiz.\n"
+                f"O'quvchi so'rovi: «{effective_prompt[:1000]}»\n\n"
+                f"Vazifangiz:\n"
+                f"1. Ushbu mavzuda o'quvchilar eng ko'p yo'l qo'yadigan mantiqiy yoki sintaksis xatolar nima?\n"
+                f"2. Sokratik va eng maqbul o'rgatish yo'li qanday bo'lishi kerak?\n"
+                f"Qisqa punktlarda ayting."
+            )
+            crit_sys = "Siz Senior Code Reviewer va Ta'lim metodisti mutaxassisisiz."
+
+        async def _call_generator():
+            return await self._call_groq_with_metrics(
+                c_gen,
+                model_name=target_model,
+                messages=messages,
+                temperature=0.5 if is_admin_mode else 0.4,
+                max_tokens=calc_max_tokens,
+            )
+
+        async def _call_critic():
+            crit_model = "openai/gpt-oss-120b" if "gpt-oss" not in target_model.lower() else target_model
+            try:
+                return await asyncio.wait_for(
+                    c_rev.chat.completions.create(
+                        model=crit_model,
+                        messages=[
+                            {"role": "system", "content": crit_sys},
+                            {"role": "user", "content": crit_prompt},
+                        ],
+                        temperature=0.2,
+                        max_tokens=500,
+                    ),
+                    timeout=8.0,
+                )
+            except Exception:
+                return await asyncio.wait_for(
+                    c_rev.chat.completions.create(
+                        model=target_model,
+                        messages=[
+                            {"role": "system", "content": crit_sys},
+                            {"role": "user", "content": crit_prompt},
+                        ],
+                        temperature=0.2,
+                        max_tokens=500,
+                    ),
+                    timeout=8.0,
+                )
+
+        # Ikkala modelni bir vaqtda parallel ishga tushiramiz (latency ~0.5s)
+        res_gen, res_crit = await asyncio.gather(_call_generator(), _call_critic(), return_exceptions=True)
+
+        if isinstance(res_gen, Exception):
+            raise res_gen
+
         draft = res_gen.choices[0].message.content.strip()
 
-        # Agar javobda Telegram ACTION buyrug'i bo'lsa (qidirish, topish va h.k.), darhol qaytarish
+        # Agar javobda Telegram ACTION buyrug'i bo'lsa (qidirish, eslatma va h.k.), darhol qaytarish
         if "<<<ACTION:" in draft:
             return draft
 
         # Agar qisqa javob bo'lsa yoki salomlashuv bo'lsa, ortiqcha cho'zmasdan qaytarish
-        if len(draft.split()) < 30:
+        if len(draft.split()) < 25:
             return draft
 
-        # 2. Reviewer
+        critique = ""
+        if not isinstance(res_crit, Exception) and hasattr(res_crit, "choices") and res_crit.choices:
+            critique = res_crit.choices[0].message.content.strip()
+
+        # 3. Master Executive Synthesizer (O'zini tekshirish - Self-Correction & Fact-Checking)
         try:
-            if is_admin_mode:
-                rev_prompt = (
-                    f"Siz CoddyCamp IT akademiyasining Katta Texnik Maslahatchisi va Senior Co-Pilot tahlilchisisiz.\n"
-                    f"Mentor (Nuriddin aka) so'rovi: «{effective_prompt[:800]}»\n\n"
-                    f"Taklif qilingan dastlabki yechim:\n```\n{draft[:2000]}\n```\n\n"
-                    f"Vazifangiz: Ushbu yechimni sinchiklab tekshiring:\n"
-                    f"1. Mentor savoliga to'laqonli, eng to'g'ri, chuqur va amaliy foydali javob berilganmi?\n"
-                    f"2. Agar dasturlash kodi bo'lsa, sintaksis yoki mantiqiy xatolar bormi?\n"
-                    f"3. Yechimni qanday qilib yanada mukammal qilish mumkin? Qisqa punktlarda ayting (hammasi a'lo bo'lsa, 'HAMMASI TO'G'RI' deb yozing)."
+            syn_prompt_parts = [
+                f"{effective_prompt}\n",
+            ]
+            if learned_context_str:
+                syn_prompt_parts.append(
+                    f"[O'TMISH TAJRIBALARI VA O'RGANILGAN QOIDALAR (EPISODIC MEMORY)]:\n{learned_context_str}\n"
                 )
-                rev_sys = "Siz Senior Co-Pilot va Katta Texnik Maslahatchisiz. Mentorga berilayotgan tahlil sifatini oshirasiz."
-            else:
-                rev_prompt = (
-                    f"Siz CoddyCamp IT akademiyasining Senior Code Reviewer mutaxassisisiz.\n"
-                    f"Foydalanuvchi so'rovi: «{effective_prompt[:800]}»\n\n"
-                    f"Dasturchi taklif qilgan dastlabki yechim:\n```\n{draft[:2000]}\n```\n\n"
-                    f"Vazifangiz: Ushbu yechimni sinchiklab tekshiring:\n"
-                    f"1. Kodda sintaksis, mantiqiy xatolar yoki cheksiz sikllar (infinite loops) bormi?\n"
-                    f"2. Savolga to'liq, to'g'ri va eng maqbul yo'l bilan javob berilganmi?\n"
-                    f"3. Nimalarni to'g'rilash yoki yaxshilash kerak? Qisqa punktlarda ayting (agar hammasi mukammal bo'lsa, 'KOD TO'G'RI' deb yozing)."
-                )
-                rev_sys = "Siz Senior Code Reviewer mutaxassisisiz. Kod xatolarini tekshirasiz."
-            res_rev = await asyncio.wait_for(
-                c_rev.chat.completions.create(
-                    model=target_model,
-                    messages=[
-                        {"role": "system", "content": rev_sys},
-                        {"role": "user", "content": rev_prompt},
-                    ],
-                    temperature=0.2,
-                    max_tokens=600,
-                ),
-                timeout=12.0,
+            syn_prompt_parts.append(
+                f"[BOSHQARUV TAHLILI - DASTLABKI YECHIM]:\n{draft}\n"
             )
-            review = res_rev.choices[0].message.content.strip()
-        except Exception as rev_err:
-            logger.debug("Reviewer qadamida ogohlantirish (draft qaytariladi): %s", rev_err)
-            return draft
+            if critique:
+                syn_prompt_parts.append(
+                    f"[TANQIDIY TAHLIL VA XAVFLAR (DEVIL'S ADVOCATE & CRITIQUE)]:\n{critique}\n"
+                )
 
-        # 3. Master Mentor Synthesizer
-        try:
+            instructions = (
+                "Ko'rsatma (Executive Synthesis & Self-Correction):\n"
+                "1. O'zini tekshirish (Self-Correction): Dastlabki yechimni tanqidiy tahlil bilan solishtiring. "
+                "Har qanday mantiqiy xato, chala joy yoki noaniqlikni tuzating.\n"
+                "2. Fact-Checking: Soxta/mavjud bo'lmagan kutubxona yoki sintaksis ishlatilmaganiga 100% ishonch hosil qiling.\n"
+                "3. Mustaqil fikr: Shunchaki rozi bo'lavermasdan, eng professional, toza va optimal yakuniy yechimni shakllantiring.\n"
+                "4. Foydalanuvchiga to'g'ridan-to'g'ri yakuniy mukammal javobni taqdim eting (ichki tahlil, review yoki solishtirish jarayonini ko'rsatmang)."
+            )
+            syn_prompt_parts.append(instructions)
+
             syn_messages = [
                 {"role": "system", "content": sys_prompt},
                 {
                     "role": "user",
-                    "content": (
-                        f"{effective_prompt}\n\n"
-                        f"[Ichki tahlil - Dastlabki yechim]:\n{draft}\n\n"
-                        f"[Ichki tahlil - Senior Reviewer xulosasi]:\n{review}\n\n"
-                        f"Ko'rsatma: Ikkala tahlilni birlashtirib, foydalanuvchiga eng mukammal, toza, 100% to'g'ri va samimiy yakuniy javobni taqdim eting. "
-                        f"Ichki tahlil jarayonini (review so'zlarini) ko'rsatmasdan, to'g'ridan-to'g'ri tayyor mukammal javobni bering."
-                    ),
+                    "content": "\n".join(syn_prompt_parts),
                 },
             ]
             res_syn = await self._call_groq_with_metrics(
                 c_syn,
                 model_name=target_model,
                 messages=syn_messages,
-                temperature=0.5 if is_admin_mode else 0.3,
+                temperature=0.4 if is_admin_mode else 0.3,
                 max_tokens=800,
             )
             final_reply = res_syn.choices[0].message.content.strip()
-            return final_reply if final_reply else draft
+            result = final_reply if final_reply else draft
+
+            # 4. Avtonom o'z ustida ishlash (Background Continuous Learning)
+            if is_admin_mode and result and len(result.split()) >= 25:
+                asyncio.create_task(self._extract_and_save_insight(effective_prompt, result))
+
+            return result
         except Exception as syn_err:
             logger.debug("Synthesizer qadamida ogohlantirish (draft qaytariladi): %s", syn_err)
             return draft
@@ -1198,23 +1305,38 @@ class AIService:
 
             messages.append({"role": "user", "content": effective_prompt})
 
-        # 3 talik komanda (Pod Klaster) orqali murakkab savollarga xatosiz javob berish
-        # DIQQAT: O'quvchilar va guruhlar uchun tezkor 2 soniyalik to'g'ridan-to'g'ri model ishlatiladi.
-        # Pod klaster faqat admin (mentor) rejimida ortiqcha vaqt va limit yo'qotmaslik uchun qo'llaniladi.
-        is_group_chat = (chat_id < 0)
+        # Adaptive Cognitive Gating (System 1 vs System 2):
+        # 1. Tezkor refleks (System 1): Oddiy salomlashuvlar, Telegram Action buyruqlari yoki o'quvchilar guruhida to'g'ridan-to'g'ri tezkor javob (~0.3s).
+        # 2. Chuqur tahlil (System 2): Vazifalar guruhida yoki admin rejimida murakkab dasturlash, tahlil, rejalashtirish yoki arxitektura masalalarida Multi-Model Konsilium Pod ishga tushadi (~1.0s).
+        is_student_group = (chat_id < 0 and not is_escalation_chat(chat_id))
+        is_simple_query = (
+            len(effective_prompt.split()) <= 4
+            and any(w in effective_prompt.lower() for w in (
+                "salom", "assalom", "privet", "zdravstvuyte", "rahmat", "spasibo",
+                "ok", "tushundim", "ha", "yo'q", "yaxshi", "kimsan", "qayerdasan"
+            ))
+        )
+        is_action_query = any(k in effective_prompt.lower() for k in (
+            "kim yozdi", "kim yozgan", "oxirgi xabar", "eslat", "remind", "jadval",
+            "lokatsiya", "turgan joy", "joylashuv", "statistika"
+        ))
         is_complex = (
             is_admin_mode
             and not image_bytes
-            and not is_group_chat
+            and not is_student_group
+            and not is_simple_query
+            and not is_action_query
             and len(self._groq_clients) >= 3
             and (
                 any(k in effective_prompt.lower() for k in (
                     "kod", "xato", "error", "exception", "yoz", "tuz", "funksiya", "function",
                     "def ", "class ", "for ", "if ", "while", "import ", "tushuntir", "qanday",
                     "masala", "vazifa", "lms", "python", "javascript", "sql", "bug", "yordam",
-                    "ishlamayapti", "chiqmayapti", "tekshir", "tahlil"
+                    "ishlamayapti", "chiqmayapti", "tekshir", "tahlil", "reja", "arxitektura",
+                    "qanday qilsak", "nima deysan", "fikring", "strategiya", "optimal", "maslahat",
+                    "loyixa", "loyiha", "backend", "frontend", "baza", "database"
                 ))
-                or len(effective_prompt.split()) >= 8
+                or len(effective_prompt.split()) >= 7
             )
         )
 
