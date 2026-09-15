@@ -1686,7 +1686,7 @@ class AIService:
                     logger.error("Gemini zaxira tizimida ham xatolik: %s", gemini_err)
 
             if not answer:
-                answer = "Kechirasiz, ushbu xabarga aniq javob shakllantirib bo'lmadi."
+                answer = "Hozirda tizimda yuklama yuqori bo'lgani sababli javob bera olmadim. Iltimos, 1 daqiqadan so'ng qayta urinib ko'ring! ⏳"
 
             # Eskalyatsiya blokini ajratish
             escalation_info = None
