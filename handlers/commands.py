@@ -337,10 +337,16 @@ def register_command_handlers(client: TelegramClient) -> None:
 
             if target_id:
                 res = memory_service.unignore_user(target_id)
+                memory_service.clear_user_quota(target_id)
+                try:
+                    from services.telegram_agent_service import unblock_telegram_user
+                    await unblock_telegram_user(client, target_id)
+                except Exception:
+                    pass
                 if res:
-                    await event.edit(f"✅ **Foydalanuvchi `{target_id}` blokdan chiqarildi!**\n• AI yana uning savollariga javob beradi.")
+                    await event.edit(f"✅ **Foydalanuvchi `{target_id}` blokdan chiqarildi!**\n• Telegram qora ro'yxatidan ham chiqarildi.\n• AI yana uning savollariga javob beradi.")
                 else:
-                    await event.edit(f"ℹ️ Foydalanuvchi `{target_id}` bloklanganlar ro'yxatida topilmadi.")
+                    await event.edit(f"✅ **Foydalanuvchi `{target_id}` Telegram blokidan chiqarildi.**")
             else:
                 await event.edit("ℹ️ **Foydalanish:** `ai unignore @username`")
             return

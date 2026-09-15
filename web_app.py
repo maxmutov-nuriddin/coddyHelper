@@ -525,6 +525,14 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             data = await request.json()
             uid = int(data.get("user_id"))
             success = memory_service.unignore_user(uid)
+            memory_service.clear_user_quota(uid)
+            client = get_client_func() if callable(get_client_func) else None
+            if client:
+                try:
+                    from services.telegram_agent_service import unblock_telegram_user
+                    await unblock_telegram_user(client, uid)
+                except Exception:
+                    pass
             return web.json_response({"ok": success})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=400)
