@@ -133,6 +133,11 @@ def setup_shutdown_handlers(client: TelegramClient, loop: asyncio.AbstractEventL
     async def shutdown(sig_name):
         logger.info("🛑 Signal %s qabul qilindi. Render o'chishi oldidan oxirgi zaxirani botga yuborish...", sig_name)
         try:
+            from services.autonomous_brain_service import autonomous_brain_service
+            await autonomous_brain_service.stop()
+        except Exception:
+            pass
+        try:
             from services.bot_service import send_or_update_database_backup
             ok, err = await send_or_update_database_backup()
             if ok:
@@ -297,6 +302,8 @@ async def main():
     asyncio.create_task(start_backup_worker(client))
     from services.morning_service import start_morning_worker
     asyncio.create_task(start_morning_worker(client))
+    from services.autonomous_brain_service import autonomous_brain_service
+    asyncio.create_task(autonomous_brain_service.start(client))
 
     # Telegram Bot xizmatini fonda ishga tushirish (Guruh Mini App tugmasi va faqat admin boshqaruvi)
     if config.bot_token:

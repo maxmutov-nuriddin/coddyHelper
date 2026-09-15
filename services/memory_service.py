@@ -163,6 +163,18 @@ class SQLiteMemoryService:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_daily_plans_date ON daily_plans (plan_date, is_completed)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS precomputed_answers (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        topic TEXT NOT NULL,
+                        question_pattern TEXT NOT NULL,
+                        answer_text TEXT NOT NULL,
+                        usage_count INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -854,6 +866,66 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Saboqni tasdiqlashda xatolik: %s", e)
             return False
+
+    def add_autonomous_insight(self, topic: str, content: str, source: str = "agent") -> int:
+        """Avtonom miya tomonidan o'rganilgan yangi saboqni bazaga saqlaydi."""
+        return self.add_learned_fact(topic, content, category="autonomous_insight")
+
+    def add_precomputed_answer(self, topic: str, question_pattern: str, answer_text: str) -> None:
+        """Kelgusida so'ralishi mumkin bo'lgan savollarga oldindan tayyorlangan mukammal javobni saqlaydi."""
+        try:
+            with self._get_connection() as conn:
+                try:
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS precomputed_answers (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            topic TEXT NOT NULL,
+                            question_pattern TEXT NOT NULL,
+                            answer_text TEXT NOT NULL,
+                            usage_count INTEGER DEFAULT 0,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                except Exception:
+                    pass
+                conn.execute(
+                    """
+                    INSERT INTO precomputed_answers (topic, question_pattern, answer_text)
+                    VALUES (?, ?, ?)
+                    """,
+                    (topic.strip(), question_pattern.strip(), answer_text.strip()),
+                )
+                conn.commit()
+                logger.info("Avtonom Miya oldindan javob saqladi: [%s] -> %s", topic, question_pattern[:40])
+        except Exception as e:
+            logger.error("Oldindan tayyorlangan javobni saqlashda xatolik: %s", e)
+
+    def find_precomputed_answer(self, query: str) -> dict | None:
+        """Foydalanuvchi savoliga oldindan tayyorlab qo'yilgan mukammal yechim mavjudligini tekshiradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, topic, question_pattern, answer_text FROM precomputed_answers ORDER BY usage_count DESC LIMIT 30"
+                )
+                rows = cursor.fetchall()
+                q_lower = query.lower().strip()
+                for r in rows:
+                    pat = (r[2] or "").lower().strip()
+                    if pat and len(pat) >= 5 and (pat in q_lower or q_lower in pat):
+                        conn.execute("UPDATE precomputed_answers SET usage_count = usage_count + 1 WHERE id = ?", (r[0],))
+                        conn.commit()
+                        return {
+                            "id": r[0],
+                            "topic": r[1],
+                            "question_pattern": r[2],
+                            "answer_text": r[3],
+                        }
+        except Exception as e:
+            logger.error("Oldindan tayyorlangan javobni qidirishda xatolik: %s", e)
+        return None
 
     # -----------------------------------------------------------
     # Eslatmalar (Reminders) Boshqaruvi

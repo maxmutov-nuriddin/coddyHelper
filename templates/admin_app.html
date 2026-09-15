@@ -1114,6 +1114,19 @@
           </div>
         </div>
 
+        <!-- 4-BRAIN ARCHITECTURE OVERVIEW -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+            <div style="font-size: 12px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
+              <span>🧠</span> 4-Miya Arxitekturasi (Limitlar Izolyatsiyasi):
+            </div>
+            <span id="ai-brains-count-badge" class="badge badge-success" style="font-size: 10px; padding: 2px 8px; white-space: nowrap !important; flex-shrink: 0;">4 ta mustaqil miya</span>
+          </div>
+          <div id="ai-brains-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
+            <!-- JS to'ldiradi -->
+          </div>
+        </div>
+
         <!-- MULTI-AGENT POD TEAMS STATUS -->
         <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
@@ -2237,6 +2250,53 @@
         cCont.innerHTML = html;
       }
 
+      // Render 4-Brain Architecture
+      const bCont = document.getElementById('ai-brains-container');
+      if (bCont) {
+        const brainCards = [
+          {
+            title: 'Miya 1: Frontline',
+            badge: `${metrics.frontline_keys_count || 12} kalit (Jamoa #1-#4)`,
+            badgeColor: '#2ea6ff',
+            desc: "O'quvchilar va umumiy chatlar. Sokratik metodika.",
+            icon: '👨‍🎓'
+          },
+          {
+            title: 'Miya 2: VIP Vazifalar',
+            badge: `${metrics.vip_keys_count || 9} kalit (Jamoa #5-#7)`,
+            badgeColor: '#22c55e',
+            desc: "Vazifalar guruhi & Mentor. 100% himoyalangan mustaqil limit!",
+            icon: '👑'
+          },
+          {
+            title: 'Miya 3: Temir Zaxira',
+            badge: 'Gemini (1M context)',
+            badgeColor: '#f59e0b',
+            desc: "Favqulodda vaziyatlar va Groq limitlari uchun.",
+            icon: '🛡️'
+          },
+          {
+            title: 'Miya 4: Avtonom Ong',
+            badge: `${metrics.autonomous_keys_count || 9} kalit (Jamoa #8-#10)`,
+            badgeColor: '#a855f7',
+            desc: "Daemon: o'rganish, saboqlar va oldindan kesh yechimlar.",
+            icon: '🧬'
+          }
+        ];
+
+        bCont.innerHTML = brainCards.map(b => `
+          <div style="border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px;">
+              <span style="font-weight: 700; color: #fff;">${b.icon} ${escapeHtml(b.title)}</span>
+              <span style="background: ${b.badgeColor}22; color: ${b.badgeColor}; border: 1px solid ${b.badgeColor}55; font-size: 9px; padding: 1px 6px; border-radius: 4px; font-weight: 700;">${b.badge}</span>
+            </div>
+            <div style="font-size: 10px; color: var(--hint-color); line-height: 1.3;">
+              ${escapeHtml(b.desc)}
+            </div>
+          </div>
+        `).join('');
+      }
+
       // Render Teams / Pods
       const teams = metrics.teams || [];
       const activeTeamId = metrics.active_team_id || 1;
@@ -2264,6 +2324,7 @@
                 <div style="min-width: 0; flex: 1;">
                   <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                     <span style="font-weight: 700; color: ${isTActive ? '#22c55e' : '#fff'};">${escapeHtml(t.name)}</span>
+                    <span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(46,166,255,0.12); color: #64b5f6; font-weight: 600;">${escapeHtml(t.brain || '')}</span>
                     <span style="font-size: 10.5px; color: var(--hint-color);">(${t.members_count} ta Agent: ${escapeHtml(t.roles || '')})</span>
                   </div>
                   <div style="font-size: 10.5px; color: var(--hint-color); margin-top: 2px;">
@@ -2324,7 +2385,7 @@
                   ${k.key_masked}
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 9.5px; color: var(--hint-color); margin-top: 1px;">
-                  <span>Jamoa #${k.team_id}</span>
+                  <span style="color: #64b5f6; font-weight: 600;">${escapeHtml(k.brain ? k.brain.split(':')[0] : 'J#' + k.team_id)} • J#${k.team_id}</span>
                   <span style="color: #2ea6ff; font-weight: 600;">${k.requests_count || 0} req</span>
                 </div>
               </div>

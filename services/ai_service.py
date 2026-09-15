@@ -676,7 +676,14 @@ class AIService:
         self._groq_clients: list[Any] = []
         self._groq_keys: list[str] = []
         self._client_to_idx: dict[int, int] = {}
+        # 3 ta mustaqil va limitlari ajratilgan kalitlar hovuzi:
+        self._frontline_clients: list[Any] = []   # Miya 1: O'quvchilar va umumiy chatlar
+        self._vip_clients: list[Any] = []         # Miya 2: VIP Vazifalar guruhi & Mentor
+        self._autonomous_clients: list[Any] = []  # Miya 4: Avtonom O'rganuvchi Ong (Daemon)
         self._groq_idx: int = 0
+        self._frontline_idx: int = 0
+        self._vip_idx: int = 0
+        self._autonomous_idx: int = 0
         self._last_active_key_idx: int = 0
         self._last_active_team_idx: int = 1
         self._key_stats: dict[int, dict[str, Any]] = {}
@@ -716,6 +723,9 @@ class AIService:
     def restart(self) -> None:
         """AI Service holatini to'liq tozalaydi, kalitlarni qayta ulaydi va barcha statuslarni tiklaydi."""
         self._groq_idx = 0
+        self._frontline_idx = 0
+        self._vip_idx = 0
+        self._autonomous_idx = 0
         self._last_active_key_idx = 0
         self._last_active_team_idx = 1
         self._key_stats = {}
@@ -871,12 +881,37 @@ class AIService:
 
     def get_metrics(self) -> dict[str, Any]:
         """Tizimning joriy AI modeli, TPM/RPM limitlari, kalitlar va jamoalar statistikasi."""
+        total_keys = len(self._groq_keys)
+        def _resolve_brain_info(k_idx: int) -> tuple[str, str]:
+            if total_keys >= 30:
+                if k_idx < 12:
+                    return "Miya 1: Frontline", "frontline"
+                elif k_idx < 21:
+                    return "Miya 2: VIP Vazifalar", "vip"
+                else:
+                    return "Miya 4: Avtonom Ong", "autonomous"
+            elif total_keys >= 20:
+                if k_idx < 12:
+                    return "Miya 1: Frontline", "frontline"
+                elif k_idx < 18:
+                    return "Miya 2: VIP Vazifalar", "vip"
+                else:
+                    return "Miya 4: Avtonom Ong", "autonomous"
+            else:
+                if k_idx < len(self._frontline_clients):
+                    return "Miya 1: Frontline", "frontline"
+                elif k_idx < len(self._frontline_clients) + len(self._vip_clients):
+                    return "Miya 2: VIP Vazifalar", "vip"
+                else:
+                    return "Miya 4: Avtonom Ong", "autonomous"
+
         keys_pool = []
         for i, k in enumerate(self._groq_keys):
             masked = f"{k[:8]}...{k[-4:]}" if len(k) > 14 else (f"{k[:4]}..." if k else f"Key #{i+1}")
             stats = self._key_stats.get(i, {"requests": 0, "last_used": None, "status": "standby"})
             is_active = (i == self._last_active_key_idx)
             team_id = (i // 3) + 1
+            brain_name, brain_tag = _resolve_brain_info(i)
             st = stats.get("status", "standby")
             if is_active:
                 st = "active"
@@ -887,6 +922,8 @@ class AIService:
                 "index": i + 1,
                 "key_masked": masked,
                 "team_id": team_id,
+                "brain": brain_name,
+                "brain_tag": brain_tag,
                 "is_active": is_active,
                 "requests_count": stats.get("requests", 0),
                 "last_used": stats.get("last_used"),
@@ -900,15 +937,23 @@ class AIService:
             team_is_active = (t == self._last_active_team_idx)
             team_requests = sum(kp["requests_count"] for kp in team_keys)
             key_indices = [kp["index"] for kp in team_keys]
+            if t <= 4:
+                t_brain = "Miya 1: Frontline (Talabalar)"
+            elif t <= 7:
+                t_brain = "Miya 2: VIP Vazifalar (Mentor)"
+            else:
+                t_brain = "Miya 4: Avtonom Ong (Pre-Cognition)"
+
             teams.append({
                 "team_id": t,
                 "name": f"Jamoa #{t}",
+                "brain": t_brain,
                 "keys": key_indices,
                 "keys_text": f"Kalitlar: {', '.join(f'#{k}' for k in key_indices)}",
                 "is_active": team_is_active,
                 "requests_count": team_requests,
                 "members_count": len(team_keys),
-                "roles": "Coder, Reviewer, Synthesizer" if len(team_keys) >= 3 else "Assistent",
+                "roles": "Lead Coder, Senior Critic, Synthesizer" if len(team_keys) >= 3 else "Assistent",
                 "status": "active" if team_is_active else "standby",
             })
 
@@ -924,8 +969,36 @@ class AIService:
             "rate_limits": self._metrics.get("rate_limits", {}),
             "cascade_status": self._metrics.get("cascade_status", {}),
             "available_groq_keys": len(self._groq_clients),
+            "frontline_keys_count": len(self._frontline_clients),
+            "vip_keys_count": len(self._vip_clients),
+            "autonomous_keys_count": len(self._autonomous_clients),
             "active_key_index": (self._last_active_key_idx + 1) if self._groq_clients else 0,
             "active_team_id": self._last_active_team_idx if self._groq_clients else 0,
+            "brains": {
+                "miya_1_frontline": {
+                    "title": "Miya 1: Frontline (Talabalar & Chatlar)",
+                    "keys_count": len(self._frontline_clients),
+                    "status": "active" if self._frontline_clients else "standby",
+                    "role": "Barcha o'quvchilar va umumiy guruhlar so'rovlariga tezkor javob beradi (Jamoalar #1-#4)",
+                },
+                "miya_2_vip": {
+                    "title": "Miya 2: VIP Vazifalar Guruhi (O'ta muhim)",
+                    "keys_count": len(self._vip_clients),
+                    "status": "active" if self._vip_clients else "standby",
+                    "role": "Vazifalar guruhi va Mentor buyruqlari uchun 100% ajratilgan mustaqil limit (Jamoalar #5-#7)",
+                },
+                "miya_3_reserve": {
+                    "title": "Miya 3: Temir Zaxira (Google Gemini)",
+                    "status": "active" if self._gemini_client else "standby",
+                    "role": "Favqulodda vaziyatlar va Groq limitlari uchun zaxira (1M context)",
+                },
+                "miya_4_autonomous": {
+                    "title": "Miya 4: Avtonom Tafakkur Ongi (Daemon)",
+                    "keys_count": len(self._autonomous_clients),
+                    "status": "active" if self._autonomous_clients else "standby",
+                    "role": "Orqa fonda to'xtovsiz tafakkur qiladi, o'rganadi va yechimlarni oldindan tayyorlaydi (Jamoalar #8-#10)",
+                },
+            },
             "keys_pool": keys_pool,
             "teams": teams,
         }
@@ -1022,6 +1095,92 @@ class AIService:
             except Exception:
                 pass
 
+        # 3. 3 ta mustaqil miyaga kalitlar taqsimoti (Limitlar va TPM/RPM mutlaq izolyatsiya qilingan):
+        total = len(self._groq_clients)
+        if total >= 30:
+            # 30 ta kalit (10 ta 3 kishilik Pod komanda):
+            # Miya 1: Frontline (Talabalar & Umumiy) -> 12 ta kalit (Jamoalar #1-#4)
+            # Miya 2: VIP Vazifalar Guruhi -> 9 ta kalit (Jamoalar #5-#7)
+            # Miya 4: Avtonom O'rganuvchi Ong (Daemon) -> 9 ta kalit (Jamoalar #8-#10)
+            self._frontline_clients = self._groq_clients[:12]
+            self._vip_clients = self._groq_clients[12:21]
+            self._autonomous_clients = self._groq_clients[21:30]
+        elif total >= 20:
+            # 20 ta kalit:
+            self._frontline_clients = self._groq_clients[:12]
+            self._vip_clients = self._groq_clients[12:18]
+            self._autonomous_clients = self._groq_clients[18:total]
+        elif total >= 9:
+            f_end = (total * 4) // 10
+            v_end = f_end + (total * 3) // 10
+            self._frontline_clients = self._groq_clients[:f_end]
+            self._vip_clients = self._groq_clients[f_end:v_end]
+            self._autonomous_clients = self._groq_clients[v_end:]
+        elif total >= 3:
+            self._frontline_clients = [self._groq_clients[0]]
+            self._vip_clients = [self._groq_clients[1]]
+            self._autonomous_clients = self._groq_clients[2:]
+        else:
+            self._frontline_clients = list(self._groq_clients)
+            self._vip_clients = list(self._groq_clients)
+            self._autonomous_clients = list(self._groq_clients)
+
+        logger.info(
+            "🧠 Miyalararo Resurs Taqsimoti (Total: %d): Frontline=%d kalit, VIP Vazifalar=%d kalit, Avtonom Ong=%d kalit",
+            total,
+            len(self._frontline_clients),
+            len(self._vip_clients),
+            len(self._autonomous_clients),
+        )
+
+    def _get_active_pool(self, is_admin_mode: bool) -> tuple[list[Any], str]:
+        """So'rov turiga ko'ra mutlaqo ajratilgan kalitlar hovuzini tanlaydi."""
+        if is_admin_mode:
+            pool = self._vip_clients if self._vip_clients else self._groq_clients
+            return pool, "vip"
+        else:
+            pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+            return pool, "frontline"
+
+    async def generate_autonomous_reflection(self, prompt: str) -> str | None:
+        """
+        4-Miya (Avtonom Ong - Pre-Cognition) uchun maxsus orqa fon generatsiyasi.
+        MUTLAQ ISOLYATSIYA:
+        Faqatgina _autonomous_clients (Jamoalar #8-#10) kalitlaridan foydalanadi.
+        O'quvchilar (Frontline) va VIP Vazifalar guruhi limitlariga zarracha ta'sir qilmaydi.
+        """
+        pool = self._autonomous_clients if self._autonomous_clients else self._groq_clients
+        if not pool:
+            return None
+
+        candidate_models = [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+        for model_name in candidate_models:
+            max_try = min(3, len(pool))
+            for _ in range(max_try):
+                idx = self._autonomous_idx % len(pool)
+                self._autonomous_idx = (self._autonomous_idx + 1) % len(pool)
+                client = pool[idx]
+                k_real_idx = self._client_to_idx.get(id(client), 0)
+                self._mark_key_used(k_real_idx)
+                try:
+                    res = await client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": "Siz CoddyCamp IT akademiyasining ichki avtonom tafakkur miyasisiz (Miya 4)."},
+                            {"role": "user", "content": prompt},
+                        ],
+                        temperature=0.3,
+                        max_tokens=600,
+                    )
+                    txt = res.choices[0].message.content.strip()
+                    if txt:
+                        return txt
+                except Exception as e:
+                    logger.debug("Miya 4 avtonom generatsiyasida ogohlantirish (%s, kalit #%d): %s", model_name, k_real_idx + 1, e)
+                    if "429" in str(e) or "rate_limit" in str(e) or "413" in str(e):
+                        self._mark_key_error(k_real_idx, str(e))
+        return None
+
     @staticmethod
     def _estimate_tokens(messages: list[dict]) -> int:
         """Xabarlar to'plamining taxminiy tokenlar sonini hisoblaydi (1 token ~ 3.5 belgi)."""
@@ -1048,9 +1207,11 @@ class AIService:
             if "<<<ACTION:" in reply or any(w in prompt.lower() for w in ("salom", "kim yozdi", "eslat", "rahmat", "lokatsiya")):
                 return
 
-            if not self._groq_clients:
+            pool = self._autonomous_clients if self._autonomous_clients else self._groq_clients
+            if not pool:
                 return
-            client = self._groq_clients[self._groq_idx % len(self._groq_clients)]
+            client = pool[self._autonomous_idx % len(pool)]
+            self._autonomous_idx = (self._autonomous_idx + 1) % len(pool)
             extract_prompt = (
                 f"Quyidagi foydalanuvchi so'rovi va berilgan texnik yechimdan kelajakda AI agent uchun asqotadigan "
                 f"1 ta universal texnik xulosa, qoida yoki arxitekturaviy saboq bormi?\n\n"
@@ -1340,6 +1501,8 @@ class AIService:
             )
         )
 
+        pool, brain_type = self._get_active_pool(is_admin_mode)
+
         if image_bytes:
             candidate_models = [config.groq_vision_model]
         else:
@@ -1380,27 +1543,40 @@ class AIService:
                 continue
 
             # 1. 3 talik komanda (Pod Klaster) orqali ushbu modelda sinash
-            if is_complex:
-                idx1 = self._groq_idx % len(self._groq_clients)
-                idx2 = (self._groq_idx + 1) % len(self._groq_clients)
-                idx3 = (self._groq_idx + 2) % len(self._groq_clients)
-                self._groq_idx = (self._groq_idx + 3) % len(self._groq_clients)
+            if is_complex and len(pool) >= 3:
+                if brain_type == "vip":
+                    idx1 = self._vip_idx % len(pool)
+                    idx2 = (self._vip_idx + 1) % len(pool)
+                    idx3 = (self._vip_idx + 2) % len(pool)
+                    self._vip_idx = (self._vip_idx + 3) % len(pool)
+                else:
+                    idx1 = self._frontline_idx % len(pool)
+                    idx2 = (self._frontline_idx + 1) % len(pool)
+                    idx3 = (self._frontline_idx + 2) % len(pool)
+                    self._frontline_idx = (self._frontline_idx + 3) % len(pool)
 
-                team_num = (idx1 // 3) + 1
+                c_gen = pool[idx1]
+                c_rev = pool[idx2]
+                c_syn = pool[idx3]
+                k_id1 = self._client_to_idx.get(id(c_gen), 0)
+                k_id2 = self._client_to_idx.get(id(c_rev), 0)
+                k_id3 = self._client_to_idx.get(id(c_syn), 0)
+
+                team_num = (k_id1 // 3) + 1
                 self._last_active_team_idx = team_num
-                self._last_active_key_idx = idx1
-                self._mark_key_used(idx1)
-                self._mark_key_used(idx2)
-                self._mark_key_used(idx3)
+                self._last_active_key_idx = k_id1
+                self._mark_key_used(k_id1)
+                self._mark_key_used(k_id2)
+                self._mark_key_used(k_id3)
                 logger.info(
-                    "⚡ 3 talik komanda (Pod #%d) ishga tushirildi: Model [%s], [Kalit %d, %d, %d]",
-                    team_num, model_to_use, idx1 + 1, idx2 + 1, idx3 + 1,
+                    "⚡ 3 talik komanda (Pod #%d, Miya: %s) ishga tushirildi: Model [%s], [Kalit %d, %d, %d]",
+                    team_num, brain_type.upper(), model_to_use, k_id1 + 1, k_id2 + 1, k_id3 + 1,
                 )
                 try:
                     pod_result = await self._generate_with_groq_pod(
-                        self._groq_clients[idx1],
-                        self._groq_clients[idx2],
-                        self._groq_clients[idx3],
+                        c_gen,
+                        c_rev,
+                        c_syn,
                         active_messages,
                         effective_prompt,
                         sys_prompt,
@@ -1416,14 +1592,20 @@ class AIService:
             # 2. Ushbu model bo'yicha kalitlarni ketma-ket tekshirish (maksimal 3 ta kalit sinovi)
             model_success = False
             calc_max_tokens = 800
-            max_attempts = min(3, len(self._groq_clients))
+            max_attempts = min(3, len(pool))
             for _ in range(max_attempts):
-                curr_k_idx = self._groq_idx
-                client = self._groq_clients[curr_k_idx]
-                self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
-                self._last_active_key_idx = curr_k_idx
-                self._last_active_team_idx = (curr_k_idx // 3) + 1
-                self._mark_key_used(curr_k_idx)
+                if brain_type == "vip":
+                    curr_local_idx = self._vip_idx % len(pool)
+                    self._vip_idx = (self._vip_idx + 1) % len(pool)
+                else:
+                    curr_local_idx = self._frontline_idx % len(pool)
+                    self._frontline_idx = (self._frontline_idx + 1) % len(pool)
+
+                client = pool[curr_local_idx]
+                k_real_idx = self._client_to_idx.get(id(client), 0)
+                self._last_active_key_idx = k_real_idx
+                self._last_active_team_idx = (k_real_idx // 3) + 1
+                self._mark_key_used(k_real_idx)
                 try:
                     response = await self._call_groq_with_metrics(
                         client,
@@ -1478,7 +1660,7 @@ class AIService:
                 tiny_image = optimize_image_for_vision(image_bytes, max_dim=640, quality=65)
                 tiny_b64 = base64.b64encode(tiny_image).decode("utf-8")
                 messages[-1]["content"][1]["image_url"]["url"] = f"data:image/jpeg;base64,{tiny_b64}"
-                for client in self._groq_clients:
+                for client in pool:
                     try:
                         response = await client.chat.completions.create(
                             model=config.groq_vision_model,
@@ -1591,6 +1773,16 @@ class AIService:
                 memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
                 memory_service.add_message(chat_id=chat_id, role="model", content=fast_faq)
                 return AIResult(fast_faq)
+
+            # 4-Miya (Avtonom Ong) oldindan tayyorlab keshga qo'ygan yechimni tekshirish (0.02s)
+            precomputed = memory_service.find_precomputed_answer(user_message)
+            if precomputed:
+                ans_text = precomputed.get("answer_text", "")
+                if ans_text:
+                    logger.info("⚡ Avtonom Miya (Pre-computation) tayyor javobi qo'llanildi [%s: %s]", chat_id, precomputed.get("topic"))
+                    memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
+                    memory_service.add_message(chat_id=chat_id, role="model", content=ans_text)
+                    return AIResult(ans_text)
 
         # Javob berilayotgan kontekst
         effective_prompt = user_message
@@ -1745,8 +1937,10 @@ class AIService:
             "Javobni ortiqcha cho'zmasdan, chiroyli va lo'nda formatda yozing."
         )
 
-        if not self._groq_clients:
+        pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+        if not pool:
             self._setup_clients()
+            pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
         models_to_try = []
         for m in [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
@@ -1754,9 +1948,9 @@ class AIService:
                 models_to_try.append(m)
 
         for model_name in models_to_try:
-            for _ in range(len(self._groq_clients)):
-                client = self._groq_clients[self._groq_idx]
-                self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+            for _ in range(len(pool)):
+                client = pool[self._frontline_idx % len(pool)]
+                self._frontline_idx = (self._frontline_idx + 1) % len(pool)
                 try:
                     response = await client.chat.completions.create(
                         model=model_name,
@@ -1799,8 +1993,10 @@ class AIService:
             "DIQQAT: Faqat toza JSON formatida javob bering, kod bloki (```json) ham, ortiqcha so'z ham yozmang."
         )
 
-        if not self._groq_clients:
+        pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+        if not pool:
             self._setup_clients()
+            pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
         models_to_try = []
         for m in [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
@@ -1808,9 +2004,9 @@ class AIService:
                 models_to_try.append(m)
 
         for model_name in models_to_try:
-            for _ in range(len(self._groq_clients)):
-                client = self._groq_clients[self._groq_idx]
-                self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+            for _ in range(len(pool)):
+                client = pool[self._frontline_idx % len(pool)]
+                self._frontline_idx = (self._frontline_idx + 1) % len(pool)
                 try:
                     res = await client.chat.completions.create(
                         model=model_name,
@@ -1844,15 +2040,17 @@ class AIService:
         """
         Groq Whisper (whisper-large-v3) orqali ovozli xabarni o'zbek/rus tilida matnga o'giradi.
         """
-        if not self._groq_clients:
+        pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+        if not pool:
             self._setup_clients()
-            if not self._groq_clients:
+            pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+            if not pool:
                 raise RuntimeError("Ovozni tahlil qilish uchun Groq klasteri mavjud emas.")
 
         last_error = None
-        for _ in range(len(self._groq_clients)):
-            client = self._groq_clients[self._groq_idx]
-            self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+        for _ in range(len(pool)):
+            client = pool[self._frontline_idx % len(pool)]
+            self._frontline_idx = (self._frontline_idx + 1) % len(pool)
             try:
                 transcription = await client.audio.transcriptions.create(
                     file=("voice.ogg", audio_bytes),
@@ -1890,12 +2088,14 @@ class AIService:
             "Javobni professional, ixcham va tushunarli formatda bering."
         )
 
-        if not self._groq_clients:
+        pool = self._vip_clients if self._vip_clients else self._groq_clients
+        if not pool:
             self._setup_clients()
+            pool = self._vip_clients if self._vip_clients else self._groq_clients
 
-        for _ in range(len(self._groq_clients)):
-            client = self._groq_clients[self._groq_idx]
-            self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+        for _ in range(len(pool)):
+            client = pool[self._vip_idx % len(pool)]
+            self._vip_idx = (self._vip_idx + 1) % len(pool)
             try:
                 response = await client.chat.completions.create(
                     model=config.groq_model,
@@ -1937,12 +2137,14 @@ class AIService:
             "- FAQAT valid JSON qaytaring, boshqa hech qanday so'z yozmang."
         )
 
-        if not self._groq_clients:
+        pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+        if not pool:
             self._setup_clients()
+            pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
-        for _ in range(len(self._groq_clients)):
-            client = self._groq_clients[self._groq_idx]
-            self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+        for _ in range(len(pool)):
+            client = pool[self._frontline_idx % len(pool)]
+            self._frontline_idx = (self._frontline_idx + 1) % len(pool)
             try:
                 response = await client.chat.completions.create(
                     model=config.groq_model,
@@ -2051,12 +2253,14 @@ class AIService:
             "Javobni lo'nda, professional va o'quvchiga tushunarli tarzda bering."
         )
 
-        if not self._groq_clients:
+        pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+        if not pool:
             self._setup_clients()
+            pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
-        for _ in range(len(self._groq_clients)):
-            client = self._groq_clients[self._groq_idx]
-            self._groq_idx = (self._groq_idx + 1) % len(self._groq_clients)
+        for _ in range(len(pool)):
+            client = pool[self._frontline_idx % len(pool)]
+            self._frontline_idx = (self._frontline_idx + 1) % len(pool)
             try:
                 response = await client.chat.completions.create(
                     model=config.groq_model,

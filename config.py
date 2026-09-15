@@ -67,6 +67,9 @@ class Config:
         gemini_model = os.getenv("GEMINI_MODEL", "gemini-flash-latest").strip()
         
         raw_groq_keys = os.getenv("GROQ_API_KEYS", "").strip() or os.getenv("GROQ_API_KEY", "").strip()
+        raw_extra = os.getenv("GROQ_EXTRA_KEYS", "").strip() or os.getenv("GROQ_AUTONOMOUS_KEYS", "").strip()
+        if raw_extra:
+            raw_groq_keys = f"{raw_groq_keys},{raw_extra}".strip(",")
         groq_api_keys = [k.strip() for k in raw_groq_keys.split(",") if k.strip()]
         groq_api_key = groq_api_keys[0] if groq_api_keys else ""
         raw_groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()

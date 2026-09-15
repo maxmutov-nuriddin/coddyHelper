@@ -16,6 +16,7 @@ from aiohttp import web
 from config import config
 from services.memory_service import memory_service
 from services.ai_service import ai_service
+from services.autonomous_brain_service import autonomous_brain_service
 from services.telegram_agent_service import (
     search_telegram_messages,
     find_student_or_contact,
@@ -337,6 +338,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                     "name": "Teacher",
                 },
                 "ai_metrics": ai_service.get_metrics(),
+                "autonomous_brain": autonomous_brain_service.get_status(),
             }
         )
 
