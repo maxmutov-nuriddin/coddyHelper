@@ -392,15 +392,17 @@ async def check_is_vazifalar_chat(event) -> bool:
         return False
 
     chat_id = event.chat_id
-    if is_escalation_chat(chat_id):
-        return True
-    if str(chat_id).strip() in ("-5388159517", "-1005388159517", "5388159517"):
+    if is_escalation_chat(chat_id) or str(chat_id).strip() in ("-5388159517", "-1005388159517", "5388159517"):
+        from services.memory_service import memory_service
+        memory_service.set_setting("vazifalar_group_id", str(chat_id))
         return True
     try:
         chat = await event.get_chat()
         title = (getattr(chat, "title", "") or "").lower().strip()
         # FAQAT yagona shaxsiy Vazifalar boshqaruv markazi uchun (oddiy o'quvchilar guruhlari EMAS):
-        if title == "vazifalar" or title == "vazifalar markazi" or title.startswith("vazifalar (mentor"):
+        if "vazifa" in title or "boshqaruv" in title:
+            from services.memory_service import memory_service
+            memory_service.set_setting("vazifalar_group_id", str(chat_id))
             return True
     except Exception:
         pass

@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import aiohttp
-from config import config
+from config import config, get_vazifalar_chat_target
 from services.memory_service import memory_service
 
 logger = logging.getLogger("coddyHelper.morning_service")
@@ -93,9 +93,9 @@ async def send_morning_briefing(client, bot=None) -> bool:
         return False
     LAST_BRIEFING_DATE = today_str
 
-    vazifalar_chat = config.escalation_chat
-    if not vazifalar_chat:
-        vazifalar_chat = "-5388159517"
+    vazifalar_chat = await get_vazifalar_chat_target(client)
+    if str(vazifalar_chat).strip().lower() in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
+        vazifalar_chat = -1005388159517
 
     # 1. Ob-havo
     weather = await get_tashkent_weather()
@@ -123,17 +123,27 @@ async def send_morning_briefing(client, bot=None) -> bool:
     else:
         tasks_text = "Bugunga rejalashtirilgan vazifalar yo'q, kuningiz maroqli o'tsin! 😊"
 
+    target_user = config.mentor_user_id or 8105823872
     briefing_text = (
         f"☀️ **Xayrli tong, Nuriddin!** Bugun {date_uz}.\n\n"
         f"🌤 **Toshkent ob-havosi:** {weather['condition']} ({weather['temp']})\n\n"
         f"📋 **Bugungi kun rejalari:**\n{tasks_text}\n\n"
-        f"⏰ **Turdingizmi?** Kunni boshlashga tayyormisiz?\n"
+        f"⏰ **Turdingizmi?** Kunni boshlashga tayyormisiz? [Nuriddin](tg://user?id={target_user})\n"
         f"_(Iltimos, uyg'ongan bo'lsangiz 10 daqiqa ichida 'Ha', 'Turdim' deb javob bering yoki tasdiqlang)_"
     )
 
-    # 3. Yuborish (Vazifalar guruhiga)
+    # 3. Yuborish (FAQAT Vazifalar guruhiga, Izbrannoe / Saved Messages ga ASLO emas)
     sent = False
-    if config.bot_token:
+    # Telethon orqali Vazifalar guruhiga ovozli bildirishnoma (silent=False) bilan yetkazish
+    if client:
+        try:
+            await client.send_message(vazifalar_chat, briefing_text, silent=False)
+            sent = True
+            logger.info("☀️ Tongi brifing Telethon orqali Vazifalar guruhiga (%s) push bilan yetkazildi.", vazifalar_chat)
+        except Exception as c_err:
+            logger.warning("Telethon orqali tongi brifing yuborishda ogohlantirish: %s", c_err)
+
+    if not sent and config.bot_token:
         try:
             from aiogram import Bot
             b_inst = Bot(token=config.bot_token)
@@ -146,19 +156,11 @@ async def send_morning_briefing(client, bot=None) -> bool:
                     disable_notification=False,
                 )
                 sent = True
-                logger.info("☀️ Tongi brifing bot orqali Vazifalar guruhiga yetkazildi.")
+                logger.info("☀️ Tongi brifing bot orqali Vazifalar guruhiga (%s) yetkazildi.", c_id)
             finally:
                 await b_inst.session.close()
         except Exception as b_err:
-            logger.debug("Bot orqali tongi brifing yuborishda ogohlantirish: %s", b_err)
-
-    if not sent and client:
-        try:
-            await client.send_message(vazifalar_chat, briefing_text, silent=False)
-            sent = True
-            logger.info("☀️ Tongi brifing Telethon orqali Vazifalar guruhiga yetkazildi.")
-        except Exception as c_err:
-            logger.error("Telethon orqali tongi brifing yuborishda xatolik: %s", c_err)
+            logger.error("Bot orqali tongi brifing yuborishda xatolik: %s", b_err)
 
     # 4. Uyg'onish nazorati taymerini ishga tushirish (10 daqiqa)
     PENDING_WAKEUP = {
@@ -232,18 +234,44 @@ async def _monitor_wakeup_escalation(client, date_str: str, wait_seconds: float 
                 except Exception as ce:
                     logger.error("Telethon orqali favqulodda kontaktga (%s) yuborib bo'lmadi: %s", cid, ce)
 
-        # Vazifalar guruhiga ham bildirishnoma tashlash
-        vazifalar_chat = config.escalation_chat or "-5388159517"
+        # Vazifalar guruhiga ham bildirishnoma tashlash (ovozli bildirishnoma va teg bilan)
+        from config import get_vazifalar_chat_target
+        vazifalar_chat = await get_vazifalar_chat_target(client)
+        if str(vazifalar_chat).strip().lower() in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
+            vazifalar_chat = -1005388159517
+
         contacts_str = ", ".join(f"`{c}`" for c in contact_ids)
+        target_user = config.mentor_user_id or 8105823872
         group_notice = (
-            "⚠️ **Uyg'onish tasdiqlanmadi (10 daqiqa o'tdi).**\n\n"
+            f"⚠️ **Uyg'onish tasdiqlanmadi (10 daqiqa o'tdi).** [Nuriddin](tg://user?id={target_user})\n\n"
             f"Nuriddinni uyg'otish uchun favqulodda kontaktlarga ({contacts_str}) xushmuomala ogohlantirish yuborildi."
         )
-        try:
-            if client:
+        sent_g = False
+        if client:
+            try:
                 await client.send_message(vazifalar_chat, group_notice, silent=False)
-        except Exception:
-            pass
+                sent_g = True
+                logger.info("⚠️ Uyg'onish eskalatsiya xabari Telethon orqali Vazifalar guruhiga (%s) push bilan yetkazildi.", vazifalar_chat)
+            except Exception as ge:
+                logger.warning("Telethon orqali Vazifalar guruhiga eskalatsiya yuborishda ogohlantirish: %s", ge)
+
+        if not sent_g and config.bot_token:
+            try:
+                from aiogram import Bot
+                b_inst = Bot(token=config.bot_token)
+                try:
+                    c_id = int(vazifalar_chat) if str(vazifalar_chat).lstrip("-").isdigit() else vazifalar_chat
+                    await b_inst.send_message(
+                        chat_id=c_id,
+                        text=group_notice,
+                        parse_mode="Markdown",
+                        disable_notification=False,
+                    )
+                    logger.info("⚠️ Uyg'onish eskalatsiya xabari bot orqali Vazifalar guruhiga (%s) yetkazildi.", c_id)
+                finally:
+                    await b_inst.session.close()
+            except Exception as be:
+                logger.error("Bot orqali Vazifalar guruhiga eskalatsiya xabari yuborishda xatolik: %s", be)
 
 
 def is_wakeup_confirmation_text(text: str) -> bool:

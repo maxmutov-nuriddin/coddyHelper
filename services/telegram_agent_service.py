@@ -405,10 +405,11 @@ async def send_telegram_message(client, target_query: str, message_text: str) ->
     target_name = target
 
     try:
-        # Mentorning o'ziga yo'naltirilgan xabarlar (Nuriddin, ustoz, me, o'zimga)
+        # Mentorning o'ziga yo'naltirilgan xabarlar (Nuriddin, ustoz, me, o'zimga) -> Vazifalar guruhi
         if target.lower() in ("nuriddin", "nuriddinga", "ustoz", "teacher", "me", "o'zim", "ozim", "menga", "o'zimga"):
-            resolved_entity = "me"
-            target_name = "Nuriddin (Saved Messages)"
+            from config import get_vazifalar_chat_target_sync
+            resolved_entity = get_vazifalar_chat_target_sync()
+            target_name = "Vazifalar guruhi"
 
         # 1. Agar @username yoki telefon yoki to'g'ridan-to'g'ri chat ID bo'lsa
         if not resolved_entity and (target.startswith("@") or target.startswith("+") or re.match(r"^-?\d+$", target)):
@@ -490,8 +491,9 @@ async def schedule_telegram_message(
     resolved_entity = None
     target_name = target
     if target.lower() in ("nuriddin", "nuriddinga", "ustoz", "teacher", "me", "o'zim", "ozim", "menga", "o'zimga"):
-        resolved_entity = "me"
-        target_name = "Nuriddin (Saved Messages)"
+        from config import get_vazifalar_chat_target_sync
+        resolved_entity = get_vazifalar_chat_target_sync()
+        target_name = "Vazifalar guruhi"
     else:
         try:
             if target.startswith("@") or target.startswith("+") or re.match(r"^-?\d+$", target):
@@ -508,8 +510,9 @@ async def schedule_telegram_message(
             logger.debug("Entity qidirishda ogohlantirish: %s", ent_err)
 
     if not resolved_entity:
-        resolved_entity = "me"
-        target_name = f"{target} (eslatma sifatida)"
+        from config import get_vazifalar_chat_target_sync
+        resolved_entity = get_vazifalar_chat_target_sync()
+        target_name = "Vazifalar guruhi"
 
     # 2. Vaqtni aniqlash
     tashkent_tz = ZoneInfo("Asia/Tashkent")

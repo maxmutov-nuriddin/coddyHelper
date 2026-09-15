@@ -483,9 +483,10 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                         "error": "Sana yoki vaqt noto'g'ri kiritildi. Masalan: '25 09 2026 15:00' yoki '25.09.2026 15:00'"
                     }, status=400)
 
-            target = config.escalation_chat or "me"
-            s = str(target).strip()
-            chat_id = int(s) if (s.isdigit() or (s.startswith("-") and s[1:].isdigit())) else config.mentor_user_id
+            from config import get_vazifalar_chat_target_sync
+            chat_target = get_vazifalar_chat_target_sync()
+            s = str(chat_target).strip()
+            chat_id = int(s) if (s.isdigit() or (s.startswith("-") and s[1:].isdigit())) else -1005388159517
 
             rem_id = memory_service.add_reminder(
                 chat_id=chat_id,

@@ -44,7 +44,10 @@ async def record_mentor_activity_and_check(client=None):
         ALERTED_THIS_SESSION = True
         logger.info("☕️ Mentor uzluksiz 90 daqiqa faol bo'ldi. Dam olish eslatmasi yuborilmoqda...")
 
-        vazifalar_chat = config.escalation_chat or "-5388159517"
+        from config import get_vazifalar_chat_target
+        vazifalar_chat = await get_vazifalar_chat_target(client)
+        if str(vazifalar_chat).strip().lower() in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
+            vazifalar_chat = -1005388159517
         alert_msg = (
             "☕️ **Nuriddin aka, 1.5 soatdan beri Telegramda uzluksiz faolsiz!**\n\n"
             "Ko'zlaringiz toliqmasligi, miyangiz charchamasligi va sog'lig'ingiz uchun "

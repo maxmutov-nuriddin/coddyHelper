@@ -43,12 +43,16 @@ async def send_due_reminder_notification(
     target_user = config.mentor_user_id or 8105823872
 
     # 3. Guruh ID sini aniqlash:
-    # Foydalanuvchi talabi: Barcha eslatmalar FAQAT Vazifalar guruhida bo'lishi shart!
-    vazifalar_chat_id = config.escalation_chat
+    # Foydalanuvchi talabi: Barcha eslatmalar FAQAT Vazifalar guruhida bo'lishi shart! (Izbrannoe ga ASLO emas)
+    from config import get_vazifalar_chat_target_sync
+    vazifalar_chat_id = get_vazifalar_chat_target_sync()
     target_chat = chat_id
 
-    # Agar chat_id noto'g'ri bo'lsa (0 yoki "me"), Vazifalar guruhiga yo'naltirish
-    if not target_chat or str(target_chat).strip() in ("0", "me", "o'zim", "o'zimga", ""):
+    # Agar chat_id noto'g'ri bo'lsa (0, "me", o'zimga yoki shaxsiy id), Vazifalar guruhiga yo'naltirish
+    if not target_chat or str(target_chat).strip().lower() in ("0", "me", "o'zim", "o'zimga", "self", "8105823872", str(config.mentor_user_id), ""):
+        target_chat = vazifalar_chat_id
+
+    if str(target_chat).strip().lower() in ("me", "self", "8105823872", str(config.mentor_user_id)):
         target_chat = vazifalar_chat_id
 
     if isinstance(target_chat, str) and target_chat.strip().lstrip("-").isdigit():

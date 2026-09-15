@@ -40,7 +40,7 @@ class Config:
     group_reply_enabled: bool = True
     command_prefix: str = "."
     memory_limit: int = 10
-    escalation_chat: str = "me"
+    escalation_chat: str = "-1005388159517"
     bot_token: str = ""
     bot_username: str = "coddyassistanstbot"
     session_name: str = "coddy_helper_session"
@@ -79,7 +79,11 @@ class Config:
         auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
         group_reply_enabled = str_to_bool(os.getenv("GROUP_REPLY_ENABLED", "true"), default=True)
         command_prefix = os.getenv("COMMAND_PREFIX", ".").strip()
-        escalation_chat = os.getenv("ESCALATION_CHAT", "-5388159517").strip()
+        raw_esc = os.getenv("ESCALATION_CHAT", "-1005388159517").strip()
+        if not raw_esc or raw_esc.lower() in ("me", "self", "8105823872"):
+            escalation_chat = "-1005388159517"
+        else:
+            escalation_chat = raw_esc
         string_session = os.getenv("TELEGRAM_STRING_SESSION", "").strip()
 
         raw_port = os.getenv("PORT", "10000").strip()
@@ -169,7 +173,58 @@ def is_escalation_chat(chat_id: int | str) -> bool:
     if c_id == target:
         return True
     c_norm = c_id.replace("-100", "-")
-    t_norm = target.replace("-100", "-")
     return c_norm == t_norm
+
+
+async def get_vazifalar_chat_target(client=None) -> int | str:
+    """
+    Vazifalar (Boshqaruv markazi) guruhining haqiqiy ID sini aniqlaydi.
+    Izbrannoe (Saved Messages / 'me' / 8105823872) ga MUTLAQO HECH NARSANI yo'naltirmaydi!
+    """
+    try:
+        from services.memory_service import memory_service
+        saved = memory_service.get_setting("vazifalar_group_id") or memory_service.get_setting("tasks_group_id")
+        if saved and str(saved).strip().lower() not in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
+            val = str(saved).strip()
+            return int(val) if val.lstrip("-").isdigit() else val
+    except Exception:
+        pass
+
+    cfg = str(config.escalation_chat).strip()
+    if cfg and cfg.lower() not in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
+        return int(cfg) if cfg.lstrip("-").isdigit() else cfg
+
+    if client:
+        try:
+            dialogs = await client.get_dialogs(limit=40)
+            for d in dialogs:
+                if d.is_group or d.is_channel:
+                    title = (d.name or "").lower()
+                    if "vazifa" in title or "boshqaruv" in title:
+                        from services.memory_service import memory_service
+                        memory_service.set_setting("vazifalar_group_id", str(d.id))
+                        return d.id
+        except Exception:
+            pass
+
+    return -1005388159517
+
+
+def get_vazifalar_chat_target_sync() -> int | str:
+    """Sinxron kontekstda Vazifalar guruh ID sini oladi (hech qachon 'me' yoki Izbrannoe qaytarmaydi)."""
+    try:
+        from services.memory_service import memory_service
+        saved = memory_service.get_setting("vazifalar_group_id") or memory_service.get_setting("tasks_group_id")
+        if saved and str(saved).strip().lower() not in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
+            val = str(saved).strip()
+            return int(val) if val.lstrip("-").isdigit() else val
+    except Exception:
+        pass
+
+    cfg = str(config.escalation_chat).strip()
+    if cfg and cfg.lower() not in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
+        return int(cfg) if cfg.lstrip("-").isdigit() else cfg
+
+    return -1005388159517
 
 
