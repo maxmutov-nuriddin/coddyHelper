@@ -16,11 +16,12 @@ VOICE_UZBEK = "uz-UZ-SardorNeural"
 VOICE_RUSSIAN = "ru-RU-DmitryNeural"
 
 
-def clean_text_for_speech(text: str) -> str:
+def clean_text_for_speech(text: str, is_mentor: bool = True) -> str:
     """
-    Dasturlash matnini audio uchun tozalaydi:
-    - Katta kod bloklarini ixcham qilib, o'qilishi qulay holatga keltiradi.
+    Dasturlash va assistent matnini JARVIS uslubidagi tabiiy jonli nutqqa aylantiradi:
+    - Katta kod bloklarini ixcham qilib, chalg'itmaydigan holatga keltiradi.
     - Markdown belgilarini (**bold**, `code`, # sarlavhalar, havolalar) tozalaydi.
+    - Haddan tashqari uzun matnlarni 15-20 soniyalik lo'nda nutqqa moslashtiradi.
     """
     if not text:
         return ""
@@ -30,10 +31,12 @@ def clean_text_for_speech(text: str) -> str:
     # Eskalatsiya teglari bo'lsa tozalash
     t = re.sub(r"<<<ESCALATE>>>.*?<<<END_ESCALATE>>>", "", t, flags=re.DOTALL)
 
+    # Action teglari (<<<ACTION:...>>>) bo'lsa tozalash
+    t = re.sub(r"<<<ACTION:.*?>>>", "", t, flags=re.DOTALL)
+
     # Kod bloklarini aniqlash (``` ... ```)
     has_code_block = bool(re.search(r"```[\w]*\n(.*?)```", t, flags=re.DOTALL))
     if has_code_block:
-        # Kod bloklarini audio matnida oddiy tushuntirish bilan almashtiramiz
         t = re.sub(r"```[\w]*\n(.*?)```", "To'liq kodni quyidagi matnli xabarda yozib qoldirdim.", t, flags=re.DOTALL)
 
     # Inline kod belgilarini tozalash (`code`)
@@ -47,15 +50,26 @@ def clean_text_for_speech(text: str) -> str:
     t = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", t)  # Markdown links [text](url)
     t = re.sub(r"https?://\S+", "", t)        # URLs
 
-    # Emojilarni tozalash (ba'zi TTS dvigatellari emojilarni xunuk o'qiydi)
+    # Ro'yxat markerlari (•, -, 1., 2.)
+    t = re.sub(r"^\s*[•\-\*]\s+", "", t, flags=re.MULTILINE)
+    t = re.sub(r"^\s*\d+\.\s+", "", t, flags=re.MULTILINE)
+
+    # Emojilarni tozalash (TTS ovozlar emojilarni xunuk o'qimasligi uchun)
     t = re.sub(r"[^\w\s\.,!\?':;\-\(\)]", " ", t)
 
     # Ortiqcha probellarni tozalash
     t = re.sub(r"\s+", " ", t).strip()
 
-    # Juda uzun bo'lib ketmasligi uchun (maksimal 1000 belgi ovozda)
-    if len(t) > 1000:
-        t = t[:995] + "..."
+    # Agar matn juda uzun bo'lsa (20 soniyadan oshmasligi uchun eng muhim birinchi 3-4 jumla olinadi)
+    sentences = re.split(r"(?<=[.!?])\s+", t)
+    if len(t) > 350 and len(sentences) > 2:
+        short_spoken = " ".join(sentences[:3])
+        if is_mostly_russian(t):
+            t = f"{short_spoken} Подробный ответ и детали привел в текстовом сообщении."
+        else:
+            t = f"{short_spoken} To'liq tafsilotlarni quyidagi matnda keltirdim, Ustoz."
+    elif len(t) > 500:
+        t = t[:490] + "..."
 
     return t
 
@@ -65,20 +79,19 @@ def is_mostly_russian(text: str) -> bool:
     cyrillic_chars = len(re.findall(r"[\u0400-\u04FF]", text))
     total_letters = len(re.findall(r"[a-zA-Z\u0400-\u04FF]", text))
     if total_letters > 0 and (cyrillic_chars / total_letters) > 0.4:
-        # Ruscha so'zlarni tekshirish
-        ru_words = {"привет", "код", "ошибка", "как", "почему", "что", "это", "пожалуйста", "спасибо"}
+        ru_words = {"привет", "код", "ошибка", "как", "почему", "что", "это", "пожалуйста", "спасибо", "учитель", "здравствуйте"}
         lower_words = set(text.lower().split())
         if ru_words.intersection(lower_words):
             return True
     return False
 
 
-async def generate_voice_message(text: str) -> Path | None:
+async def generate_voice_message(text: str, is_mentor: bool = True) -> Path | None:
     """
-    Matnni tabiiy ovozga aylantiradi va audio fayl (.mp3) yo'lini qaytaradi.
+    Matnni tabiiy, sokin va professional JARVIS nutqiga aylantiradi (.mp3).
     Muvaffaqiyatsiz bo'lsa None qaytaradi.
     """
-    clean_text = clean_text_for_speech(text)
+    clean_text = clean_text_for_speech(text, is_mentor=is_mentor)
     if not clean_text or len(clean_text) < 2:
         return None
 
@@ -89,13 +102,14 @@ async def generate_voice_message(text: str) -> Path | None:
         tmp_dir.mkdir(parents=True, exist_ok=True)
         tmp_file = tmp_dir / f"voice_{int(asyncio.get_event_loop().time() * 1000)}.mp3"
 
-        communicate = edge_tts.Communicate(text=clean_text, voice=voice)
+        # +5% tezlik - nutqni chaqqon, professional va samimiy qiladi
+        communicate = edge_tts.Communicate(text=clean_text, voice=voice, rate="+5%")
         await communicate.save(str(tmp_file))
 
         if tmp_file.exists() and tmp_file.stat().st_size > 0:
-            logger.info("Edge-TTS ovozli xabar muvaffaqiyatli yaratildi: %s (Hajmi: %d bayt, Ovoz: %s)", tmp_file.name, tmp_file.stat().st_size, voice)
+            logger.info("🎙 JARVIS Ovozli xabar muvaffaqiyatli sintezlandi: %s (Hajmi: %d bayt, Ovoz: %s)", tmp_file.name, tmp_file.stat().st_size, voice)
             return tmp_file
     except Exception as e:
-        logger.error("Edge-TTS ovoz yaratishda xatolik: %s", e)
+        logger.error("JARVIS Ovoz sintezida xatolik: %s", e)
 
     return None
