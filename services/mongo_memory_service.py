@@ -495,9 +495,393 @@ class MongoMemoryService:
         except Exception:
             return False
 
+    def unblacklist_user(self, user_id: int) -> bool:
+        if not self.is_connected():
+            return False
+        try:
+            self._db["system_core.security_blacklist"].delete_one({"user_id": user_id})
+            return True
+        except Exception as e:
+            logger.error("MongoDB unblacklist_user xatolik: %s", e)
+            return False
+
+    def get_all_blacklisted_users(self) -> list[dict]:
+        if not self.is_connected():
+            return []
+        try:
+            return list(self._db["system_core.security_blacklist"].find().sort("created_at", -1))
+        except Exception:
+            return []
+
     # ==========================================
-    # 5. Zero-Loss SQLite -> MongoDB Migration
+    # Student Profiles (O'quvchilar)
     # ==========================================
+    def upsert_student_profile(
+        self,
+        user_id: int,
+        full_name: str,
+        username: str = "",
+        group_name: str = "",
+        status: str = "yaxshi",
+        strengths: str = "",
+        weaknesses: str = "",
+        mentor_notes: str = "",
+    ) -> bool:
+        if not self.is_connected() or not user_id:
+            return False
+        try:
+            doc = {
+                "user_id": user_id,
+                "full_name": full_name,
+                "username": username,
+                "group_name": group_name,
+                "status": status,
+                "strengths": strengths,
+                "weaknesses": weaknesses,
+                "mentor_notes": mentor_notes,
+                "updated_at": datetime.now(ZoneInfo("Asia/Tashkent")),
+            }
+            self._db["brain_frontline.student_profiles"].update_one(
+                {"user_id": user_id},
+                {"$set": doc, "$setOnInsert": {"created_at": datetime.now(ZoneInfo("Asia/Tashkent"))}},
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB upsert_student_profile xatolik: %s", e)
+            return False
+
+    def get_all_student_profiles(self) -> list[dict]:
+        if not self.is_connected():
+            return []
+        try:
+            return list(self._db["brain_frontline.student_profiles"].find().sort("full_name", 1))
+        except Exception as e:
+            logger.error("MongoDB get_all_student_profiles xatolik: %s", e)
+            return []
+
+    def delete_student_profile(self, user_id: int) -> bool:
+        if not self.is_connected() or not user_id:
+            return False
+        try:
+            self._db["brain_frontline.student_profiles"].delete_one({"user_id": user_id})
+            return True
+        except Exception as e:
+            logger.error("MongoDB delete_student_profile xatolik: %s", e)
+            return False
+
+    # ==========================================
+    # Smart Reminders (Eslatmalar)
+    # ==========================================
+    def delete_smart_reminder(self, reminder_id: Any, text: str = "", chat_id: int = 0) -> bool:
+        if not self.is_connected():
+            return False
+        try:
+            from bson import ObjectId
+            target_str = str(reminder_id).strip()
+            queries = []
+            if ObjectId.is_valid(target_str):
+                queries.append({"_id": ObjectId(target_str)})
+            if target_str.isdigit():
+                queries.append({"sqlite_id": int(target_str)})
+            if text:
+                q_text = {"text": text}
+                if chat_id:
+                    q_text["chat_id"] = chat_id
+                queries.append(q_text)
+            if queries:
+                self._db["brain_mentor.smart_reminders"].delete_many({"$or": queries})
+                return True
+            return False
+        except Exception as e:
+            logger.error("MongoDB delete_smart_reminder xatolik: %s", e)
+            return False
+
+    def get_all_active_reminders(self, limit: int = 100) -> list[dict]:
+        if not self.is_connected():
+            return []
+        try:
+            return list(
+                self._db["brain_mentor.smart_reminders"]
+                .find({"is_sent": False})
+                .sort("remind_at", 1)
+                .limit(limit)
+            )
+        except Exception as e:
+            logger.error("MongoDB get_all_active_reminders xatolik: %s", e)
+            return []
+
+    # ==========================================
+    # Precomputed Answers (Kesh yechimlar)
+    # ==========================================
+    def save_precomputed_answer(
+        self, topic: str, question: str, answer: str, category: str = "dasturlash"
+    ) -> bool:
+        if not self.is_connected() or not question or not answer:
+            return False
+        try:
+            doc = {
+                "topic": topic,
+                "category": category,
+                "trigger_pattern": question,
+                "clean_question": question.strip().lower(),
+                "response_text": answer,
+                "updated_at": datetime.now(ZoneInfo("Asia/Tashkent")),
+            }
+            self._db["brain_knowledge.precomputed_answers"].update_one(
+                {"clean_question": doc["clean_question"]},
+                {"$set": doc, "$setOnInsert": {"created_at": datetime.now(ZoneInfo("Asia/Tashkent")), "usage_count": 0}},
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_precomputed_answer xatolik: %s", e)
+            return False
+
+    def delete_precomputed_answer(self, target: Any) -> bool:
+        if not self.is_connected() or not target:
+            return False
+        try:
+            from bson import ObjectId
+            t_str = str(target).strip()
+            if ObjectId.is_valid(t_str):
+                self._db["brain_knowledge.precomputed_answers"].delete_one({"_id": ObjectId(t_str)})
+                return True
+            self._db["brain_knowledge.precomputed_answers"].delete_many(
+                {"$or": [{"clean_question": t_str.lower()}, {"topic": t_str}]}
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB delete_precomputed_answer xatolik: %s", e)
+            return False
+
+    def get_all_precomputed_answers(self, limit: int = 100) -> list[dict]:
+        if not self.is_connected():
+            return []
+        try:
+            return list(self._db["brain_knowledge.precomputed_answers"].find().limit(limit))
+        except Exception as e:
+            logger.error("MongoDB get_all_precomputed_answers xatolik: %s", e)
+            return []
+
+    # ==========================================
+    # 5. Zero-Loss SQLite <-> MongoDB Synchronization
+    # ==========================================
+    def restore_to_sqlite(self, sqlite_path: Path) -> dict[str, int]:
+        """MongoDB Atlas bulutidagi barcha ma'lumotlarni SQLite bazasiga 100% tiklaydi (Render Auto-Restore)."""
+        stats = {
+            "settings": 0,
+            "learned_insights": 0,
+            "students": 0,
+            "reminders": 0,
+            "daily_plans": 0,
+            "saved_locations": 0,
+            "ignored_users": 0,
+            "precomputed_answers": 0,
+            "messages": 0,
+        }
+        if not self.is_connected():
+            logger.warning("MongoDB ulanmagan, SQLite'ga tiklash o'tkazib yuborildi.")
+            return stats
+
+        try:
+            conn = sqlite3.connect(str(sqlite_path))
+            cursor = conn.cursor()
+
+            # 1. settings (global_settings)
+            try:
+                for doc in self._db["system_core.global_settings"].find():
+                    k = doc.get("key")
+                    v = doc.get("value")
+                    if k and v is not None:
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                            (k, str(v)),
+                        )
+                        stats["settings"] += 1
+            except Exception as e:
+                logger.debug("Restore settings ogohlantirish: %s", e)
+
+            # 2. learned_memory (learned_insights)
+            try:
+                for doc in self._db["brain_cognitive.learned_insights"].find():
+                    topic = doc.get("key") or doc.get("topic") or ""
+                    content = doc.get("content") or ""
+                    category = doc.get("category") or "rule"
+                    source = doc.get("source") or "mentor"
+                    created_at = str(doc.get("created_at") or "")
+                    updated_at = str(doc.get("updated_at") or "")
+                    if topic and content:
+                        cursor.execute("SELECT id FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (topic,))
+                        ex = cursor.fetchone()
+                        if ex:
+                            cursor.execute(
+                                "UPDATE learned_memory SET content = ?, category = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (content, category, ex[0]),
+                            )
+                        else:
+                            cursor.execute(
+                                "INSERT INTO learned_memory (category, topic, content, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                                (category, topic, content, source, created_at or None, updated_at or None),
+                            )
+                        stats["learned_insights"] += 1
+            except Exception as e:
+                logger.debug("Restore learned_memory ogohlantirish: %s", e)
+
+            # 3. students (student_profiles)
+            try:
+                for doc in self._db["brain_frontline.student_profiles"].find():
+                    uid = doc.get("user_id")
+                    name = doc.get("full_name") or ""
+                    if uid and name:
+                        cursor.execute(
+                            """
+                            INSERT INTO students (user_id, full_name, username, group_name, status, strengths, weaknesses, mentor_notes)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(user_id) DO UPDATE SET
+                                full_name = excluded.full_name,
+                                username = excluded.username,
+                                group_name = excluded.group_name,
+                                status = excluded.status,
+                                strengths = excluded.strengths,
+                                weaknesses = excluded.weaknesses,
+                                mentor_notes = excluded.mentor_notes
+                            """,
+                            (
+                                uid,
+                                name,
+                                doc.get("username", ""),
+                                doc.get("group_name", ""),
+                                doc.get("status", "yaxshi"),
+                                doc.get("strengths", ""),
+                                doc.get("weaknesses", ""),
+                                doc.get("mentor_notes", ""),
+                            ),
+                        )
+                        stats["students"] += 1
+            except Exception as e:
+                logger.debug("Restore students ogohlantirish: %s", e)
+
+            # 4. reminders (smart_reminders)
+            try:
+                for doc in self._db["brain_mentor.smart_reminders"].find({"is_sent": False}):
+                    cid = doc.get("chat_id")
+                    txt = doc.get("text") or doc.get("reminder_text") or ""
+                    rat = doc.get("remind_at") or ""
+                    crid = doc.get("creator_id", 0)
+                    if cid and txt and rat:
+                        cursor.execute(
+                            "SELECT id FROM reminders WHERE chat_id = ? AND reminder_text = ? AND remind_at = ?",
+                            (cid, txt, rat),
+                        )
+                        if not cursor.fetchone():
+                            cursor.execute(
+                                "INSERT INTO reminders (chat_id, creator_id, reminder_text, remind_at, is_sent) VALUES (?, ?, ?, ?, 0)",
+                                (cid, crid, txt, rat),
+                            )
+                            stats["reminders"] += 1
+            except Exception as e:
+                logger.debug("Restore reminders ogohlantirish: %s", e)
+
+            # 5. daily_plans
+            try:
+                for doc in self._db["brain_mentor.daily_plans"].find():
+                    p_date = doc.get("date") or doc.get("plan_date") or ""
+                    title = doc.get("title") or ""
+                    p_time = doc.get("plan_time") or ""
+                    is_c = 1 if doc.get("is_completed") else 0
+                    if p_date and title:
+                        cursor.execute(
+                            "SELECT id FROM daily_plans WHERE plan_date = ? AND title = ?",
+                            (p_date, title),
+                        )
+                        if not cursor.fetchone():
+                            cursor.execute(
+                                "INSERT INTO daily_plans (title, plan_date, plan_time, is_completed) VALUES (?, ?, ?, ?)",
+                                (title, p_date, p_time, is_c),
+                            )
+                            stats["daily_plans"] += 1
+            except Exception as e:
+                logger.debug("Restore daily_plans ogohlantirish: %s", e)
+
+            # 6. saved_locations
+            try:
+                for doc in self._db["brain_mentor.saved_locations"].find():
+                    name = doc.get("name") or ""
+                    lat = doc.get("lat") or 0.0
+                    lon = doc.get("long") or 0.0
+                    details = doc.get("details") or ""
+                    if name:
+                        cursor.execute("SELECT id FROM saved_locations WHERE LOWER(name_clean) = LOWER(?)", (name,))
+                        if not cursor.fetchone():
+                            cursor.execute(
+                                "INSERT INTO saved_locations (name, name_clean, lat, long, address) VALUES (?, ?, ?, ?, ?)",
+                                (doc.get("display_name") or name, name.lower(), lat, lon, details),
+                            )
+                            stats["saved_locations"] += 1
+            except Exception as e:
+                logger.debug("Restore saved_locations ogohlantirish: %s", e)
+
+            # 7. ignored_users (security_blacklist)
+            try:
+                for doc in self._db["system_core.security_blacklist"].find():
+                    uid = doc.get("user_id")
+                    un = doc.get("username") or ""
+                    rsn = doc.get("reason") or ""
+                    if uid:
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO ignored_users (user_id, username, reason) VALUES (?, ?, ?)",
+                            (uid, un, rsn),
+                        )
+                        stats["ignored_users"] += 1
+            except Exception as e:
+                logger.debug("Restore ignored_users ogohlantirish: %s", e)
+
+            # 8. precomputed_answers
+            try:
+                for doc in self._db["brain_knowledge.precomputed_answers"].find():
+                    top = doc.get("topic") or ""
+                    q = doc.get("clean_question") or doc.get("trigger_pattern") or ""
+                    ans = doc.get("response_text") or ""
+                    if q and ans:
+                        cursor.execute("SELECT id FROM precomputed_answers WHERE question_pattern = ?", (q,))
+                        if not cursor.fetchone():
+                            cursor.execute(
+                                "INSERT INTO precomputed_answers (topic, question_pattern, answer_text) VALUES (?, ?, ?)",
+                                (top, q, ans),
+                            )
+                            stats["precomputed_answers"] += 1
+            except Exception as e:
+                logger.debug("Restore precomputed_answers ogohlantirish: %s", e)
+
+            # 9. messages (oxirgi 200 ta dialog)
+            try:
+                cursor.execute("SELECT COUNT(*) FROM messages")
+                existing_msg_count = cursor.fetchone()[0]
+                if existing_msg_count == 0:
+                    recent_convs = list(self._db["brain_frontline.conversations"].find().sort("timestamp", -1).limit(200))
+                    recent_convs.reverse()
+                    for doc in recent_convs:
+                        cid = doc.get("chat_id")
+                        role = doc.get("role")
+                        cnt = doc.get("content")
+                        if cid and role and cnt:
+                            cursor.execute(
+                                "INSERT INTO messages (chat_id, role, content) VALUES (?, ?, ?)",
+                                (cid, role, cnt),
+                            )
+                            stats["messages"] += 1
+            except Exception as e:
+                logger.debug("Restore messages ogohlantirish: %s", e)
+
+            conn.commit()
+            conn.close()
+            logger.info("🧠 [Auto-Restore] MongoDB Atlas -> SQLite tiklanishi yakunlandi: %s", stats)
+        except Exception as e:
+            logger.error("restore_to_sqlite jarayonida xatolik: %s", e)
+
+        return stats
+
     def migrate_from_sqlite(self, sqlite_path: Path) -> dict[str, int]:
         """Eski SQLite faylidan barcha ma'lumotlarni 100% yo'qotishlarsiz MongoDB'ga o'tkazadi."""
         stats = {

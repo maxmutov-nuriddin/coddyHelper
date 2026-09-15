@@ -2205,12 +2205,18 @@
       if (dbSelect && data.debounce_seconds !== undefined) dbSelect.value = String(data.debounce_seconds);
 
       const apSelect = document.getElementById("select-ai-persona");
-      const currentPersona = data.ai_persona || localStorage.getItem("coddy_ai_persona") || "socratic";
-      if (apSelect && currentPersona) apSelect.value = currentPersona;
+      if (apSelect) {
+        const serverPersona = data.ai_persona || "socratic";
+        apSelect.value = serverPersona;
+        localStorage.setItem("coddy_ai_persona", serverPersona);
+      }
 
       const acSelect = document.getElementById("select-ai-code-mode");
-      const currentCodeMode = data.ai_code_mode || localStorage.getItem("coddy_ai_code_mode") || "full_code";
-      if (acSelect && currentCodeMode) acSelect.value = currentCodeMode;
+      if (acSelect) {
+        const serverCodeMode = data.ai_code_mode || "full_code";
+        acSelect.value = serverCodeMode;
+        localStorage.setItem("coddy_ai_code_mode", serverCodeMode);
+      }
 
       const qSelect = document.getElementById("select-quiet-window");
       if (qSelect) qSelect.value = String(data.private_quiet_window !== undefined ? data.private_quiet_window : 180);
@@ -2389,7 +2395,11 @@
             reqCount: bStats.frontline || (brainsData.miya_1_frontline?.requests || 0),
             status: brainsData.miya_1_frontline?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
             desc: "O'quvchilar va umumiy chatlar. Sokratik metodika.",
-            icon: '👨‍🎓'
+            icon: '👨‍🎓',
+            minuteTokens: brainsData.miya_1_frontline?.minute_tokens || 0,
+            limitTpm: brainsData.miya_1_frontline?.limit_tpm || 8000,
+            minutePct: brainsData.miya_1_frontline?.minute_tokens_pct || 0,
+            totalTokens: brainsData.miya_1_frontline?.total_tokens || 0,
           },
           {
             title: 'Miya 2: VIP Vazifalar',
@@ -2398,7 +2408,11 @@
             reqCount: bStats.vip || (brainsData.miya_2_vip?.requests || 0),
             status: brainsData.miya_2_vip?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
             desc: "Vazifalar guruhi & Mentor. 100% himoyalangan mustaqil limit!",
-            icon: '👑'
+            icon: '👑',
+            minuteTokens: brainsData.miya_2_vip?.minute_tokens || 0,
+            limitTpm: brainsData.miya_2_vip?.limit_tpm || 8000,
+            minutePct: brainsData.miya_2_vip?.minute_tokens_pct || 0,
+            totalTokens: brainsData.miya_2_vip?.total_tokens || 0,
           },
           {
             title: 'Miya 3: Temir Zaxira',
@@ -2407,7 +2421,11 @@
             reqCount: bStats.reserve || (brainsData.miya_3_reserve?.requests || 0),
             status: brainsData.miya_3_reserve?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
             desc: "Favqulodda vaziyatlar va Groq limitlari uchun.",
-            icon: '🛡️'
+            icon: '🛡️',
+            minuteTokens: brainsData.miya_3_reserve?.minute_tokens || 0,
+            limitTpm: brainsData.miya_3_reserve?.limit_tpm || 1000000,
+            minutePct: brainsData.miya_3_reserve?.minute_tokens_pct || 0,
+            totalTokens: brainsData.miya_3_reserve?.total_tokens || 0,
           },
           {
             title: 'Miya 4: Avtonom Ong',
@@ -2416,11 +2434,18 @@
             reqCount: bStats.autonomous || (brainsData.miya_4_autonomous?.requests || 0),
             status: brainsData.miya_4_autonomous?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
             desc: "Daemon: o'rganish, saboqlar va oldindan kesh yechimlar.",
-            icon: '🧬'
+            icon: '🧬',
+            minuteTokens: brainsData.miya_4_autonomous?.minute_tokens || 0,
+            limitTpm: brainsData.miya_4_autonomous?.limit_tpm || 8000,
+            minutePct: brainsData.miya_4_autonomous?.minute_tokens_pct || 0,
+            totalTokens: brainsData.miya_4_autonomous?.total_tokens || 0,
           }
         ];
 
-        bCont.innerHTML = brainCards.map(b => `
+        bCont.innerHTML = brainCards.map(b => {
+          const pct = Math.min(100, Math.max(0, b.minutePct));
+          const barColor = pct > 80 ? '#ef4444' : (pct > 50 ? '#f59e0b' : '#22c55e');
+          return `
           <div style="border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; display: flex; flex-direction: column; gap: 5px;">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px;">
               <span style="font-weight: 700; color: #fff;">${b.icon} ${escapeHtml(b.title)}</span>
@@ -2433,8 +2458,21 @@
             <div style="font-size: 10px; color: var(--hint-color); line-height: 1.3;">
               ${escapeHtml(b.desc)}
             </div>
-          </div>
-        `).join('');
+            <div style="background: rgba(0,0,0,0.3); border-radius: 4px; padding: 4px 6px; font-size: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                <span style="color: var(--hint-color);">⏱ Daqiqalik sarf (TPM)</span>
+                <span style="color: ${barColor}; font-weight: 700;">${b.minuteTokens.toLocaleString()} / ${b.limitTpm.toLocaleString()} (${pct}%)</span>
+              </div>
+              <div style="height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;">
+                <div style="height: 100%; width: ${pct}%; background: ${barColor}; border-radius: 2px; transition: width 0.3s;"></div>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-top: 3px; color: var(--hint-color);">
+                <span>📊 Jami: <b style="color: #fff;">${b.totalTokens.toLocaleString()}</b> token</span>
+                <span>📨 <b style="color: #fff;">${b.reqCount}</b> ta so'rov</span>
+              </div>
+            </div>
+          </div>`;
+        }).join('');
       }
 
       // Render Teams / Pods

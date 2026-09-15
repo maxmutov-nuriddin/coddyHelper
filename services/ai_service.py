@@ -697,6 +697,18 @@ class AIService:
             "reserve": 0,
             "autonomous": 0,
         }
+        self._brain_token_windows: dict[str, list[tuple[float, int]]] = {
+            "frontline": [],
+            "vip": [],
+            "reserve": [],
+            "autonomous": [],
+        }
+        self._brain_tokens_total: dict[str, int] = {
+            "frontline": 0,
+            "vip": 0,
+            "reserve": 0,
+            "autonomous": 0,
+        }
         self._metrics: dict[str, Any] = {
             "active_model": config.groq_model,
             "last_provider": "Groq",
@@ -748,6 +760,56 @@ class AIService:
         self._setup_clients()
         logger.info("🔄 AIService to'liq qayta yuklandi va ulanishlar yangilandi.")
 
+    def _resolve_brain_tag(self, k_idx: int) -> str:
+        """Kalit indeksiga qarab miyaning tagini aniqlaydi."""
+        total_keys = len(self._groq_keys)
+        if total_keys >= 30:
+            if k_idx < 12:
+                return "frontline"
+            elif k_idx < 21:
+                return "vip"
+            else:
+                return "autonomous"
+        elif total_keys >= 20:
+            if k_idx < 12:
+                return "frontline"
+            elif k_idx < 18:
+                return "vip"
+            else:
+                return "autonomous"
+        else:
+            fl = len(self._frontline_clients)
+            vl = fl + len(self._vip_clients)
+            if k_idx < fl:
+                return "frontline"
+            elif k_idx < vl:
+                return "vip"
+            else:
+                return "autonomous"
+
+    def _record_brain_tokens(self, brain: str, tokens: int) -> None:
+        """Rolling 60s oynasiga tokenlarni yozadi va jami hisobni oshiradi."""
+        now = time.time()
+        if brain not in self._brain_token_windows:
+            self._brain_token_windows[brain] = []
+        self._brain_token_windows[brain].append((now, tokens))
+        # 60 soniyadan eski yozuvlarni tozalash
+        cutoff = now - 60.0
+        self._brain_token_windows[brain] = [
+            (ts, t) for ts, t in self._brain_token_windows[brain] if ts >= cutoff
+        ]
+        self._brain_tokens_total[brain] = self._brain_tokens_total.get(brain, 0) + tokens
+
+    def _get_brain_minute_tokens(self, brain: str) -> int:
+        """So'nggi 60 soniyada sarflangan tokenlar soni."""
+        now = time.time()
+        cutoff = now - 60.0
+        window = self._brain_token_windows.get(brain, [])
+        # Tozalash ham
+        fresh = [(ts, t) for ts, t in window if ts >= cutoff]
+        self._brain_token_windows[brain] = fresh
+        return sum(t for _, t in fresh)
+
     def _record_groq_metrics(self, model_name: str, response: Any, headers: Any = None, duration_ms: int = 0) -> None:
         """Groq API so'rovidan qaytgan tokenlar va x-ratelimit HTTP sarlavhalarini hisobga oladi."""
         try:
@@ -768,6 +830,9 @@ class AIService:
                 t_tok = getattr(response.usage, "total_tokens", 0) or (p_tok + c_tok)
 
             self._metrics["total_tokens"] = self._metrics.get("total_tokens", 0) + t_tok
+            # Per-brain token tracking
+            brain_tag = self._resolve_brain_tag(self._last_active_key_idx)
+            self._record_brain_tokens(brain_tag, t_tok)
             self._metrics["last_request"] = {
                 "prompt_tokens": p_tok,
                 "completion_tokens": c_tok,
@@ -930,6 +995,8 @@ class AIService:
             c_tok = int(completion_len / 3.5)
             t_tok = p_tok + c_tok
             self._metrics["total_tokens"] = self._metrics.get("total_tokens", 0) + t_tok
+            # Per-brain token tracking
+            self._record_brain_tokens("reserve", t_tok)
             self._metrics["last_request"] = {
                 "prompt_tokens": p_tok,
                 "completion_tokens": c_tok,
@@ -1116,6 +1183,10 @@ class AIService:
                     "status": "active" if self._frontline_clients else "standby",
                     "role": "Barcha o'quvchilar va umumiy guruhlar so'rovlariga tezkor javob beradi (Jamoalar #1-#4)",
                     "requests": self._brain_stats.get("frontline", 0),
+                    "minute_tokens": self._get_brain_minute_tokens("frontline"),
+                    "limit_tpm": 8000,
+                    "minute_tokens_pct": round(min(100.0, self._get_brain_minute_tokens("frontline") / 8000 * 100), 1),
+                    "total_tokens": self._brain_tokens_total.get("frontline", 0),
                 },
                 "miya_2_vip": {
                     "title": "Miya 2: VIP Vazifalar Guruhi (O'ta muhim)",
@@ -1123,12 +1194,20 @@ class AIService:
                     "status": "active" if self._vip_clients else "standby",
                     "role": "Vazifalar guruhi va Mentor buyruqlari uchun 100% ajratilgan mustaqil limit (Jamoalar #5-#7)",
                     "requests": self._brain_stats.get("vip", 0),
+                    "minute_tokens": self._get_brain_minute_tokens("vip"),
+                    "limit_tpm": 8000,
+                    "minute_tokens_pct": round(min(100.0, self._get_brain_minute_tokens("vip") / 8000 * 100), 1),
+                    "total_tokens": self._brain_tokens_total.get("vip", 0),
                 },
                 "miya_3_reserve": {
                     "title": "Miya 3: Temir Zaxira (Google Gemini)",
                     "status": "active" if self._gemini_client else "standby",
                     "role": "Favqulodda vaziyatlar va Groq limitlari uchun zaxira (1M context)",
                     "requests": self._brain_stats.get("reserve", 0),
+                    "minute_tokens": self._get_brain_minute_tokens("reserve"),
+                    "limit_tpm": 1000000,
+                    "minute_tokens_pct": round(min(100.0, self._get_brain_minute_tokens("reserve") / 1000000 * 100), 1),
+                    "total_tokens": self._brain_tokens_total.get("reserve", 0),
                 },
                 "miya_4_autonomous": {
                     "title": "Miya 4: Avtonom Tafakkur Ongi (Daemon)",
@@ -1136,6 +1215,10 @@ class AIService:
                     "status": "active" if self._autonomous_clients else "standby",
                     "role": "Orqa fonda to'xtovsiz tafakkur qiladi, o'rganadi va yechimlarni oldindan tayyorlaydi (Jamoalar #8-#10)",
                     "requests": self._brain_stats.get("autonomous", 0),
+                    "minute_tokens": self._get_brain_minute_tokens("autonomous"),
+                    "limit_tpm": 8000,
+                    "minute_tokens_pct": round(min(100.0, self._get_brain_minute_tokens("autonomous") / 8000 * 100), 1),
+                    "total_tokens": self._brain_tokens_total.get("autonomous", 0),
                 },
             },
             "keys_pool": keys_pool,

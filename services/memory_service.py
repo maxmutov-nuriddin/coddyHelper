@@ -29,7 +29,9 @@ class SQLiteMemoryService:
         self._init_db()
         try:
             if mongo_memory_service.is_connected():
-                # Dastlabki ishga tushishda avtomatik sinxronlash
+                # Dastlabki ishga tushishda: 1. Avval MongoDB Atlas'dan SQLite ga tiklash (Auto-Restore)
+                mongo_memory_service.restore_to_sqlite(self.db_path)
+                # 2. So'ngra yangi lokal ma'lumotlarni MongoDB ga sinxronlash
                 mongo_memory_service.migrate_from_sqlite(self.db_path)
         except Exception as me:
             logger.debug("MongoDB bilan avto-sinxronlashda ogohlantirish: %s", me)
@@ -512,6 +514,12 @@ class SQLiteMemoryService:
                 return
 
         try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.blacklist_user(user_id=user_id, username=username, reason=reason)
+        except Exception:
+            pass
+
+        try:
             with self._get_connection() as conn:
                 try:
                     conn.execute("ALTER TABLE ignored_users ADD COLUMN reason TEXT DEFAULT ''")
@@ -527,18 +535,34 @@ class SQLiteMemoryService:
 
     def unignore_user(self, user_id: int) -> bool:
         """Foydalanuvchini ignore ro'yxatidan chiqaradi."""
+        ok = False
+        try:
+            if mongo_memory_service.is_connected():
+                if mongo_memory_service.unblacklist_user(user_id):
+                    ok = True
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("DELETE FROM ignored_users WHERE user_id = ?", (user_id,))
                 conn.commit()
-                return cursor.rowcount > 0
+                if cursor.rowcount > 0:
+                    ok = True
         except Exception as e:
             logger.error("Foydalanuvchini ignore ro'yxatidan o'chirishda xatolik: %s", e)
-            return False
+        return ok
 
     def is_user_ignored(self, user_id: int) -> bool:
         """Foydalanuvchi bloklanganligini tekshiradi."""
+        try:
+            if mongo_memory_service.is_connected():
+                if mongo_memory_service.is_user_blacklisted(user_id):
+                    return True
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -550,6 +574,22 @@ class SQLiteMemoryService:
 
     def get_ignored_users(self) -> list[dict]:
         """Bloklangan barcha foydalanuvchilar ro'yxati."""
+        try:
+            if mongo_memory_service.is_connected():
+                m_users = mongo_memory_service.get_all_blacklisted_users()
+                if m_users:
+                    return [
+                        {
+                            "user_id": u.get("user_id"),
+                            "username": u.get("username", ""),
+                            "created_at": str(u.get("created_at", "")),
+                            "reason": u.get("reason", ""),
+                        }
+                        for u in m_users
+                    ]
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
                 try:
@@ -1020,6 +1060,16 @@ class SQLiteMemoryService:
                     )
                 except Exception:
                     pass
+                try:
+                    if mongo_memory_service.is_connected():
+                        mongo_memory_service.save_precomputed_answer(
+                            topic=topic.strip(),
+                            question=question_pattern.strip(),
+                            answer=answer_text.strip(),
+                        )
+                except Exception as me:
+                    logger.debug("MongoDB ga precomputed answer yozishda ogohlantirish: %s", me)
+
                 cur = conn.cursor()
                 cur.execute(
                     """
@@ -1090,16 +1140,27 @@ class SQLiteMemoryService:
             logger.error("Precomputed answers olishda xatolik: %s", e)
             return []
 
-    def delete_precomputed_answer(self, item_id: int) -> bool:
-        """Oldindan tayyorlangan yechimni bazadan o'chiradi."""
+    def delete_precomputed_answer(self, item_id: int | str) -> bool:
+        """Oldindan tayyorlangan yechimni bazadan o'chiradi (MongoDB + SQLite)."""
+        ok = False
+        try:
+            if mongo_memory_service.is_connected():
+                if mongo_memory_service.delete_precomputed_answer(item_id):
+                    ok = True
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
-                conn.execute("DELETE FROM precomputed_answers WHERE id = ?", (item_id,))
+                if str(item_id).isdigit():
+                    conn.execute("DELETE FROM precomputed_answers WHERE id = ?", (int(item_id),))
+                else:
+                    conn.execute("DELETE FROM precomputed_answers WHERE question_pattern = ? OR topic = ?", (str(item_id), str(item_id)))
                 conn.commit()
                 return True
         except Exception as e:
             logger.error("Precomputed answer o'chirishda xatolik: %s", e)
-            return False
+        return ok
 
     # -----------------------------------------------------------
     # Eslatmalar (Reminders) Boshqaruvi
@@ -1107,7 +1168,19 @@ class SQLiteMemoryService:
     def add_reminder(
         self, chat_id: int, reminder_text: str, remind_at: str, creator_id: int = 0
     ) -> int:
-        """Yangi eslatmani bazaga saqlaydi."""
+        """Yangi eslatmani bazaga saqlaydi (Dual-Persistence)."""
+        clean_text = reminder_text.strip()
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.add_smart_reminder(
+                    chat_id=chat_id,
+                    creator_id=creator_id,
+                    text=clean_text,
+                    remind_at=remind_at,
+                )
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1116,7 +1189,7 @@ class SQLiteMemoryService:
                     INSERT INTO reminders (chat_id, creator_id, reminder_text, remind_at, is_sent)
                     VALUES (?, ?, ?, ?, 0)
                     """,
-                    (chat_id, creator_id, reminder_text.strip(), remind_at),
+                    (chat_id, creator_id, clean_text, remind_at),
                 )
                 conn.commit()
                 return cursor.lastrowid
@@ -1125,7 +1198,25 @@ class SQLiteMemoryService:
             return 0
 
     def get_active_reminders(self, limit: int = 20) -> list[dict]:
-        """Kutilayotgan faol eslatmalar ro'yxatini qaytaradi."""
+        """Kutilayotgan faol eslatmalar ro'yxatini qaytaradi (MongoDB Atlas + SQLite)."""
+        try:
+            if mongo_memory_service.is_connected():
+                m_rems = mongo_memory_service.get_all_active_reminders(limit=limit)
+                if m_rems:
+                    return [
+                        {
+                            "id": str(r.get("_id", r.get("sqlite_id", ""))),
+                            "chat_id": r.get("chat_id"),
+                            "creator_id": r.get("creator_id", 0),
+                            "text": r.get("text") or r.get("reminder_text", ""),
+                            "remind_at": r.get("remind_at", ""),
+                            "created_at": str(r.get("created_at", "")),
+                        }
+                        for r in m_rems
+                    ]
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1184,40 +1275,63 @@ class SQLiteMemoryService:
             logger.error("Muddati kelgan eslatmalarni olishda xatolik: %s", e)
             return []
 
-    def mark_reminder_sent(self, reminder_id: int) -> None:
+    def mark_reminder_sent(self, reminder_id: int | str) -> None:
         """Eslatmani yuborilgan (is_sent = 1) deb belgilaydi."""
         try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.mark_reminder_sent(reminder_id)
+        except Exception:
+            pass
+
+        try:
             with self._get_connection() as conn:
-                conn.execute("UPDATE reminders SET is_sent = 1 WHERE id = ?", (reminder_id,))
-                conn.commit()
+                if str(reminder_id).isdigit():
+                    conn.execute("UPDATE reminders SET is_sent = 1 WHERE id = ?", (int(reminder_id),))
+                    conn.commit()
         except Exception as e:
             logger.error("Eslatmani yuborilgan deb belgilashda xatolik: %s", e)
 
-    def mark_reminder_sent_if_pending(self, reminder_id: int) -> bool:
-        """Faqat yuborilmagan bo'lsa (is_sent = 0), is_sent = 1 qiladi va True qaytaradi.
-        Dublikat xabarlar va takrorlanishlarning oldini oladi.
-        """
+    def mark_reminder_sent_if_pending(self, reminder_id: int | str) -> bool:
+        """Faqat yuborilmagan bo'lsa (is_sent = 0), is_sent = 1 qiladi va True qaytaradi."""
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.mark_reminder_sent(reminder_id)
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("UPDATE reminders SET is_sent = 1 WHERE id = ? AND is_sent = 0", (reminder_id,))
-                conn.commit()
-                return cursor.rowcount > 0
+                if str(reminder_id).isdigit():
+                    cursor.execute("UPDATE reminders SET is_sent = 1 WHERE id = ? AND is_sent = 0", (int(reminder_id),))
+                    conn.commit()
+                    return cursor.rowcount > 0
+                return True
         except Exception as e:
             logger.error("Eslatmani atomar belgilashda xatolik: %s", e)
             return False
 
-    def delete_reminder(self, reminder_id: int) -> bool:
-        """Eslatmani bekor qiladi/o'chiradi."""
+    def delete_reminder(self, reminder_id: int | str) -> bool:
+        """Eslatmani bekor qiladi/o'chiradi (MongoDB + SQLite)."""
+        ok = False
+        try:
+            if mongo_memory_service.is_connected():
+                if mongo_memory_service.delete_smart_reminder(reminder_id):
+                    ok = True
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
-                conn.commit()
-                return cursor.rowcount > 0
+                if str(reminder_id).isdigit():
+                    cursor.execute("DELETE FROM reminders WHERE id = ?", (int(reminder_id),))
+                    conn.commit()
+                    if cursor.rowcount > 0:
+                        ok = True
         except Exception as e:
             logger.error("Eslatmani o'chirishda xatolik: %s", e)
-            return False
+        return ok
 
     # -----------------------------------------------------------
     # O'quvchilar CRM boshqaruvi (Student Digital Profile)
@@ -1233,7 +1347,23 @@ class SQLiteMemoryService:
         weaknesses: str = "",
         mentor_notes: str = "",
     ) -> int:
-        """O'quvchini qo'shadi yoki yangilaydi."""
+        """O'quvchini qo'shadi yoki yangilaydi (Dual-Persistence: MongoDB + SQLite)."""
+        clean_user_id = user_id or 0
+        try:
+            if mongo_memory_service.is_connected() and clean_user_id:
+                mongo_memory_service.upsert_student_profile(
+                    user_id=clean_user_id,
+                    full_name=full_name,
+                    username=username,
+                    group_name=group_name,
+                    status=status,
+                    strengths=strengths,
+                    weaknesses=weaknesses,
+                    mentor_notes=mentor_notes,
+                )
+        except Exception as me:
+            logger.debug("MongoDB ga o'quvchi yozishda ogohlantirish: %s", me)
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1422,23 +1552,43 @@ class SQLiteMemoryService:
             return False
 
     def delete_student(self, student_id: int) -> bool:
-        """O'quvchini bazadan o'chiradi."""
+        """O'quvchini bazadan o'chiradi (MongoDB + SQLite)."""
+        ok = False
+        user_id = student_id
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+                cursor.execute("SELECT user_id FROM students WHERE id = ?", (student_id,))
+                row = cursor.fetchone()
+                if row and row[0]:
+                    user_id = row[0]
+                cursor.execute("DELETE FROM students WHERE id = ? OR user_id = ?", (student_id, student_id))
                 conn.commit()
-                return cursor.rowcount > 0
+                if cursor.rowcount > 0:
+                    ok = True
         except Exception as e:
-            logger.error("O'quvchini o'chirishda xatolik: %s", e)
-            return False
+            logger.error("O'quvchini SQLite dan o'chirishda xatolik: %s", e)
+
+        try:
+            if mongo_memory_service.is_connected() and user_id:
+                if mongo_memory_service.delete_student_profile(user_id):
+                    ok = True
+        except Exception as me:
+            logger.debug("MongoDB dan o'quvchi o'chirishda ogohlantirish: %s", me)
+        return ok
 
     # -----------------------------------------------------------
     # Aqlli Lokatsiya Xotirasi (Saved Locations)
     # -----------------------------------------------------------
     def add_saved_location(self, name: str, lat: float, long: float, address: str = "") -> int:
-        """Yangi joylashuvni nom bilan saqlaydi."""
+        """Yangi joylashuvni nom bilan saqlaydi (MongoDB + SQLite)."""
         clean = name.lower().strip()
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_location(name=name.strip(), lat=lat, long=long, details=address.strip())
+        except Exception as me:
+            logger.debug("MongoDB ga lokatsiya yozishda ogohlantirish: %s", me)
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
