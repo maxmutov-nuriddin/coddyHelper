@@ -691,6 +691,12 @@ class AIService:
         self._last_active_team_idx: int = 1
         self._key_stats: dict[int, dict[str, Any]] = {}
         self._gemini_client: Any = None
+        self._brain_stats: dict[str, int] = {
+            "frontline": 0,
+            "vip": 0,
+            "reserve": 0,
+            "autonomous": 0,
+        }
         self._metrics: dict[str, Any] = {
             "active_model": config.groq_model,
             "last_provider": "Groq",
@@ -918,6 +924,7 @@ class AIService:
             now_iso = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
             self._metrics["last_updated"] = now_iso
             self._metrics["total_requests"] = self._metrics.get("total_requests", 0) + 1
+            self._brain_stats["reserve"] = self._brain_stats.get("reserve", 0) + 1
 
             p_tok = int(prompt_len / 3.5)
             c_tok = int(completion_len / 3.5)
@@ -1101,29 +1108,34 @@ class AIService:
             "autonomous_keys_count": len(self._autonomous_clients),
             "active_key_index": (self._last_active_key_idx + 1) if self._groq_clients else 0,
             "active_team_id": self._last_active_team_idx if self._groq_clients else 0,
+            "brain_stats": self._brain_stats,
             "brains": {
                 "miya_1_frontline": {
                     "title": "Miya 1: Frontline (Talabalar & Chatlar)",
                     "keys_count": len(self._frontline_clients),
                     "status": "active" if self._frontline_clients else "standby",
                     "role": "Barcha o'quvchilar va umumiy guruhlar so'rovlariga tezkor javob beradi (Jamoalar #1-#4)",
+                    "requests": self._brain_stats.get("frontline", 0),
                 },
                 "miya_2_vip": {
                     "title": "Miya 2: VIP Vazifalar Guruhi (O'ta muhim)",
                     "keys_count": len(self._vip_clients),
                     "status": "active" if self._vip_clients else "standby",
                     "role": "Vazifalar guruhi va Mentor buyruqlari uchun 100% ajratilgan mustaqil limit (Jamoalar #5-#7)",
+                    "requests": self._brain_stats.get("vip", 0),
                 },
                 "miya_3_reserve": {
                     "title": "Miya 3: Temir Zaxira (Google Gemini)",
                     "status": "active" if self._gemini_client else "standby",
                     "role": "Favqulodda vaziyatlar va Groq limitlari uchun zaxira (1M context)",
+                    "requests": self._brain_stats.get("reserve", 0),
                 },
                 "miya_4_autonomous": {
                     "title": "Miya 4: Avtonom Tafakkur Ongi (Daemon)",
                     "keys_count": len(self._autonomous_clients),
                     "status": "active" if self._autonomous_clients else "standby",
                     "role": "Orqa fonda to'xtovsiz tafakkur qiladi, o'rganadi va yechimlarni oldindan tayyorlaydi (Jamoalar #8-#10)",
+                    "requests": self._brain_stats.get("autonomous", 0),
                 },
             },
             "keys_pool": keys_pool,
@@ -1293,6 +1305,8 @@ class AIService:
         pool = self._autonomous_clients if self._autonomous_clients else self._groq_clients
         if not pool:
             return None
+
+        self._brain_stats["autonomous"] = self._brain_stats.get("autonomous", 0) + 1
 
         self._refresh_key_and_model_recovery()
         candidate_models = [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
@@ -1624,8 +1638,11 @@ class AIService:
 
         # Adaptive Cognitive Gating (System 1 vs System 2):
         # 1. Tezkor refleks (System 1): Standart so'rovlar, suhbatlar, kod yozish va maslahatlarda to'g'ridan-to'g'ri 1 ta kuchli model orqali chaqmoqdek tez javob (~0.4s).
-        # 2. Chuqur tahlil (System 2 Pod): Faqatgina mentor maxsus /deep, konsilium yoki arxitektura tahlili so'raganida 3 talik komanda ishga tushadi.
         pool, brain_type = self._get_active_pool(is_admin_mode)
+        if brain_type == "vip":
+            self._brain_stats["vip"] = self._brain_stats.get("vip", 0) + 1
+        else:
+            self._brain_stats["frontline"] = self._brain_stats.get("frontline", 0) + 1
         is_student_group = (chat_id < 0 and not is_escalation_chat(chat_id))
         is_simple_query = (
             len(effective_prompt.split()) <= 4

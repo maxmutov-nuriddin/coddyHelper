@@ -2379,11 +2379,15 @@
       // Render 4-Brain Architecture
       const bCont = document.getElementById('ai-brains-container');
       if (bCont) {
+        const bStats = metrics.brain_stats || {};
+        const brainsData = metrics.brains || {};
         const brainCards = [
           {
             title: 'Miya 1: Frontline',
             badge: `${metrics.frontline_keys_count || 12} kalit (Jamoa #1-#4)`,
             badgeColor: '#2ea6ff',
+            reqCount: bStats.frontline || (brainsData.miya_1_frontline?.requests || 0),
+            status: brainsData.miya_1_frontline?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
             desc: "O'quvchilar va umumiy chatlar. Sokratik metodika.",
             icon: '👨‍🎓'
           },
@@ -2391,6 +2395,8 @@
             title: 'Miya 2: VIP Vazifalar',
             badge: `${metrics.vip_keys_count || 9} kalit (Jamoa #5-#7)`,
             badgeColor: '#22c55e',
+            reqCount: bStats.vip || (brainsData.miya_2_vip?.requests || 0),
+            status: brainsData.miya_2_vip?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
             desc: "Vazifalar guruhi & Mentor. 100% himoyalangan mustaqil limit!",
             icon: '👑'
           },
@@ -2398,6 +2404,8 @@
             title: 'Miya 3: Temir Zaxira',
             badge: 'Gemini (1M context)',
             badgeColor: '#f59e0b',
+            reqCount: bStats.reserve || (brainsData.miya_3_reserve?.requests || 0),
+            status: brainsData.miya_3_reserve?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
             desc: "Favqulodda vaziyatlar va Groq limitlari uchun.",
             icon: '🛡️'
           },
@@ -2405,16 +2413,22 @@
             title: 'Miya 4: Avtonom Ong',
             badge: `${metrics.autonomous_keys_count || 9} kalit (Jamoa #8-#10)`,
             badgeColor: '#a855f7',
+            reqCount: bStats.autonomous || (brainsData.miya_4_autonomous?.requests || 0),
+            status: brainsData.miya_4_autonomous?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
             desc: "Daemon: o'rganish, saboqlar va oldindan kesh yechimlar.",
             icon: '🧬'
           }
         ];
 
         bCont.innerHTML = brainCards.map(b => `
-          <div style="border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; display: flex; flex-direction: column; gap: 4px;">
+          <div style="border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; display: flex; flex-direction: column; gap: 5px;">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px;">
               <span style="font-weight: 700; color: #fff;">${b.icon} ${escapeHtml(b.title)}</span>
               <span style="background: ${b.badgeColor}22; color: ${b.badgeColor}; border: 1px solid ${b.badgeColor}55; font-size: 9px; padding: 1px 6px; border-radius: 4px; font-weight: 700;">${b.badge}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; background: rgba(0,0,0,0.25); padding: 3px 6px; border-radius: 4px;">
+              <span style="color: var(--hint-color);">So'rovlar: <b style="color: #fff;">${b.reqCount} ta</b></span>
+              <span style="font-weight: 600; font-size: 10px;">${b.status}</span>
             </div>
             <div style="font-size: 10px; color: var(--hint-color); line-height: 1.3;">
               ${escapeHtml(b.desc)}
