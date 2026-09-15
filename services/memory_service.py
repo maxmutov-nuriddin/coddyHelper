@@ -976,6 +976,7 @@ class SQLiteMemoryService:
                         "topic": r[1],
                         "question_pattern": r[2],
                         "answer_text": r[3],
+                        "answer_code": r[3],
                         "usage_count": r[4],
                         "created_at": str(r[5]),
                     }
