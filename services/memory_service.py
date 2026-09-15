@@ -765,7 +765,7 @@ class SQLiteMemoryService:
 
     def record_autonomous_insight(self, topic: str, content: str) -> int:
         """Agent o'z tahlillari va tajribasidan chiqargan xulosasini saqlaydi."""
-        return self.add_learned_fact(topic=topic, content=content, category="autonomous_insight")
+        return self.add_autonomous_insight(topic=topic, content=content, source="agent")
 
     def get_relevant_learned_insights(self, query: str, limit: int = 4) -> list[dict]:
         """
@@ -868,8 +868,34 @@ class SQLiteMemoryService:
             return False
 
     def add_autonomous_insight(self, topic: str, content: str, source: str = "agent") -> int:
-        """Avtonom miya tomonidan o'rganilgan yangi saboqni bazaga saqlaydi."""
-        return self.add_learned_fact(topic, content, category="autonomous_insight")
+        """Avtonom miya tomonidan o'rganilgan yangi saboqni bazaga saqlaydi (Har bir yangi saboq mustaqil saqlanadi)."""
+        t = topic.strip()
+        c = content.strip()
+        if not t or not c:
+            return 0
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # Agar aynan shu mazmundagi saboq allaqachon mavjud bo'lsa, qayta qo'shmaslik (duplikatdan saqlanish)
+                cursor.execute(
+                    "SELECT id FROM learned_memory WHERE (LOWER(topic) = LOWER(?) AND LOWER(content) = LOWER(?)) OR LOWER(content) = LOWER(?)",
+                    (t, c, c),
+                )
+                existing = cursor.fetchone()
+                if existing:
+                    return existing[0]
+
+                # Har bir yangi saboq ALOHIDA MUSTAQIL yozuv sifatida qo'shiladi (eskilari o'chmaydi/yangilanmaydi):
+                cursor.execute(
+                    "INSERT INTO learned_memory (category, topic, content, source) VALUES (?, ?, ?, ?)",
+                    ("autonomous_insight", t, c, source or "agent"),
+                )
+                conn.commit()
+                logger.info("🧠 Yangi avtonom saboq saqlandi: [%s] %s", t[:30], c[:40])
+                return cursor.lastrowid
+        except Exception as e:
+            logger.error("Avtonom saboqni saqlashda xatolik: %s", e)
+            return 0
 
     def add_precomputed_answer(self, topic: str, question_pattern: str, answer_text: str) -> int | None:
         """Kelgusida so'ralishi mumkin bo'lgan savollarga oldindan tayyorlangan mukammal javobni saqlaydi."""

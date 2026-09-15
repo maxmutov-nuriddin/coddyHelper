@@ -254,7 +254,13 @@ class AutonomousBrainService:
                 parsed_topic = parts[0].replace("MAVZU:", "").strip()
                 # Mavzuning o'quv dasturiga muvofiqligini qat'iy kafolatlash
                 matched = next((t for t in curriculum_topics if t.lower() in parsed_topic.lower() or parsed_topic.lower() in t.lower()), None)
-                topic = matched if matched else chosen_topic
+                if matched:
+                    if matched.lower() in parsed_topic.lower():
+                        topic = parsed_topic
+                    else:
+                        topic = f"{matched}: {parsed_topic}"
+                else:
+                    topic = f"{chosen_topic}: {parsed_topic}" if parsed_topic else chosen_topic
                 content = parts[1].strip()
             except Exception:
                 pass

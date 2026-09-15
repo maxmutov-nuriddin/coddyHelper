@@ -973,6 +973,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
 
             knowledge_items = []
             for f in learned_facts:
+                # Avtonom saboqlar o'zining maxsus "Agent O'rgangan Saboqlar & Tajribalar" kartasida ko'rinadi
+                if f.get("category") in ("autonomous_insight", "verified_insight") or f.get("source") == "agent":
+                    continue
                 knowledge_items.append({
                     "id": f.get("id"),
                     "type": "fact",
