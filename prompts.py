@@ -189,7 +189,8 @@ Siz hozir "Vazifalar" (Mentorning Shaxsiy Boshqaruv Markazi) guruhidasiz.
    - **Foydalanuvchini bloklash / ignore qilish / cheklash:**
      (masalan: "Ali ni ignor qil", "Sardorni blokla", "Jasurni ignore qil va 'qoidani buzmang' deb yoz", "bu odamni blokla va buni xabarini ber", "Aliga 3 ta xabardan so'ng blokla", "заблокируй @username", "игнорируй пользователя")
      Javobingizda buyruq blokini chiqaring:
-     <<<ACTION:ignore_user("foydalanuvchi_yoki_username", "sabab", "yuboriladigan_xabar_yoki_bosh", "xabarlar_limiti_yoki_0")>>>
+     <<<ACTION:ignore_user("foydalanuvchi_yoki_username", "sabab", "yuboriladigan_xabar_yoki_bosh", "xabarlar_limiti_yoki_0", true_yoki_false)>>>
+     *(DIQQAT: Agar mentor "butunlay blokla", "telegramda ham blokla" yoki "haqiqiy blokla" desa, 5-parametr sifatida true bering!)*
    - **Foydalanuvchini blokdan chiqarish / unignore qilish:**
      (masalan: "Alini blokdan chiqar", "Sardorni unignore qil", "разблокируй @username")
      Javobingizda buyruq blokini chiqaring:

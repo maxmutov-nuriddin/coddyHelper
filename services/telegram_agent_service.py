@@ -1270,13 +1270,48 @@ ACTION_SET_PRIVATE_DELAY = re.compile(r'<<<ACTION:set_private_delay\((\d+)\)>>>'
 ACTION_GET_PRIVATE_DELAY = re.compile(r'<<<ACTION:get_private_delay\(\)>>>', re.IGNORECASE)
 ACTION_WEB_SEARCH = re.compile(r'<<<ACTION:web_search\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
 ACTION_IGNORE_USER = re.compile(
-    r'<<<ACTION:ignore_user\(["\'](.*?)["\'](?:,\s*["\'](.*?)["\'])?(?:,\s*["\'](.*?)["\'])?(?:,\s*(\d+))?\)>>>',
+    r'<<<ACTION:ignore_user\(["\'](.*?)["\'](?:,\s*["\'](.*?)["\'])?(?:,\s*["\'](.*?)["\'])?(?:,\s*(\d+))?(?:,\s*(true|false))?\)>>>',
     re.IGNORECASE | re.DOTALL,
 )
 ACTION_UNIGNORE_USER = re.compile(
     r'<<<ACTION:unignore_user\(["\'](.*?)["\']\)>>>',
     re.IGNORECASE,
 )
+
+
+async def block_telegram_user(client, user_entity_or_id) -> bool:
+    """Telegram hisobining o'zida foydalanuvchini qora ro'yxatga (Block) kiritadi."""
+    if not client or not user_entity_or_id:
+        return False
+    try:
+        from telethon.tl.functions.contacts import BlockRequest
+        from config import config
+        uid = getattr(user_entity_or_id, "id", None) or (user_entity_or_id if isinstance(user_entity_or_id, int) else None)
+        if uid and uid in (config.mentor_user_id, 8105823872):
+            logger.warning("Xavfsizlik: Mentorni Telegramda bloklash qat'iyan taqiqlangan!")
+            return False
+        peer = await client.get_input_entity(user_entity_or_id)
+        await client(BlockRequest(id=peer))
+        logger.info("Telegram qora ro'yxatiga muvaffaqiyatli kiritildi: %s", user_entity_or_id)
+        return True
+    except Exception as e:
+        logger.warning("Telegramda foydalanuvchini bloklashda xatolik (%s): %s", user_entity_or_id, e)
+        return False
+
+
+async def unblock_telegram_user(client, user_entity_or_id) -> bool:
+    """Telegram qora ro'yxatidan (Unblock) chiqaradi."""
+    if not client or not user_entity_or_id:
+        return False
+    try:
+        from telethon.tl.functions.contacts import UnblockRequest
+        peer = await client.get_input_entity(user_entity_or_id)
+        await client(UnblockRequest(id=peer))
+        logger.info("Telegram qora ro'yxatidan chiqarildi: %s", user_entity_or_id)
+        return True
+    except Exception as e:
+        logger.warning("Telegramda foydalanuvchini blokdan chiqarishda xatolik (%s): %s", user_entity_or_id, e)
+        return False
 
 
 async def resolve_target_user(client, target_query: str, reply_user_id: int | None = None) -> dict[str, Any]:
@@ -2118,6 +2153,7 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
     ign_reason = ""
     ign_notify = ""
     ign_max_msg = 0
+    block_in_telegram = False
 
     if m_ignore:
         ign_target = (m_ignore.group(1) or "").strip()
@@ -2125,6 +2161,9 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
         ign_notify = (m_ignore.group(3) or "").strip()
         raw_max = (m_ignore.group(4) or "").strip()
         ign_max_msg = int(raw_max) if raw_max and raw_max.isdigit() else 0
+        raw_tg = (m_ignore.group(5) or "").strip().lower()
+        if raw_tg == "true":
+            block_in_telegram = True
     else:
         # Erkin til (O'zbekcha / Ruscha)
         ignore_kw = r"\b(?:ignor(?:e)?\s*qil\w*|blok(?:la\w*|irovka\s*qil\w*)?|игнор\w*|заблокируй\w*|блокни\w*)\b"
@@ -2149,6 +2188,15 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
             reason_m = re.search(r"(?:sabab|sababi|причина)\s*[:\-]?\s*([^,\.\n]+)", orig_msg, re.I)
             if reason_m:
                 ign_reason = reason_m.group(1).strip()
+
+            # Telegramda ham / Butunlay bloklash kalit so'zlari:
+            tg_block_trigger = bool(re.search(
+                r"\b(?:butunlay|telegramda\s*ham|telegramda|telegramdan|telegramini|tgda|tg\s*da|haqiqiy\s*blok|навсегда|в\s*телеграм(?:е)?)\b",
+                orig_msg,
+                re.I
+            ))
+            if tg_block_trigger:
+                block_in_telegram = True
 
             # Targetni aniqlash:
             uname_m = re.search(r"(@[A-Za-z0-9_]{4,})", orig_msg)
@@ -2183,13 +2231,17 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
                 username=target_uname,
                 notify_text=ign_notify,
                 reason=ign_reason or f"Mentor tomonidan {ign_max_msg} ta xabardan so'ng bloklash buyrug'i",
+                block_in_telegram=block_in_telegram,
             )
+            tg_plan_notice = "\n• **Telegram:** Belgilangan limitdan so'ng Telegramning o'zida ham qora ro'yxatga kiritiladi." if block_in_telegram else ""
+            tg_plan_notice_ru = "\n• **Telegram:** После исчерпания лимита будет заблокирован и в самом Telegram." if block_in_telegram else ""
+
             if is_ru:
                 res_lines = [
                     f"⏳ **Установлен лимит сообщений для пользователя:**\n",
                     f"• **Пользователь:** {target_name} ({target_uname or target_id})",
                     f"• **Лимит сообщений:** `{ign_max_msg}` сообщений",
-                    f"• **Действие:** После {ign_max_msg}-го сообщения бот автоматически заблокирует пользователя.",
+                    f"• **Действие:** После {ign_max_msg}-го сообщения бот автоматически заблокирует пользователя.{tg_plan_notice_ru}",
                 ]
                 if ign_notify:
                     res_lines.append(f"• **Текст предупреждения:** «{ign_notify}»")
@@ -2199,15 +2251,13 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
                     f"⏳ **Foydalanuvchiga xabarlar limiti o'rnatildi:**\n",
                     f"• **Foydalanuvchi:** {target_name} ({target_uname or target_id})",
                     f"• **Belgilangan limit:** `{ign_max_msg}` ta xabar",
-                    f"• **Harakat:** {ign_max_msg}-xabardan so'ng tizim uni avtomatik bloklaydi.",
+                    f"• **Harakat:** {ign_max_msg}-xabardan so'ng tizim uni avtomatik bloklaydi.{tg_plan_notice}",
                 ]
                 if ign_notify:
                     res_lines.append(f"• **Ogohlantirish xabari:** «{ign_notify}»")
                 return "\n".join(res_lines)
         else:
-            # Darhol bloklash
-            memory_service.ignore_user(target_id, username=target_uname, reason=ign_reason or "Mentor buyrug'i bilan bloklandi")
-
+            # 1. Ogohlantirish xabari bo'lsa, Telegramda bloklashdan OLDIN yuborish
             notify_status = ""
             if ign_notify:
                 send_res = await send_telegram_message(client, str(target_id), ign_notify)
@@ -2216,19 +2266,31 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
                 else:
                     notify_status = f"\n⚠️ **Xabar yetkazishda xatolik:** {send_res.get('error')}"
 
+            # 2. Telegramning o'zida ham qora ro'yxatga (BlockRequest) kiritish:
+            tg_status = ""
+            if block_in_telegram:
+                tg_ok = await block_telegram_user(client, user_info.get("entity") or target_id)
+                if tg_ok:
+                    tg_status = "\n🚫 **Telegram Qora ro'yxat:** Foydalanuvchi Telegram hisobingizda ham butunlay bloklandi (Sizga boshqa aslo yoza olmaydi)." if not is_ru else "\n🚫 **Чёрный список Telegram:** Пользователь заблокирован в Telegram и больше не сможет вам писать."
+                else:
+                    tg_status = "\n⚠️ **Telegramda bloklashda ogohlantirish yuz berdi.**"
+
+            # 3. AI tizimida ignore qilish:
+            memory_service.ignore_user(target_id, username=target_uname, reason=ign_reason or "Mentor buyrug'i bilan bloklandi")
+
             if is_ru:
                 return (
                     f"🚫 **Пользователь {target_name} ({target_uname or target_id}) заблокирован!**\n\n"
                     f"• **Причина:** {ign_reason or 'Команда наставника'}\n"
                     f"• **Статус:** AI больше не будет отвечать на сообщения этого пользователя."
-                    f"{notify_status}\n\n"
+                    f"{tg_status}{notify_status}\n\n"
                     f"💡 Разблокировать: `ai unignore {target_id}` или напишите *{target_name}ни блокдан чиқар*"
                 )
             return (
                 f"🚫 **Foydalanuvchi {target_name} ({target_uname or target_id}) bloklandi!**\n\n"
                 f"• **Sabab:** {ign_reason or 'Mentor buyrug\'i'}\n"
                 f"• **Holat:** AI endi ushbu foydalanuvchiga mutlaqo javob bermaydi."
-                f"{notify_status}\n\n"
+                f"{tg_status}{notify_status}\n\n"
                 f"💡 Blokdan chiqarish uchun: *{target_name}ni blokdan chiqar* yoki `ai unignore {target_id}`"
             )
 
@@ -2267,14 +2329,19 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
         memory_service.unignore_user(target_id)
         memory_service.clear_user_quota(target_id)
 
+        # Telegram qora ro'yxatidan ham chiqarish:
+        await unblock_telegram_user(client, user_info.get("entity") or target_id)
+
         if is_ru:
             return (
                 f"✅ **Пользователь {target_name} ({user_info.get('username') or target_id}) успешно разблокирован!**\n\n"
-                f"• **Статус:** AI снова активен и готов отвечать на вопросы этого пользователя."
+                f"• **Telegram:** Разблокирован в Telegram (удалён из Чёрного списка).\n"
+                f"• **AI Статус:** AI снова активен и готов отвечать на вопросы этого пользователя."
             )
         return (
             f"✅ **Foydalanuvchi {target_name} ({user_info.get('username') or target_id}) blokdan chiqarildi!**\n\n"
-            f"• **Holat:** AI yana ushbu foydalanuvchining savollariga to'liq javob bera oladi."
+            f"• **Telegram:** Telegram qora ro'yxatidan (blokdan) chiqarildi.\n"
+            f"• **AI Holati:** AI yana ushbu foydalanuvchining savollariga to'liq javob bera oladi."
         )
 
     return reply_text

@@ -522,6 +522,7 @@ class SQLiteMemoryService:
         username: str = "",
         notify_text: str = "",
         reason: str = "",
+        block_in_telegram: bool = False,
     ) -> None:
         """Foydalanuvchiga xabarlar soni bo'yicha limit (quota) o'rnatadi. Limitga yetganda avtomatik bloklanadi."""
         try:
@@ -535,16 +536,20 @@ class SQLiteMemoryService:
 
         try:
             with self._get_connection() as conn:
+                try:
+                    conn.execute("ALTER TABLE user_quotas ADD COLUMN block_in_telegram INTEGER DEFAULT 0")
+                except Exception:
+                    pass
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO user_quotas 
-                    (user_id, username, max_messages, current_count, notify_text, reason) 
-                    VALUES (?, ?, ?, 0, ?, ?)
+                    (user_id, username, max_messages, current_count, notify_text, reason, block_in_telegram) 
+                    VALUES (?, ?, ?, 0, ?, ?, ?)
                     """,
-                    (user_id, username, max(1, max_messages), notify_text, reason),
+                    (user_id, username, max(1, max_messages), notify_text, reason, 1 if block_in_telegram else 0),
                 )
                 conn.commit()
-                logger.info("Foydalanuvchi %s uchun %d ta xabarlik quota belgilandi.", user_id, max_messages)
+                logger.info("Foydalanuvchi %s uchun %d ta xabarlik quota belgilandi (block_in_telegram=%s).", user_id, max_messages, block_in_telegram)
         except Exception as e:
             logger.error("User quota belgilashda xatolik: %s", e)
 
@@ -554,7 +559,7 @@ class SQLiteMemoryService:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT user_id, username, max_messages, current_count, notify_text, reason FROM user_quotas WHERE user_id = ?",
+                    "SELECT user_id, username, max_messages, current_count, notify_text, reason, COALESCE(block_in_telegram, 0) FROM user_quotas WHERE user_id = ?",
                     (user_id,),
                 )
                 row = cursor.fetchone()
@@ -566,6 +571,7 @@ class SQLiteMemoryService:
                         "current_count": row[3],
                         "notify_text": row[4] or "",
                         "reason": row[5] or "",
+                        "block_in_telegram": bool(row[6]),
                     }
         except Exception as e:
             logger.error("User quota olishda xatolik: %s", e)
@@ -580,14 +586,14 @@ class SQLiteMemoryService:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT max_messages, current_count, username, notify_text, reason FROM user_quotas WHERE user_id = ?",
+                    "SELECT max_messages, current_count, username, notify_text, reason, COALESCE(block_in_telegram, 0) FROM user_quotas WHERE user_id = ?",
                     (user_id,),
                 )
                 row = cursor.fetchone()
                 if not row:
                     return None
 
-                max_m, cur_c, uname, n_text, r_text = row
+                max_m, cur_c, uname, n_text, r_text, b_tg = row
                 new_c = cur_c + 1
                 if new_c >= max_m:
                     # Limit tugadi! Foydalanuvchini bloklaymiz va quota jadvalidan tozalaymiz
@@ -601,6 +607,7 @@ class SQLiteMemoryService:
                         "notify_text": n_text or "",
                         "reason": r_text or f"{max_m} ta xabardan so'ng bloklandi",
                         "max_messages": max_m,
+                        "block_in_telegram": bool(b_tg),
                     }
                 else:
                     cursor.execute("UPDATE user_quotas SET current_count = ? WHERE user_id = ?", (new_c, user_id))

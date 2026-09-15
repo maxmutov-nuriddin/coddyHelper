@@ -870,15 +870,24 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     await event.reply(quota_res["notify_text"])
                 except Exception:
                     pass
+
+            if quota_res.get("block_in_telegram"):
+                try:
+                    from services.telegram_agent_service import block_telegram_user
+                    await block_telegram_user(client, sender_id)
+                except Exception as b_err:
+                    logger.warning("Quota bo'yicha Telegramda bloklashda xatolik: %s", b_err)
+
             # Vazifalar guruhiga hisobot berish
             s_uname = f"@{getattr(sender, 'username', '')}" if getattr(sender, "username", None) else "Mavjud emas"
             s_name = getattr(sender, "first_name", "") or "Foydalanuvchi"
+            tg_notice = "\n• **Telegram:** Telegram hisobida ham qora ro'yxatga kiritildi." if quota_res.get("block_in_telegram") else ""
             alert = (
                 "🚫 **Foydalanuvchi xabarlar limitiga yetdi va bloklandi:**\n\n"
                 f"👤 **Foydalanuvchi:** {s_name} ({s_uname})\n"
                 f"🆔 **ID:** `{sender_id}`\n"
                 f"📊 **Belgilangan limit:** {quota_res.get('max_messages')} ta xabar\n"
-                f"ℹ️ **Holat:** AI endi bu foydalanuvchiga javob bermaydi."
+                f"ℹ️ **Holat:** AI endi bu foydalanuvchiga javob bermaydi.{tg_notice}"
             )
             try:
                 from config import get_vazifalar_chat_target_sync
