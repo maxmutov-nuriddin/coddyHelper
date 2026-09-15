@@ -200,9 +200,9 @@ async def _monitor_wakeup_escalation(client, date_str: str, wait_seconds: float 
             contact_ids = [5023430798]
 
         alert_msg = (
-            "Assalomu alaykum! Men Nuriddinning shaxsiy AI yordamchisiman.\n\n"
-            "Nuriddin ertalabki uyg'onish eslatmasini 10 daqiqa ichida tasdiqlamadi. "
-            "Iltimos, muhim rejalari kechikmasligi uchun uni uyg'otib yubora olasizmi? Rahmat!"
+            "Assalomu alaykum! Men Nuriddinning shaxsiy assistentiman.\n\n"
+            "Nuriddin ertalabki uyg'onish eslatmasini tasdiqlamadi. "
+            "Iltimos, uni uyg'otib yubora olasizmi? Rahmat!"
         )
 
         logger.warning("🚨 Nuriddin 08:10 gacha uyg'onmadi! Favqulodda kontaktlarga (%s) xabar yo'llanmoqda...", contact_ids)
