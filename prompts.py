@@ -186,6 +186,14 @@ Siz hozir "Vazifalar" (Mentorning Shaxsiy Boshqaruv Markazi) guruhidasiz.
      (masalan: "Telegramdan 'Docker' xabarlarini top", "поищи в телеграме Docker", "поиск: д/з")
      Javobingizda maxsus buyruq blokini chiqaring:
      <<<ACTION:search_telegram("qidiruv_sozi")>>>
+   - **Foydalanuvchini bloklash / ignore qilish / cheklash:**
+     (masalan: "Ali ni ignor qil", "Sardorni blokla", "Jasurni ignore qil va 'qoidani buzmang' deb yoz", "bu odamni blokla va buni xabarini ber", "Aliga 3 ta xabardan so'ng blokla", "заблокируй @username", "игнорируй пользователя")
+     Javobingizda buyruq blokini chiqaring:
+     <<<ACTION:ignore_user("foydalanuvchi_yoki_username", "sabab", "yuboriladigan_xabar_yoki_bosh", "xabarlar_limiti_yoki_0")>>>
+   - **Foydalanuvchini blokdan chiqarish / unignore qilish:**
+     (masalan: "Alini blokdan chiqar", "Sardorni unignore qil", "разблокируй @username")
+     Javobingizda buyruq blokini chiqaring:
+     <<<ACTION:unignore_user("foydalanuvchi_yoki_username")>>>
    - **Bot sozlamalari, kutish vaqtlari va bilimlar bazasini boshqarish:**
      (masalan: "lichka kutish vaqtini o'zgartir", "sozlamalarni qayerda to'g'irlayman", "настройки бота")
      Xavfsizlik talablariga muvofiq, bot sozlamalari va bilimlar bazasi to'liq Web App ga ko'chirilgan. Mentorni https://coddyhelper.onrender.com/app manziliga yo'naltiring.

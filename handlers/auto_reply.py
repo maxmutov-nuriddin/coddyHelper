@@ -657,29 +657,80 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 except Exception as c_err:
                     logger.debug("Chatlar kontekstini olishda xatolik: %s", c_err)
 
-            # 5. AI Co-Pilot javobini yaratish (Admin / Co-Pilot rejimida)
-            try:
-                raw_reply = await asyncio.wait_for(
-                    ai_service.generate_reply(
-                        chat_id=config.mentor_user_id,
-                        user_message=input_text,
-                        reply_to_context=chats_context,
-                        image_bytes=image_bytes,
-                        file_name=file_name,
-                        file_text=file_text,
-                        is_admin_mode=True,
-                    ),
-                    timeout=35.0,
-                )
-            except asyncio.TimeoutError:
-                logger.error("Vazifalar AI javob generatsiyasida timeout (35s) yuz berdi!")
-                raw_reply = "⚠️ Kechirasiz, AI javob berishda kechikish yuz berdi. Iltimos, qaytadan yozib ko'ring yoki Web App'da 'Agentni qayta ishga tushirish' tugmasini bosing."
-            except Exception as ai_gen_err:
-                logger.error("Vazifalar AI javobida xatolik: %s", ai_gen_err)
-                raw_reply = "⚠️ Kechirasiz, AI javob tayyorlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring."
+            # Reply qilingan xabar bormi?
+            reply_sender_id = None
+            if event.is_reply:
+                try:
+                    reply_msg = await event.get_reply_message()
+                    if reply_msg and reply_msg.sender_id:
+                        reply_sender_id = reply_msg.sender_id
+                except Exception:
+                    pass
 
-            # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, xabar yuborish, lokatsiya)
-            final_reply = await execute_agent_action(str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id)
+            # 5. AI Co-Pilot javobini yaratish (Admin / Co-Pilot rejimida)
+            # 🌟 VAZIFALAR GURUHI OLIY USTUNLIGI (VIP PRIORITY & AUTO-RETRY IMMUNITY):
+            # Vazifalar guruhida ustozga hech qachon "1 daqiqadan so'ng qayta urinib ko'ring" deyilmaydi!
+            # Agar barcha kalitlar vaqtinchalik limitda bo'lsa, tizim statusda kutishni bildirib,
+            # orqa fonda avtomatik qayta urinadi va limit ochilishi bilan javobni darhol yetkazadi.
+            raw_reply = None
+            max_vip_retries = 4
+            retry_delay = 15.0
+
+            for attempt in range(1, max_vip_retries + 1):
+                try:
+                    candidate = await asyncio.wait_for(
+                        ai_service.generate_reply(
+                            chat_id=config.mentor_user_id,
+                            user_message=input_text,
+                            reply_to_context=chats_context,
+                            image_bytes=image_bytes,
+                            file_name=file_name,
+                            file_text=file_text,
+                            is_admin_mode=True,
+                        ),
+                        timeout=40.0,
+                    )
+                    is_fallback_error = any(phrase in str(candidate).lower() for phrase in (
+                        "yuklama yuqori", "qayta urinib ko'ring", "javob shakllantirib bo'lmadi", "aniq javob shakllantirib"
+                    ))
+                    if not is_fallback_error and candidate and str(candidate).strip():
+                        raw_reply = candidate
+                        break
+                    else:
+                        logger.warning("Vazifalar VIP so'rovi %d-urinishda limit/fallback ga uchradi. Qayta urinilmoqda...", attempt)
+                except asyncio.TimeoutError:
+                    logger.warning("Vazifalar VIP so'rovida timeout (%d-urinish).", attempt)
+                except Exception as ai_gen_err:
+                    logger.warning("Vazifalar AI javobida xatolik (%d-urinish): %s", attempt, ai_gen_err)
+
+                if attempt < max_vip_retries:
+                    if status_msg:
+                        try:
+                            await status_msg.edit(
+                                f"⏳ Tizimda qisqa muddatli limit. Ustoz, so'rovingiz 1-o'rinda (VIP Priority), "
+                                f"limit ochilishi bilan javob avtomatik yetkaziladi... (Kutilmoqda {attempt * int(retry_delay)}s)"
+                            )
+                        except Exception:
+                            pass
+                    await asyncio.sleep(retry_delay)
+
+            if not raw_reply:
+                # Agar Groq klasteri uzoq band bo'lsa, zaxira Google Gemini ga murojaat:
+                try:
+                    loop = asyncio.get_running_loop()
+                    raw_reply = await loop.run_in_executor(
+                        None, ai_service._generate_with_genai, input_text, chats_context or "", True
+                    )
+                except Exception as final_gem_err:
+                    logger.error("Vazifalar VIP zaxira Gemini ham xato berdi: %s", final_gem_err)
+
+            if not raw_reply:
+                raw_reply = "⚠️ Ustoz, barcha klaster modellarida qisqa uzilish kuzatildi. So'rovingiz yodda saqlandi va tizim qayta ishga tushmoqda."
+
+            # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, ignore/bloklash, xabar yuborish, lokatsiya)
+            final_reply = await execute_agent_action(
+                str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id, reply_user_id=reply_sender_id
+            )
 
             if final_reply != str(raw_reply):
                 # Web App'dagi kabi xotiradagi oxirgi xabarni amaliy natija bilan yangilash:
@@ -808,6 +859,33 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         # Bloklangan (ignore) foydalanuvchini tekshirish
         if memory_service.is_user_ignored(sender_id):
             logger.info("Foydalanuvchi %s bloklanganlar (ignored) ro'yxatida. AI javob bermaydi.", sender_id)
+            return
+
+        # 🎯 Foydalanuvchi xabar limiti (User Message Quota) tekshiruvi:
+        quota_res = memory_service.check_user_quota_limit(sender_id)
+        if quota_res and quota_res.get("exceeded"):
+            logger.warning("Foydalanuvchi %s xabarlar limitiga (%d ta) yetdi va avtomatik bloklandi.", sender_id, quota_res.get("max_messages", 0))
+            if quota_res.get("notify_text"):
+                try:
+                    await event.reply(quota_res["notify_text"])
+                except Exception:
+                    pass
+            # Vazifalar guruhiga hisobot berish
+            s_uname = f"@{getattr(sender, 'username', '')}" if getattr(sender, "username", None) else "Mavjud emas"
+            s_name = getattr(sender, "first_name", "") or "Foydalanuvchi"
+            alert = (
+                "🚫 **Foydalanuvchi xabarlar limitiga yetdi va bloklandi:**\n\n"
+                f"👤 **Foydalanuvchi:** {s_name} ({s_uname})\n"
+                f"🆔 **ID:** `{sender_id}`\n"
+                f"📊 **Belgilangan limit:** {quota_res.get('max_messages')} ta xabar\n"
+                f"ℹ️ **Holat:** AI endi bu foydalanuvchiga javob bermaydi."
+            )
+            try:
+                from config import get_vazifalar_chat_target_sync
+                v_target = get_vazifalar_chat_target_sync()
+                await client.send_message(v_target, alert)
+            except Exception as e_alert:
+                logger.debug("Vazifalarga quota xabari yuborishda xatolik: %s", e_alert)
             return
 
         message_text = event.raw_text or event.message.message or ""

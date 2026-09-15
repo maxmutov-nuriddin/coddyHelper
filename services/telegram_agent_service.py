@@ -1269,10 +1269,139 @@ ACTION_FORGET_FACT = re.compile(r'<<<ACTION:forget_fact\(["\'](.*?)["\']\)>>>', 
 ACTION_SET_PRIVATE_DELAY = re.compile(r'<<<ACTION:set_private_delay\((\d+)\)>>>', re.IGNORECASE)
 ACTION_GET_PRIVATE_DELAY = re.compile(r'<<<ACTION:get_private_delay\(\)>>>', re.IGNORECASE)
 ACTION_WEB_SEARCH = re.compile(r'<<<ACTION:web_search\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
+ACTION_IGNORE_USER = re.compile(
+    r'<<<ACTION:ignore_user\(["\'](.*?)["\'](?:,\s*["\'](.*?)["\'])?(?:,\s*["\'](.*?)["\'])?(?:,\s*(\d+))?\)>>>',
+    re.IGNORECASE | re.DOTALL,
+)
+ACTION_UNIGNORE_USER = re.compile(
+    r'<<<ACTION:unignore_user\(["\'](.*?)["\']\)>>>',
+    re.IGNORECASE,
+)
 
 
+async def resolve_target_user(client, target_query: str, reply_user_id: int | None = None) -> dict[str, Any]:
+    """
+    Foydalanuvchini @username, ID, reply yoki kontakt/guruh a'zolari orqali topadi.
+    """
+    from config import config
+    target = (target_query or "").strip()
 
-async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_mode: bool = True, chat_id: int | None = None) -> str:
+    # 1. Agar reply orqali berilgan bo'lsa va target ko'rsatilmagan yoki umumiy olmosh bo'lsa:
+    if reply_user_id and (not target or target.lower() in ("shu", "bu", "o'sha", "shu shu", "foydalanuvchi", "foydalanuvchini", "odam", "odamni", "buni", "shu odamni", "shu odam")):
+        if reply_user_id in (config.mentor_user_id, 8105823872):
+            return {"ok": False, "is_mentor": True, "error": "Ustoz daxlsizdir! Mentorni bloklash yoki cheklash mumkin emas."}
+        try:
+            entity = await client.get_entity(reply_user_id)
+            uname = f"@{entity.username}" if getattr(entity, "username", None) else ""
+            fname = getattr(entity, "first_name", "") or ""
+            lname = getattr(entity, "last_name", "") or ""
+            fullname = f"{fname} {lname}".strip() or f"User {reply_user_id}"
+            return {"ok": True, "user_id": reply_user_id, "username": uname, "name": fullname, "entity": entity}
+        except Exception:
+            return {"ok": True, "user_id": reply_user_id, "username": "", "name": f"User {reply_user_id}", "entity": None}
+
+    # 2. Agar @username yoki ID bo'lsa
+    if target:
+        if re.match(r"^-?\d+$", target):
+            uid = int(target)
+            if uid in (config.mentor_user_id, 8105823872):
+                return {"ok": False, "is_mentor": True, "error": "Ustoz daxlsizdir! Mentorni bloklash yoki cheklash mumkin emas."}
+            try:
+                entity = await client.get_entity(uid)
+                uname = f"@{entity.username}" if getattr(entity, "username", None) else ""
+                fname = getattr(entity, "first_name", "") or ""
+                lname = getattr(entity, "last_name", "") or ""
+                fullname = f"{fname} {lname}".strip() or f"User {uid}"
+                return {"ok": True, "user_id": uid, "username": uname, "name": fullname, "entity": entity}
+            except Exception:
+                return {"ok": True, "user_id": uid, "username": "", "name": f"User {uid}", "entity": None}
+
+        if target.startswith("@"):
+            try:
+                entity = await client.get_entity(target)
+                uid = entity.id
+                if uid in (config.mentor_user_id, 8105823872):
+                    return {"ok": False, "is_mentor": True, "error": "Ustoz daxlsizdir! Mentorni bloklash yoki cheklash mumkin emas."}
+                uname = f"@{entity.username}" if getattr(entity, "username", None) else target
+                fname = getattr(entity, "first_name", "") or ""
+                lname = getattr(entity, "last_name", "") or ""
+                fullname = f"{fname} {lname}".strip() or target
+                return {"ok": True, "user_id": uid, "username": uname, "name": fullname, "entity": entity}
+            except Exception as e:
+                return {"ok": False, "error": f"'{target}' username bo'yicha Telegramdan profil topilmadi ({e})"}
+
+        # 3. Agar ism bo'lsa (masalan: 'Jasur', 'Ali', 'Sardor'):
+        try:
+            contact_res = await find_student_or_contact(client, target)
+            found_target = None
+            for m in contact_res.get("group_members", []):
+                if m.get("link"):
+                    found_target = m
+                    break
+            if not found_target:
+                for c in contact_res.get("telegram_chats", []):
+                    if c.get("type") == "user" and c.get("username"):
+                        found_target = c
+                        break
+            if not found_target:
+                for s in contact_res.get("crm_students", []):
+                    if s.get("username"):
+                        found_target = s
+                        break
+
+            if found_target:
+                t_uname = found_target.get("username")
+                uid = found_target.get("user_id") or found_target.get("id") or found_target.get("telegram_id")
+                if uid:
+                    if uid in (config.mentor_user_id, 8105823872):
+                        return {"ok": False, "is_mentor": True, "error": "Ustoz daxlsizdir! Mentorni bloklash yoki cheklash mumkin emas."}
+                    return {
+                        "ok": True,
+                        "user_id": uid,
+                        "username": t_uname or "",
+                        "name": found_target.get("name") or found_target.get("full_name") or target,
+                        "entity": None,
+                    }
+                elif t_uname:
+                    try:
+                        entity = await client.get_entity(t_uname)
+                        uid = entity.id
+                        if uid in (config.mentor_user_id, 8105823872):
+                            return {"ok": False, "is_mentor": True, "error": "Ustoz daxlsizdir! Mentorni bloklash yoki cheklash mumkin emas."}
+                        return {
+                            "ok": True,
+                            "user_id": uid,
+                            "username": f"@{entity.username}" if getattr(entity, "username", None) else t_uname,
+                            "name": found_target.get("name") or found_target.get("full_name") or target,
+                            "entity": entity,
+                        }
+                    except Exception:
+                        pass
+        except Exception as search_err:
+            logger.debug("Ism bo'yicha qidirishda ogohlantirish: %s", search_err)
+
+        # 4. Telethon orqali to'g'ridan-to'g'ri entity qidirish
+        try:
+            entity = await client.get_entity(target)
+            uid = getattr(entity, "id", None)
+            if uid:
+                if uid in (config.mentor_user_id, 8105823872):
+                    return {"ok": False, "is_mentor": True, "error": "Ustoz daxlsizdir! Mentorni bloklash yoki cheklash mumkin emas."}
+                uname = f"@{entity.username}" if getattr(entity, "username", None) else ""
+                fname = getattr(entity, "first_name", "") or ""
+                lname = getattr(entity, "last_name", "") or ""
+                fullname = f"{fname} {lname}".strip() or target
+                return {"ok": True, "user_id": uid, "username": uname, "name": fullname, "entity": entity}
+        except Exception:
+            pass
+
+    if reply_user_id:
+        return {"ok": True, "user_id": reply_user_id, "username": "", "name": f"User {reply_user_id}", "entity": None}
+
+    return {"ok": False, "error": f"'{target}' bo'yicha aniq foydalanuvchi topilmadi. Iltimos @username, ID yoki xabarga reply qilib yozing."}
+
+
+async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_mode: bool = True, chat_id: int | None = None, reply_user_id: int | None = None) -> str:
     """
     AI javobidagi maxsus harakat buyruqlarini (Action Tools) yoki
     foydalanuvchining to'g'ridan-to'g'ri Telegram amallari talablarini (o'zbek va rus tillarida) bajaradi.
@@ -1980,6 +2109,172 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
         return (
             f"⚙️ **Lichkada AI yordamga kelish kutish vaqti:** `{m_str}`\n\n"
             f"💡 Ushbu va boshqa sozlamalarni [🎛 Web App orqali o'zgartirish](https://coddyhelper.onrender.com/app) mumkin."
+        )
+
+    # 11. Action: ignore_user (Foydalanuvchini bloklash / ignore qilish / cheklash)
+    m_ignore = ACTION_IGNORE_USER.search(reply_text)
+    is_direct_ignore = False
+    ign_target = ""
+    ign_reason = ""
+    ign_notify = ""
+    ign_max_msg = 0
+
+    if m_ignore:
+        ign_target = (m_ignore.group(1) or "").strip()
+        ign_reason = (m_ignore.group(2) or "").strip()
+        ign_notify = (m_ignore.group(3) or "").strip()
+        raw_max = (m_ignore.group(4) or "").strip()
+        ign_max_msg = int(raw_max) if raw_max and raw_max.isdigit() else 0
+    else:
+        # Erkin til (O'zbekcha / Ruscha)
+        ignore_kw = r"\b(?:ignor(?:e)?\s*qil\w*|blok(?:la\w*|irovka\s*qil\w*)?|игнор\w*|заблокируй\w*|блокни\w*)\b"
+        unign_check = r"\b(?:unignore|blokdan\s*chiqar|blokni\s*och|разблокируй)\b"
+        if re.search(ignore_kw, orig_msg, re.I) and not re.search(unign_check, orig_msg, re.I):
+            is_direct_ignore = True
+
+            # Xabarlar limiti (masalan: 3 ta xabardan so'ng)
+            limit_m = re.search(r"(\d+)\s*ta\s*xabar(?:dan\s*(?:so['’`]?ng|keyin|o['’`]?tib))?", orig_msg, re.I) or \
+                      re.search(r"(?:после|через)\s*(\d+)\s*сообщени[йяе]", orig_msg, re.I)
+            if limit_m:
+                ign_max_msg = int(limit_m.group(1))
+
+            # Yuboriladigan xabar (masalan: 'qoidani buzmang' deb yubor / jo'nat)
+            custom_msg_m = re.search(r"['\"](.+?)['\"]\s*(?:deb\s*)?(?:yubor|jo['’`]?nat|yoz|отправь|напиши)", orig_msg, re.I)
+            if custom_msg_m:
+                ign_notify = custom_msg_m.group(1).strip()
+            elif re.search(r"(?:buni\s+)?(?:xabarini\s+ber|ogohlantir|xabar\s+qil|уведоми|предупреди)", orig_msg, re.I):
+                ign_notify = "Hurmatli foydalanuvchi, sizning hisobingiz mentor qaroriga asosan cheklandi." if not is_ru else "Уважаемый пользователь, ваш доступ ограничен по решению наставника."
+
+            # Sabab (masalan: "sabab: spam" yoki matndan)
+            reason_m = re.search(r"(?:sabab|sababi|причина)\s*[:\-]?\s*([^,\.\n]+)", orig_msg, re.I)
+            if reason_m:
+                ign_reason = reason_m.group(1).strip()
+
+            # Targetni aniqlash:
+            uname_m = re.search(r"(@[A-Za-z0-9_]{4,})", orig_msg)
+            id_m = re.search(r"\b(\d{6,15})\b", orig_msg)
+            if uname_m:
+                ign_target = uname_m.group(1)
+            elif id_m and not (limit_m and id_m.group(1) == limit_m.group(1)):
+                ign_target = id_m.group(1)
+            else:
+                # Ism bo'yicha ajratish: "Jasurni ignor qil", "Alini blokla"
+                name_m = re.search(r"([A-Za-z0-9_'\`\u0400-\u04FF]+?)(?:ni|ga|ni\s+ham)?\s+" + ignore_kw, orig_msg, re.I) or \
+                         re.search(r"(?:заблокируй|игнорируй|блокни)\s+([A-Za-z0-9_'\`\u0400-\u04FF]+)", orig_msg, re.I)
+                if name_m:
+                    raw_n = name_m.group(1).strip()
+                    if raw_n.lower() not in ("shu", "bu", "o'sha", "shu shu", "foydalanuvchi", "foydalanuvchini", "odam", "odamni", "bola", "bolani", "ученика", "пользователя"):
+                        ign_target = raw_n
+
+    if m_ignore or is_direct_ignore:
+        user_info = await resolve_target_user(client, ign_target, reply_user_id=reply_user_id)
+        if not user_info.get("ok"):
+            return f"❌ {user_info.get('error')}"
+
+        target_id = user_info["user_id"]
+        target_uname = user_info["username"]
+        target_name = user_info["name"]
+
+        # Xabarlar limiti bilan cheklashmi yoki darhol bloklashmi?
+        if ign_max_msg > 0:
+            memory_service.set_user_message_quota(
+                target_id,
+                max_messages=ign_max_msg,
+                username=target_uname,
+                notify_text=ign_notify,
+                reason=ign_reason or f"Mentor tomonidan {ign_max_msg} ta xabardan so'ng bloklash buyrug'i",
+            )
+            if is_ru:
+                res_lines = [
+                    f"⏳ **Установлен лимит сообщений для пользователя:**\n",
+                    f"• **Пользователь:** {target_name} ({target_uname or target_id})",
+                    f"• **Лимит сообщений:** `{ign_max_msg}` сообщений",
+                    f"• **Действие:** После {ign_max_msg}-го сообщения бот автоматически заблокирует пользователя.",
+                ]
+                if ign_notify:
+                    res_lines.append(f"• **Текст предупреждения:** «{ign_notify}»")
+                return "\n".join(res_lines)
+            else:
+                res_lines = [
+                    f"⏳ **Foydalanuvchiga xabarlar limiti o'rnatildi:**\n",
+                    f"• **Foydalanuvchi:** {target_name} ({target_uname or target_id})",
+                    f"• **Belgilangan limit:** `{ign_max_msg}` ta xabar",
+                    f"• **Harakat:** {ign_max_msg}-xabardan so'ng tizim uni avtomatik bloklaydi.",
+                ]
+                if ign_notify:
+                    res_lines.append(f"• **Ogohlantirish xabari:** «{ign_notify}»")
+                return "\n".join(res_lines)
+        else:
+            # Darhol bloklash
+            memory_service.ignore_user(target_id, username=target_uname, reason=ign_reason or "Mentor buyrug'i bilan bloklandi")
+
+            notify_status = ""
+            if ign_notify:
+                send_res = await send_telegram_message(client, str(target_id), ign_notify)
+                if send_res.get("ok"):
+                    notify_status = f"\n📩 **Foydalanuvchiga xabar yetkazildi:** «{ign_notify}»" if not is_ru else f"\n📩 **Пользователю отправлено уведомление:** «{ign_notify}»"
+                else:
+                    notify_status = f"\n⚠️ **Xabar yetkazishda xatolik:** {send_res.get('error')}"
+
+            if is_ru:
+                return (
+                    f"🚫 **Пользователь {target_name} ({target_uname or target_id}) заблокирован!**\n\n"
+                    f"• **Причина:** {ign_reason or 'Команда наставника'}\n"
+                    f"• **Статус:** AI больше не будет отвечать на сообщения этого пользователя."
+                    f"{notify_status}\n\n"
+                    f"💡 Разблокировать: `ai unignore {target_id}` или напишите *{target_name}ни блокдан чиқар*"
+                )
+            return (
+                f"🚫 **Foydalanuvchi {target_name} ({target_uname or target_id}) bloklandi!**\n\n"
+                f"• **Sabab:** {ign_reason or 'Mentor buyrug\'i'}\n"
+                f"• **Holat:** AI endi ushbu foydalanuvchiga mutlaqo javob bermaydi."
+                f"{notify_status}\n\n"
+                f"💡 Blokdan chiqarish uchun: *{target_name}ni blokdan chiqar* yoki `ai unignore {target_id}`"
+            )
+
+    # 12. Action: unignore_user (Foydalanuvchini blokdan chiqarish / ochish)
+    m_unignore = ACTION_UNIGNORE_USER.search(reply_text)
+    is_direct_unignore = False
+    unign_target = ""
+
+    if m_unignore:
+        unign_target = (m_unignore.group(1) or "").strip()
+    else:
+        unign_kw = r"\b(?:unignore\s*qil\w*|blokdan\s*chiqar\w*|blokni\s*och\w*|разблокируй\w*|сними\s*блок)\b"
+        if re.search(unign_kw, orig_msg, re.I):
+            is_direct_unignore = True
+            uname_m = re.search(r"(@[A-Za-z0-9_]{4,})", orig_msg)
+            id_m = re.search(r"\b(\d{6,15})\b", orig_msg)
+            if uname_m:
+                unign_target = uname_m.group(1)
+            elif id_m:
+                unign_target = id_m.group(1)
+            else:
+                name_m = re.search(r"([A-Za-z0-9_'\`\u0400-\u04FF]+?)(?:ni|ni\s+ham)?\s+" + unign_kw, orig_msg, re.I) or \
+                         re.search(r"(?:разблокируй|сними\s*блок\s*с)\s+([A-Za-z0-9_'\`\u0400-\u04FF]+)", orig_msg, re.I)
+                if name_m:
+                    raw_n = name_m.group(1).strip()
+                    if raw_n.lower() not in ("shu", "bu", "o'sha", "shu shu", "foydalanuvchi", "foydalanuvchini", "odam", "odamni", "bola", "bolani", "ученика", "пользователя"):
+                        unign_target = raw_n
+
+    if m_unignore or is_direct_unignore:
+        user_info = await resolve_target_user(client, unign_target, reply_user_id=reply_user_id)
+        if not user_info.get("ok"):
+            return f"❌ {user_info.get('error')}"
+
+        target_id = user_info["user_id"]
+        target_name = user_info["name"]
+        memory_service.unignore_user(target_id)
+        memory_service.clear_user_quota(target_id)
+
+        if is_ru:
+            return (
+                f"✅ **Пользователь {target_name} ({user_info.get('username') or target_id}) успешно разблокирован!**\n\n"
+                f"• **Статус:** AI снова активен и готов отвечать на вопросы этого пользователя."
+            )
+        return (
+            f"✅ **Foydalanuvchi {target_name} ({user_info.get('username') or target_id}) blokdan chiqarildi!**\n\n"
+            f"• **Holat:** AI yana ushbu foydalanuvchining savollariga to'liq javob bera oladi."
         )
 
     return reply_text

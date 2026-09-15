@@ -67,6 +67,19 @@ class SQLiteMemoryService:
                 )
                 conn.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS user_quotas (
+                        user_id INTEGER PRIMARY KEY,
+                        username TEXT,
+                        max_messages INTEGER NOT NULL,
+                        current_count INTEGER DEFAULT 0,
+                        notify_text TEXT DEFAULT '',
+                        reason TEXT DEFAULT '',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS reminders (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         chat_id INTEGER NOT NULL,
@@ -501,6 +514,120 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Ignore ro'yxatini olishda xatolik: %s", e)
             return []
+
+    def set_user_message_quota(
+        self,
+        user_id: int,
+        max_messages: int,
+        username: str = "",
+        notify_text: str = "",
+        reason: str = "",
+    ) -> None:
+        """Foydalanuvchiga xabarlar soni bo'yicha limit (quota) o'rnatadi. Limitga yetganda avtomatik bloklanadi."""
+        try:
+            from config import config
+            if user_id in (config.mentor_user_id, 8105823872):
+                logger.warning("Xavfsizlik: Mentorni quota/ignore qilish mumkin emas!")
+                return
+        except Exception:
+            if user_id == 8105823872:
+                return
+
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO user_quotas 
+                    (user_id, username, max_messages, current_count, notify_text, reason) 
+                    VALUES (?, ?, ?, 0, ?, ?)
+                    """,
+                    (user_id, username, max(1, max_messages), notify_text, reason),
+                )
+                conn.commit()
+                logger.info("Foydalanuvchi %s uchun %d ta xabarlik quota belgilandi.", user_id, max_messages)
+        except Exception as e:
+            logger.error("User quota belgilashda xatolik: %s", e)
+
+    def get_user_quota(self, user_id: int) -> dict | None:
+        """Foydalanuvchining faol quotasi mavjudligini qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT user_id, username, max_messages, current_count, notify_text, reason FROM user_quotas WHERE user_id = ?",
+                    (user_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "user_id": row[0],
+                        "username": row[1] or "",
+                        "max_messages": row[2],
+                        "current_count": row[3],
+                        "notify_text": row[4] or "",
+                        "reason": row[5] or "",
+                    }
+        except Exception as e:
+            logger.error("User quota olishda xatolik: %s", e)
+        return None
+
+    def check_user_quota_limit(self, user_id: int) -> dict | None:
+        """
+        Foydalanuvchi xabar yuborganda hisoblagichni 1 taga oshiradi.
+        Agar limitga yetsa, avtomatik ignore_user qiladi va exceeded=True qaytaradi.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT max_messages, current_count, username, notify_text, reason FROM user_quotas WHERE user_id = ?",
+                    (user_id,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+                max_m, cur_c, uname, n_text, r_text = row
+                new_c = cur_c + 1
+                if new_c >= max_m:
+                    # Limit tugadi! Foydalanuvchini bloklaymiz va quota jadvalidan tozalaymiz
+                    cursor.execute("DELETE FROM user_quotas WHERE user_id = ?", (user_id,))
+                    conn.commit()
+                    self.ignore_user(user_id, username=uname or "", reason=r_text or f"Xabarlar limiti ({max_m} ta) tugadi")
+                    return {
+                        "exceeded": True,
+                        "user_id": user_id,
+                        "username": uname or "",
+                        "notify_text": n_text or "",
+                        "reason": r_text or f"{max_m} ta xabardan so'ng bloklandi",
+                        "max_messages": max_m,
+                    }
+                else:
+                    cursor.execute("UPDATE user_quotas SET current_count = ? WHERE user_id = ?", (new_c, user_id))
+                    conn.commit()
+                    return {
+                        "exceeded": False,
+                        "user_id": user_id,
+                        "username": uname or "",
+                        "current_count": new_c,
+                        "remaining": max_m - new_c,
+                        "max_messages": max_m,
+                    }
+        except Exception as e:
+            logger.error("User quota tekshirishda xatolik: %s", e)
+        return None
+
+    def clear_user_quota(self, user_id: int) -> bool:
+        """Foydalanuvchi quotasini bekor qiladi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM user_quotas WHERE user_id = ?", (user_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("User quotani o'chirishda xatolik: %s", e)
+            return False
 
     def get_user_strikes(self, user_id: int) -> int:
         """Foydalanuvchining mavzudan tashqari savollari sonini oladi."""
