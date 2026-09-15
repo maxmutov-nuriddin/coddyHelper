@@ -692,11 +692,14 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
             # Reply qilingan xabar bormi?
             reply_sender_id = None
+            reply_msg_id = None
             if event.is_reply:
                 try:
                     reply_msg = await event.get_reply_message()
-                    if reply_msg and reply_msg.sender_id:
-                        reply_sender_id = reply_msg.sender_id
+                    if reply_msg:
+                        if reply_msg.sender_id:
+                            reply_sender_id = reply_msg.sender_id
+                        reply_msg_id = reply_msg.id
                 except Exception:
                     pass
 
@@ -762,7 +765,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
             # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, ignore/bloklash, xabar yuborish, lokatsiya)
             final_reply = await execute_agent_action(
-                str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id, reply_user_id=reply_sender_id
+                str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id, reply_user_id=reply_sender_id, reply_msg_id=reply_msg_id
             )
 
             if final_reply != str(raw_reply):

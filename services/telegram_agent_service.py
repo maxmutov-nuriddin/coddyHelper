@@ -466,6 +466,92 @@ async def send_telegram_message(client, target_query: str, message_text: str) ->
         return {"ok": False, "error": str(e)}
 
 
+async def delete_telegram_message(
+    client,
+    target_query: str = "",
+    target_message: str = "",
+    reply_msg_id: int | None = None,
+    current_chat_id: int | None = None,
+) -> dict[str, Any]:
+    """
+    Belgilangan guruh, chat yoki lichkadagi xabarni o'chiradi (revoke=True).
+    target_query: guruh/chat nomi, @username yoki chat ID (agar bo'sh yoki 'bu'/'shu' bo'lsa, current_chat_id ishlatiladi)
+    target_message: xabar ID raqami, yoki 'oxirgi' / 'last' / bo'sh bo'lsa oxirgi xabar
+    reply_msg_id: agar xabarga reply qilib o'chirish so'ralgan bo'lsa, reply qilingan xabar ID si
+    """
+    if not client:
+        return {"ok": False, "error": "Telegram mijoz ulanmagan"}
+
+    target = (target_query or "").strip()
+    msg_spec = (target_message or "").strip()
+
+    resolved_entity = None
+    target_name = target or "Ushbu chat"
+    target_msg_id = None
+
+    try:
+        # 1. Agar xabarga reply qilingan bo'lsa va target ko'rsatilmagan yoki umumiy olmosh bo'lsa:
+        if reply_msg_id and (not target or target.lower() in ("bu", "shu", "ushbu", "shu chat", "o'sha", "xabar", "oxirgi", "this")):
+            resolved_entity = current_chat_id
+            target_name = "Ushbu chat"
+            target_msg_id = reply_msg_id
+        else:
+            # Chat entity ni topish
+            if not target or target.lower() in ("bu", "shu", "ushbu", "shu chat", "current"):
+                resolved_entity = current_chat_id
+                target_name = "Ushbu chat"
+            elif target.startswith("@") or target.startswith("+") or re.match(r"^-?\d+$", target):
+                parse_target = int(target) if re.match(r"^-?\d+$", target) else target
+                try:
+                    resolved_entity = await client.get_entity(parse_target)
+                except Exception:
+                    pass
+
+            if not resolved_entity and target:
+                dialogs = await client.get_dialogs(limit=120)
+                for d in dialogs:
+                    d_name = d.name or ""
+                    uname = getattr(d.entity, "username", "") or ""
+                    if match_text(target, d_name) or (uname and match_text(target, uname)):
+                        resolved_entity = d.entity
+                        target_name = d_name
+                        break
+
+            if not resolved_entity:
+                resolved_entity = current_chat_id
+                target_name = target or "Ushbu chat"
+
+            if not resolved_entity:
+                return {
+                    "ok": False,
+                    "error": f"'{target}' nomli chat yoki guruh topilmadi.",
+                }
+
+            # Xabar ID sini aniqlash
+            if msg_spec.isdigit():
+                target_msg_id = int(msg_spec)
+            elif reply_msg_id:
+                target_msg_id = reply_msg_id
+            else:
+                # Oxirgi xabarni olish
+                messages = await client.get_messages(resolved_entity, limit=2)
+                if not messages:
+                    return {"ok": False, "error": f"'{target_name}' chatida o'chirish uchun xabarlar topilmadi."}
+                # Agar ushbu chat bo'lsa va oxirgi xabar mentorning hozirgi buyrug'i bo'lsa, undan oldingisini o'chirish
+                target_msg_id = messages[0].id
+
+        await client.delete_messages(resolved_entity, target_msg_id, revoke=True)
+        logger.info("Xabar muvaffaqiyatli o'chirildi: %s (msg_id: %s)", target_name, target_msg_id)
+        return {
+            "ok": True,
+            "target_name": target_name,
+            "message_id": target_msg_id,
+        }
+    except Exception as e:
+        logger.error("Telegram xabarni o'chirishda xatolik: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 async def schedule_telegram_message(
     client,
     target_query: str,
@@ -1277,6 +1363,11 @@ ACTION_UNIGNORE_USER = re.compile(
     r'<<<ACTION:unignore_user\(["\'](.*?)["\']\)>>>',
     re.IGNORECASE,
 )
+ACTION_DELETE_MSG = re.compile(
+    r'<<<ACTION:delete_message\(["\']?(.*?)["\']?(?:,\s*["\']?(.*?)["\']?)?\)>>>',
+    re.IGNORECASE,
+)
+
 
 
 async def block_telegram_user(client, user_entity_or_id) -> bool:
@@ -1436,7 +1527,15 @@ async def resolve_target_user(client, target_query: str, reply_user_id: int | No
     return {"ok": False, "error": f"'{target}' bo'yicha aniq foydalanuvchi topilmadi. Iltimos @username, ID yoki xabarga reply qilib yozing."}
 
 
-async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_mode: bool = True, chat_id: int | None = None, reply_user_id: int | None = None) -> str:
+async def execute_agent_action(
+    reply_text: str,
+    client,
+    orig_msg: str,
+    is_admin_mode: bool = True,
+    chat_id: int | None = None,
+    reply_user_id: int | None = None,
+    reply_msg_id: int | None = None,
+) -> str:
     """
     AI javobidagi maxsus harakat buyruqlarini (Action Tools) yoki
     foydalanuvchining to'g'ridan-to'g'ri Telegram amallari talablarini (o'zbek va rus tillarida) bajaradi.
@@ -2343,6 +2442,59 @@ async def execute_agent_action(reply_text: str, client, orig_msg: str, is_admin_
             f"• **Telegram:** Telegram qora ro'yxatidan (blokdan) chiqarildi.\n"
             f"• **AI Holati:** AI yana ushbu foydalanuvchining savollariga to'liq javob bera oladi."
         )
+
+    # 13. Action: delete_message (Telegramdagi xabarni o'chirish)
+    m_delete = ACTION_DELETE_MSG.search(reply_text)
+    is_direct_del = False
+    del_target = ""
+    del_msg = ""
+
+    if m_delete:
+        del_target = (m_delete.group(1) or "").strip()
+        del_msg = (m_delete.group(2) or "").strip() if m_delete.lastindex and m_delete.lastindex >= 2 else ""
+    else:
+        # Erkin til: "oxirgi xabarni o'chir", "buni o'chir", "shu xabarni o'chir", "Python guruhidagi oxirgi xabarni o'chir"
+        del_kw = r"\b(?:o['`]?chir(?:ib\s+tashla)?|udalit\s*qil|удали\w*|удалить|delete)\b"
+        if re.search(del_kw, orig_msg, re.I):
+            is_direct_del = True
+            grp_m = (
+                re.search(r"([A-Za-z0-9_'\`\u0400-\u04FF\s\-]+?)(?:dagi|dagi\s+oxirgi|dagi\s+so'nggi)\s+(?:oxirgi\s+)?xabar(?:ni)?\s+" + del_kw, orig_msg, re.I) or
+                re.search(del_kw + r"\s+(?:последнее\s+)?сообщение\s+(?:в\s+)?([A-Za-z0-9_'\`\u0400-\u04FF\s\-]+)", orig_msg, re.I)
+            )
+            if grp_m:
+                del_target = grp_m.group(1).strip()
+                del_msg = "last"
+            elif reply_msg_id:
+                del_target = ""
+                del_msg = str(reply_msg_id)
+            else:
+                del_target = ""
+                del_msg = "last"
+
+    if m_delete or is_direct_del:
+        res = await delete_telegram_message(
+            client=client,
+            target_query=del_target,
+            target_message=del_msg,
+            reply_msg_id=reply_msg_id,
+            current_chat_id=chat_id,
+        )
+        if res.get("ok"):
+            if is_ru:
+                return (
+                    f"🗑 **Сообщение успешно удалено!**\n\n"
+                    f"• **Чат / Группа:** {res.get('target_name')}\n"
+                    f"• **ID сообщения:** `{res.get('message_id')}`"
+                )
+            return (
+                f"🗑 **Xabar muvaffaqiyatli o'chirildi!**\n\n"
+                f"• **Chat / Guruh:** {res.get('target_name')}\n"
+                f"• **Xabar ID:** `{res.get('message_id')}`"
+            )
+        else:
+            if is_ru:
+                return f"❌ **Не удалось удалить сообщение:** {res.get('error')}"
+            return f"❌ **Xabarni o'chirib bo'lmadi:** {res.get('error')}"
 
     return reply_text
 

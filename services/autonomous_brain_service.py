@@ -10,6 +10,8 @@ Orqa fonda to'xtovsiz ishlaydi (Background Daemon):
 
 import asyncio
 import logging
+import re
+import textwrap
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -18,6 +20,17 @@ from typing import Any
 from services.memory_service import memory_service
 
 logger = logging.getLogger(__name__)
+
+
+def _clean_field(text: str) -> str:
+    """Belgilarni tozalaydi, boshidagi/oxiridagi bo'shliqlarni va dedent qiladi."""
+    if not text:
+        return ""
+    text = textwrap.dedent(text).strip()
+    text = re.sub(r"^[\s*#:\-_]+", "", text).strip()
+    text = re.sub(r"[\s*#:\-_]+$", "", text).strip()
+    return text
+
 
 
 def _get_tashkent_now_str() -> str:
@@ -247,11 +260,17 @@ class AutonomousBrainService:
             return
 
         topic = chosen_topic
-        content = reply.strip()
-        if "MAVZU:" in reply and "XULOSA:" in reply:
+        content = _clean_field(reply)
+        m_xulosa = re.search(r"(?:\*{1,3}|#{1,3})?\s*XULOSA\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+        m_mavzu = re.search(r"(?:\*{1,3}|#{1,3})?\s*MAVZU\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+
+        if m_xulosa:
             try:
-                parts = reply.split("XULOSA:", 1)
-                parsed_topic = parts[0].replace("MAVZU:", "").strip()
+                x_idx = m_xulosa.start()
+                topic_part = reply[:x_idx]
+                if m_mavzu:
+                    topic_part = topic_part[m_mavzu.end():]
+                parsed_topic = _clean_field(topic_part)
                 # Mavzuning o'quv dasturiga muvofiqligini qat'iy kafolatlash
                 matched = next((t for t in curriculum_topics if t.lower() in parsed_topic.lower() or parsed_topic.lower() in t.lower()), None)
                 if matched:
@@ -261,7 +280,7 @@ class AutonomousBrainService:
                         topic = f"{matched}: {parsed_topic}"
                 else:
                     topic = f"{chosen_topic}: {parsed_topic}" if parsed_topic else chosen_topic
-                content = parts[1].strip()
+                content = _clean_field(reply[m_xulosa.end():])
             except Exception:
                 pass
 
@@ -306,11 +325,22 @@ class AutonomousBrainService:
         if not reply:
             return
 
-        if "SAVOL:" in reply and "YECHIM:" in reply:
+        m_yechim = re.search(r"(?:\*{1,3}|#{1,3})?\s*YECHIM\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+        m_savol = re.search(r"(?:\*{1,3}|#{1,3})?\s*SAVOL\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+
+        if m_yechim:
             try:
-                parts = reply.split("YECHIM:", 1)
-                q_pattern = parts[0].replace("SAVOL:", "").strip()
-                answer_code = parts[1].strip()
+                y_idx = m_yechim.start()
+                q_part = reply[:y_idx]
+                if m_savol:
+                    q_part = q_part[m_savol.end():]
+                a_part = reply[m_yechim.end():]
+
+                q_pattern = _clean_field(q_part)
+                answer_code = textwrap.dedent(a_part).strip()
+                answer_code = re.sub(r"^\*{1,3}\s*", "", answer_code).strip()
+                answer_code = re.sub(r"\*{1,3}$", "", answer_code).strip()
+
                 if q_pattern and answer_code:
                     memory_service.add_precomputed_answer(topic, q_pattern, answer_code)
                     self._answers_precomputed += 1

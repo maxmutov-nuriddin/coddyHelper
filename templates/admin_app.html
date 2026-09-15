@@ -2727,22 +2727,35 @@
             return;
           }
 
-          cont.innerHTML = items.map(item => `
-            <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 10px; font-size: 12px;">
+          cont.innerHTML = items.map(item => {
+            const rawText = item.answer_text || item.answer_code || "";
+            const isLong = rawText.length > 220 || rawText.includes('\n\n') || rawText.includes('```');
+            return `
+            <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px; font-size: 12px; margin-bottom: 8px;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
                 <div style="min-width: 0; flex: 1;">
-                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px;">
+                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 5px;">
                     <span style="font-weight: 700; color: #2ea6ff; font-size: 11px; background: rgba(46,166,255,0.15); padding: 1px 6px; border-radius: 4px;">
                       🏷️ ${escapeHtml(item.topic || 'Umumiy')}
                     </span>
                     <span style="font-size: 10px; color: var(--hint-color);">🎯 ${escapeHtml(item.created_at || '')}</span>
                   </div>
-                  <div style="font-weight: 600; color: #f8fafc; font-size: 12px; margin-bottom: 4px;">
+                  <div style="font-weight: 600; color: #f8fafc; font-size: 12.5px; line-height: 1.4; margin-bottom: 8px;">
                     ❓ ${escapeHtml(item.question_pattern || '')}
                   </div>
-                  <div id="pre-ans-${item.id}" style="font-size: 11px; color: #cbd5e1; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px 8px; font-family: monospace; white-space: pre-wrap; line-height: 1.35; max-height: 130px; overflow-y: auto;">
-                    <div style="font-size: 9.5px; color: #38bdf8; font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 4px;">⚡ TAYYOR YECHIM (KESH):</div>
-                    ${escapeHtml(item.answer_text || item.answer_code || "Yechim yuklanmadi")}
+                  <div style="background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(56, 189, 248, 0.18); border-radius: 6px; padding: 8px 10px;">
+                    <div style="font-size: 10px; color: #38bdf8; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
+                      ⚡ TAYYOR YECHIM (KESH):
+                    </div>
+                    <div id="pre-ans-body-${item.id}" style="font-size: 11.5px; color: #cbd5e1; font-family: inherit; line-height: 1.45; position: relative; ${isLong ? 'max-height: 140px; overflow: hidden;' : ''}">
+                      ${formatSolutionMarkdown(rawText)}
+                      ${isLong ? `<div id="pre-ans-fade-${item.id}" style="position: absolute; bottom: 0; left: 0; right: 0; height: 35px; background: linear-gradient(transparent, rgba(15, 23, 42, 0.95)); pointer-events: none;"></div>` : ''}
+                    </div>
+                    ${isLong ? `
+                    <button onclick="togglePrecomputedAnswer(${item.id})" id="pre-ans-btn-${item.id}" style="background: none; border: none; color: #38bdf8; font-size: 11px; font-weight: 600; cursor: pointer; padding: 6px 0 0 0; display: inline-flex; align-items: center; gap: 4px;">
+                      <span>Barchasini ko'rish</span> ▾
+                    </button>
+                    ` : ''}
                   </div>
                 </div>
                 <button onclick="deletePrecomputedAnswer(${item.id})" title="Keshdan o'chirish" style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); color: #ef4444; border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; flex-shrink: 0; margin-top: 2px;">
@@ -2750,11 +2763,125 @@
                 </button>
               </div>
             </div>
-          `).join('');
+          `}).join('');
         }
       } catch (e) {
         console.error('loadPrecomputedAnswers xatosi:', e);
       }
+    }
+
+    function togglePrecomputedAnswer(id) {
+      haptic();
+      const body = document.getElementById(`pre-ans-body-${id}`);
+      const btn = document.getElementById(`pre-ans-btn-${id}`);
+      const fade = document.getElementById(`pre-ans-fade-${id}`);
+      if (!body || !btn) return;
+
+      const isCollapsed = body.style.maxHeight !== 'none';
+      if (isCollapsed) {
+        body.style.maxHeight = 'none';
+        if (fade) fade.style.display = 'none';
+        btn.innerHTML = `<span>Yopish</span> ▴`;
+      } else {
+        body.style.maxHeight = '140px';
+        if (fade) fade.style.display = 'block';
+        btn.innerHTML = `<span>Barchasini ko'rish</span> ▾`;
+      }
+    }
+
+    function cleanAndDedent(text) {
+      if (!text) return "";
+      let lines = text.replace(/\r\n/g, "\n").split("\n");
+      while (lines.length && !lines[0].trim()) lines.shift();
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+
+      let minIndent = Infinity;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const match = line.match(/^[ \t]*/);
+        const indent = match ? match[0].length : 0;
+        if (indent < minIndent) minIndent = indent;
+      }
+      if (minIndent > 0 && minIndent !== Infinity) {
+        lines = lines.map(l => l.length >= minIndent ? l.slice(minIndent) : l.trimStart());
+      }
+      return lines.join("\n");
+    }
+
+    function formatSolutionMarkdown(raw) {
+      if (!raw) return '<span style="color: var(--hint-color); font-style: italic;">Yechim matni yuklanmadi</span>';
+      
+      let text = cleanAndDedent(raw);
+      text = text.replace(/^\*{1,3}\s*/, "").replace(/\*{1,3}$/, "");
+
+      // Extract fenced code blocks first
+      const codeBlocks = [];
+      text = text.replace(/```([a-zA-Z0-9_\-\+]*)\s*\n?([\s\S]*?)```/g, (m, lang, code) => {
+        const idx = codeBlocks.length;
+        const cleanCode = cleanAndDedent(code);
+        const displayLang = (lang || "KOD").toUpperCase();
+        codeBlocks.push(`
+          <div style="margin: 6px 0; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; background: #0b1120;">
+            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.04); padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 10px; color: #94a3b8; font-family: monospace;">
+              <span style="font-weight: 600;">💻 ${escapeHtml(displayLang)}</span>
+              <span onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(cleanCode)}')); showToast('📋 Kod nusxalandi');" style="cursor: pointer; color: #38bdf8; font-size: 10.5px; user-select: none;">Nusxa olish</span>
+            </div>
+            <pre style="margin: 0; padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; color: #e2e8f0; line-height: 1.45; overflow-x: auto; white-space: pre;"><code>${escapeHtml(cleanCode)}</code></pre>
+          </div>
+        `);
+        return `___CODE_BLOCK_${idx}___`;
+      });
+
+      // Escape HTML on remaining text
+      let escaped = escapeHtml(text);
+
+      // Inline code
+      escaped = escaped.replace(/`([^`]+)`/g, '<code style="background: rgba(255,255,255,0.08); color: #38bdf8; padding: 1px 4px; border-radius: 3px; font-size: 11px; font-family: monospace;">$1</code>');
+
+      // Bold **...**
+      escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong style="color: #f8fafc; font-weight: 600;">$1</strong>');
+
+      // Process lines for bullets, numbered lists, paragraphs
+      const lines = escaped.split('\n');
+      const processed = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        let s = lines[i].trim();
+        if (!s) {
+          processed.push('<div style="height: 4px;"></div>');
+          continue;
+        }
+
+        if (s.includes('___CODE_BLOCK_')) {
+          processed.push(s);
+          continue;
+        }
+
+        // Bullets
+        if (/^[-*•]\s+/.test(s)) {
+          const item = s.replace(/^[-*•]\s+/, "");
+          processed.push(`<div style="display: flex; gap: 6px; margin: 2px 0; align-items: baseline;"><span style="color: #38bdf8; font-weight: bold; flex-shrink: 0;">•</span><span style="line-height: 1.45;">${item}</span></div>`);
+          continue;
+        }
+
+        // Numbered list
+        const numMatch = s.match(/^(\d+)\.\s+(.*)/);
+        if (numMatch) {
+          processed.push(`<div style="display: flex; gap: 6px; margin: 2px 0; align-items: baseline;"><span style="color: #38bdf8; font-weight: 600; flex-shrink: 0;">${numMatch[1]}.</span><span style="line-height: 1.45;">${numMatch[2]}</span></div>`);
+          continue;
+        }
+
+        processed.push(`<div style="margin: 2px 0; line-height: 1.45;">${s}</div>`);
+      }
+
+      let html = processed.join('');
+
+      // Restore code blocks
+      codeBlocks.forEach((cb, idx) => {
+        html = html.replace(`___CODE_BLOCK_${idx}___`, cb);
+      });
+
+      return html;
     }
 
     async function deletePrecomputedAnswer(id) {
@@ -3685,7 +3812,10 @@
         if (titleDisplay) titleDisplay.innerText = res.title || "Coddy Executive Co-Pilot";
 
         const xpText = document.getElementById("agent-xp-text");
-        if (xpText) xpText.innerText = `${res.xp || 0} / ${res.next_level_xp || 250} XP`;
+        const curLvlXp = res.current_level_xp !== undefined ? res.current_level_xp : ((res.xp || 0) % 250);
+        const nxtLvlXp = res.next_level_xp || 250;
+        const totalXp = res.xp || 0;
+        if (xpText) xpText.innerHTML = `${curLvlXp} / ${nxtLvlXp} XP <span style="font-size: 10px; color: var(--hint-color); font-weight: normal;">(Jami: ${totalXp} XP)</span>`;
 
         const progressText = document.getElementById("agent-progress-text");
         if (progressText) progressText.innerText = (res.progress_pct || 0) + "%";
