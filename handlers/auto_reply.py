@@ -644,6 +644,39 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     except Exception:
                         pass
 
+            # 🌐 0-Token Veb-Inspektor: Mentor sayt havolasini tekshirishni so'ragan bo'lsa
+            from services.web_inspector_service import (
+                extract_inspection_url,
+                audit_website,
+                get_website_screenshot,
+                format_audit_report,
+            )
+            vazifalar_web_url = extract_inspection_url(input_text)
+            if vazifalar_web_url and not file_text and not image_bytes:
+                logger.info("🌐 [Vazifalar] 0-Token Veb-Inspektor ishga tushirildi: %s", vazifalar_web_url)
+                if status_msg:
+                    try:
+                        await status_msg.edit("🌐 Sayt auditi va skrinshot tayyorlanmoqda (0 token)...")
+                    except Exception:
+                        pass
+                audit_data = await audit_website(vazifalar_web_url)
+                report_text = format_audit_report(audit_data, vazifalar_web_url)
+                ss_bytes = await get_website_screenshot(vazifalar_web_url)
+                if status_msg:
+                    try:
+                        await status_msg.delete()
+                    except Exception:
+                        pass
+                if ss_bytes:
+                    sent_msg = await event.reply(report_text, file=ss_bytes)
+                else:
+                    sent_msg = await event.reply(report_text)
+                if sent_msg:
+                    BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+                memory_service.add_message(chat_id=config.mentor_user_id, role="user", content=input_text)
+                memory_service.add_message(chat_id=config.mentor_user_id, role="model", content=report_text)
+                return
+
             # 4. Telegram kontaktlar va guruhlar kontekstini olish (faqat zarur bo'lganda)
             chats_context = None
             lower_in = input_text.lower()
@@ -1568,6 +1601,42 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         return
                     except Exception as sched_err:
                         logger.exception("Dars jadvali va bayram xabarini tahlil qilishda xatolik: %s", sched_err)
+
+                # 🌐 0-Token Veb-Inspektor: O'quvchi sayt havolasini tekshirishni so'ragan bo'lsa (0 Token)
+                from services.web_inspector_service import (
+                    extract_inspection_url,
+                    audit_website,
+                    get_website_screenshot,
+                    format_audit_report,
+                )
+                web_audit_url = extract_inspection_url(input_text)
+                if web_audit_url and not file_text and not has_photo and not is_dangerous:
+                    logger.info("🌐 0-Token Veb-Inspektor ishga tushirildi [%s]: %s", chat_id, web_audit_url)
+                    log_activity(f"🌐 Veb-audit: {web_audit_url[:30]}")
+                    audit_data = await audit_website(web_audit_url)
+                    report_text = format_audit_report(audit_data, web_audit_url)
+                    ss_bytes = await get_website_screenshot(web_audit_url)
+
+                    CURRENT_SENDING_CHATS.add(chat_id)
+                    try:
+                        if ss_bytes:
+                            sent_reply = await event.reply(report_text, file=ss_bytes)
+                        else:
+                            sent_reply = await event.reply(report_text)
+                        if sent_reply:
+                            BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
+                        log_activity(f"Veb-audit javobi yuborildi [{chat_id}]")
+                    except Exception as w_err:
+                        logger.warning("Veb-audit yuborishda ogohlantirish: %s", w_err)
+                        sent_reply = await client.send_message(chat_id, report_text)
+                        if sent_reply:
+                            BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
+                    finally:
+                        CURRENT_SENDING_CHATS.discard(chat_id)
+
+                    memory_service.add_message(chat_id=chat_id, role="user", content=input_text)
+                    memory_service.add_message(chat_id=chat_id, role="model", content=report_text)
+                    return
 
                 # AI javobini generatsiya qilish (35s timeout bilan himoyalangan)
                 try:

@@ -475,6 +475,48 @@ def register_command_handlers(client: TelegramClient) -> None:
             return
 
         # -----------------------------------------------------------
+        # 0-Token Veb-Inspektor va Skrinshot (.site / .audit / .web)
+        # -----------------------------------------------------------
+        if (
+            lower_text.startswith(f"{prefix}site")
+            or lower_text.startswith(f"{prefix}audit")
+            or lower_text.startswith(f"{prefix}web")
+            or lower_text.startswith(".site")
+            or lower_text.startswith(".audit")
+            or lower_text.startswith(".web")
+        ):
+            parts = text.split(maxsplit=1)
+            target_url = None
+            if len(parts) > 1:
+                target_url = parts[1].strip()
+            elif event.is_reply:
+                reply_msg = await event.get_reply_message()
+                if reply_msg and reply_msg.text:
+                    m = re.search(r"https?://[^\s]+", reply_msg.text)
+                    if m:
+                        target_url = m.group(0)
+
+            if not target_url or not target_url.startswith("http"):
+                await event.edit(
+                    "ℹ️ **0-Token Veb-Inspektor ishlatish:**\n"
+                    f"• `{prefix}site https://my-portfolio.vercel.app`\n"
+                    "• Yoki sayt havolasi bor xabarga reply qilib `.site` deb yozing."
+                )
+                return
+
+            await event.edit(f"🌐 **Sayt tekshirilmoqda va skrinshot olinmoqda (0 token):**\n`{target_url}`")
+            from services.web_inspector_service import audit_website, format_audit_report, get_website_screenshot
+            audit_data = await audit_website(target_url)
+            report_text = format_audit_report(audit_data, target_url)
+            ss_bytes = await get_website_screenshot(target_url)
+            if ss_bytes:
+                await event.delete()
+                await event.respond(report_text, file=ss_bytes)
+            else:
+                await event.edit(report_text)
+            return
+
+        # -----------------------------------------------------------
         # SQLite Database Backup
         # -----------------------------------------------------------
         if lower_text in ("backup", ".backup", "ai backup", f"{prefix}backup"):
