@@ -1965,11 +1965,11 @@ class AIService:
         sys_prompt = self._build_system_prompt(is_admin_mode, effective_prompt=prompt)
         gemini_candidates = [
             config.gemini_model,
+            "gemini-3.6-flash",
             "gemini-flash-latest",
             "gemini-flash-lite-latest",
             "gemini-2.0-flash",
             "gemini-2.5-flash",
-            "gemini-3.6-flash",
         ]
         unique_candidates = []
         for m in gemini_candidates:
