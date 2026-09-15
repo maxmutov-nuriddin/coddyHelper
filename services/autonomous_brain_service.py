@@ -198,43 +198,44 @@ class AutonomousBrainService:
                 await asyncio.sleep(120)
 
     async def _synthesize_insights(self) -> None:
-        """So'nggi savollardan umumiy saboq va tavsiyalar sintezi."""
+        """So'nggi savollardan umumiy saboq va tavsiyalar sintezi (Faqat rasmiy o'quv dasturi bo'yicha)."""
         from services.ai_service import ai_service
-        questions = memory_service.get_recent_user_questions(limit=8)
         
-        fallback_topics = [
-            "Python list comprehension vs for loop tezligi va xotirasi",
-            "JavaScript Event Loop, Microtasks va Macrotasks ishlashi",
-            "FastAPI da asinxron def vs oddiy def funksiyalar farqi",
-            "React da useEffect dependency array va infinite loop xatosi",
-            "Telegram Bot API da FloodWait va rate limit boshqaruvi",
-            "SQL da B-Tree Index qanday ishlaydi va qachon sekinlashadi",
-            "Python da mutable default argument (def f(x=[])) tuzog'i",
-            "JavaScript da closure va xotira sizib chiqishi (memory leak)",
-            "Python da asyncio.gather vs asyncio.wait_for va TimeoutError",
-            "Docker konteynerlarida caching va multiline RUN optimallashtirish",
-        ]
+        # FAQAT tasdiqlangan o'quv dasturi mavzulari:
+        curriculum_topics = memory_service.get_curriculum_topics()
+        if not curriculum_topics:
+            curriculum_topics = list(memory_service.DEFAULT_CURRICULUM_TOPICS)
+        topics_str = ", ".join(curriculum_topics)
+
+        chosen_topic = curriculum_topics[self._cycle_count % len(curriculum_topics)]
+        questions = memory_service.get_recent_user_questions(limit=8)
 
         if questions and len(questions) >= 2:
             q_list_str = "\n".join(f"- {q}" for q in questions[:6])
-            self._current_activity = "O'quvchilarning jonli savollaridan universal saboq chiqarilmoqda..."
+            self._current_activity = f"O'quvchilar savollaridan o'quv dasturi ({chosen_topic}) bo'yicha saboq tahlil qilinmoqda..."
             prompt = (
-                "Siz CoddyCamp IT akademiyasi o'quv markazining Avtonom Tafakkur Miyasisiz (Miya 4).\n"
+                "Siz CoddyCamp IT akademiyasining Avtonom Tafakkur Miyasisiz (Miya 4).\n"
+                f"Markazimizning rasmiy o'quv dasturi va texnologiyalari: [{topics_str}].\n\n"
+                "QAT'IY TALAB VA CHEKLOV:\n"
+                "Siz FAQAT yuqoridagi CoddyCamp o'quv dasturi mavzulari doirasida saboq va xulosa chiqarishingiz shart! "
+                "Dasturdan tashqari boshqa begona tillarga, freymvorklarga yoki mavzularga (masalan: C++, Java, PHP, Docker, Go va h.k.) aslo chiqmang!\n\n"
                 "Quyida o'quvchilar va guruhlardan kelgan so'nggi savollar berilgan:\n"
                 f"{q_list_str}\n\n"
-                "Vazifa: Ushbu savollar asosida o'quvchilar eng ko'p qaysi mavzuda qiynalayotganini aniqlang va "
-                "bitta muhim amaliy tushuntirish/xulosa (insight) chiqaring.\n"
+                "Vazifa: Ushbu savollar orasidan markazimiz o'quv dasturiga mos keladigan qismini tahlil qiling va "
+                "o'quvchilar ko'p yo'l qo'yadigan xato bo'yicha 1 ta oltin amaliy qoida (insight) chiqaring.\n"
                 "Javobingizni quyidagi aniq formatda bering:\n"
-                "MAVZU: [Mavzu nomi]\n"
+                "MAVZU: [O'quv dasturidagi mavzu nomi]\n"
                 "XULOSA: [1-2 ta lo'nda, foydali, aniq qoida yoki dasturlash tushuntirishi]"
             )
         else:
-            chosen_topic = fallback_topics[self._cycle_count % len(fallback_topics)]
-            self._current_activity = f"'{chosen_topic}' bo'yicha muhim texnik saboq tahlil qilinmoqda..."
+            self._current_activity = f"'{chosen_topic}' bo'yicha muhim amaliy saboq tahlil qilinmoqda..."
             prompt = (
                 "Siz CoddyCamp IT akademiyasining Avtonom Tafakkur Miyasisiz (Miya 4).\n"
-                f"Mavzu: '{chosen_topic}'\n\n"
-                "Vazifa: Dasturchilar va o'quvchilar ushbu mavzuda eng ko'p yo'l qo'yadigan jiddiy xatoni aniqlang "
+                f"O'quv dasturi mavzusi: '{chosen_topic}'\n\n"
+                "QAT'IY TALAB VA CHEKLOV:\n"
+                f"Siz FAQAT CoddyCamp o'quv dasturidagi ushbu belgilangan mavzu ('{chosen_topic}') doirasida fikrlashingiz shart. "
+                "Belgilangan mavzular chegarasidan aslo chetga chiqmang!\n\n"
+                f"Vazifa: Dasturchilar va o'quvchilar '{chosen_topic}' mavzusida eng ko'p yo'l qo'yadigan jiddiy xatoni aniqlang "
                 "va uning oldini olish bo'yicha 1 ta oltin qoida (insight) bering.\n"
                 "Javobingizni quyidagi aniq formatda bering:\n"
                 f"MAVZU: {chosen_topic}\n"
@@ -245,12 +246,15 @@ class AutonomousBrainService:
         if not reply:
             return
 
-        topic = "Dasturlash sabog'i"
+        topic = chosen_topic
         content = reply.strip()
         if "MAVZU:" in reply and "XULOSA:" in reply:
             try:
                 parts = reply.split("XULOSA:", 1)
-                topic = parts[0].replace("MAVZU:", "").strip()
+                parsed_topic = parts[0].replace("MAVZU:", "").strip()
+                # Mavzuning o'quv dasturiga muvofiqligini qat'iy kafolatlash
+                matched = next((t for t in curriculum_topics if t.lower() in parsed_topic.lower() or parsed_topic.lower() in t.lower()), None)
+                topic = matched if matched else chosen_topic
                 content = parts[1].strip()
             except Exception:
                 pass
@@ -269,27 +273,23 @@ class AutonomousBrainService:
             logger.info("✅ Miya 4 yangi saboq kashf qildi: [%s]", topic[:30])
 
     async def _precompute_upcoming_answers(self) -> None:
-        """Keyinchalik so'ralishi mumkin bo'lgan savollarga oldindan yechim tayyorlash."""
+        """Keyinchalik so'ralishi mumkin bo'lgan savollarga oldindan yechim tayyorlash (Faqat rasmiy o'quv dasturi bo'yicha)."""
         from services.ai_service import ai_service
-        core_topics = [
-            "Python ro'yxatlar (lists) va metodlar",
-            "Python funksiyalar (def, return, args)",
-            "Python sikllar (for, while) xatolari",
-            "Telegram bot (Telethon, Aiogram) asinxron xatolar",
-            "SQL va SQLite baza ulanish xatolari",
-            "Python string metodlari va formatlash",
-            "JavaScript async await va fetch xatolari",
-            "React useState va props uzatish xatolari",
-            "LMS dasturlash topshiriqlari tahlili",
-            "Python try except va error handling",
-        ]
-        topic = core_topics[self._cycle_count % len(core_topics)]
+        
+        curriculum_topics = memory_service.get_curriculum_topics()
+        if not curriculum_topics:
+            curriculum_topics = list(memory_service.DEFAULT_CURRICULUM_TOPICS)
+
+        topic = curriculum_topics[self._cycle_count % len(curriculum_topics)]
         self._current_activity = f"'{topic}' mavzusida kelgusi savollarga ideal yechim tayyorlanmoqda..."
 
         prompt = (
-            f"Siz CoddyCamp IT akademiyasining Avtonom Tafakkur Miyasisiz.\n"
-            f"Mavzu: '{topic}'\n"
-            "O'quvchilar ushbu mavzuda eng ko'p so'raydigan yoki kelgusida so'rashi mumkin bo'lgan 1 ta qiyin savolni bashorat qiling "
+            f"Siz CoddyCamp IT akademiyasining Avtonom Tafakkur Miyasisiz (Miya 4).\n"
+            f"O'quv dasturi mavzusi: '{topic}'\n\n"
+            f"QAT'IY TALAB VA CHEKLOV:\n"
+            f"Siz FAQAT CoddyCamp o'quv dasturidagi belgilangan mavzu ('{topic}') doirasida fikrlashingiz shart. "
+            f"Ushbu mavzudan boshqa begona tillarga yoki mavzularga aslo chiqmang!\n\n"
+            f"Vazifa: O'quvchilar '{topic}' mavzusida eng ko'p so'raydigan yoki kelgusida so'rashi mumkin bo'lgan 1 ta qiyin savolni/xatoni aniqlang "
             "va unga ideal, to'liq kodli, tushunarli yechim tayyorlang.\n"
             "Javobni quyidagi aniq formatda bering:\n"
             "SAVOL: [O'quvchi berishi mumkin bo'lgan savol yoki xato matni]\n"

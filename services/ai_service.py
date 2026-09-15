@@ -849,13 +849,17 @@ class AIService:
                     info["last_error"] = None
 
     def _record_model_rate_limited(self, model_name: str, error_msg: str = "") -> None:
-        """Model limitga uchraganida uning holatini yangilaydi (TTL: 60s)."""
+        """Model limitga uchraganida uning holatini yangilaydi (TTL: 60s, TPD bo'lsa 900s)."""
         try:
             cascade = self._metrics.setdefault("cascade_status", {})
             if model_name in cascade:
                 cascade[model_name]["state"] = "rate_limited"
                 cascade[model_name]["last_error"] = str(error_msg)[:120]
-                cascade[model_name]["rate_limited_until"] = time.time() + 60.0
+                err_str = str(error_msg).lower()
+                if "tpd" in err_str or "tokens per day" in err_str or "per day" in err_str:
+                    cascade[model_name]["rate_limited_until"] = time.time() + 900.0
+                else:
+                    cascade[model_name]["rate_limited_until"] = time.time() + 60.0
         except Exception:
             pass
 
@@ -1244,7 +1248,17 @@ class AIService:
         if not pool:
             return None
 
+        self._refresh_key_and_model_recovery()
         candidate_models = [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+        cascade = self._metrics.get("cascade_status", {})
+        now_ts = time.time()
+        healthy_candidates = [
+            m for m in candidate_models
+            if cascade.get(m, {}).get("state") != "rate_limited" or now_ts >= cascade.get(m, {}).get("rate_limited_until", 0)
+        ]
+        rate_limited_candidates = [m for m in candidate_models if m not in healthy_candidates]
+        candidate_models = healthy_candidates + rate_limited_candidates
+
         for model_name in candidate_models:
             max_try = min(3, len(pool))
             for _ in range(max_try):
@@ -1263,13 +1277,18 @@ class AIService:
                         temperature=0.3,
                         max_tokens=600,
                     )
-                    txt = res.choices[0].message.content.strip()
+                    msg_obj = res.choices[0].message
+                    txt = (getattr(msg_obj, "content", "") or "").strip()
+                    if not txt and hasattr(msg_obj, "reasoning") and msg_obj.reasoning:
+                        txt = msg_obj.reasoning.strip()
                     if txt:
                         return txt
                 except Exception as e:
                     logger.debug("Miya 4 avtonom generatsiyasida ogohlantirish (%s, kalit #%d): %s", model_name, k_real_idx + 1, e)
                     if "429" in str(e) or "rate_limit" in str(e) or "413" in str(e):
                         self._mark_key_error(k_real_idx, str(e))
+                        self._record_model_rate_limited(model_name, str(e))
+                        break
         return None
 
     @staticmethod
@@ -1628,6 +1647,17 @@ class AIService:
         # Cooldown o'tgan kalitlar va modellarni avtomatik tiklash:
         self._refresh_key_and_model_recovery()
 
+        # AGAR model hozirda 'rate_limited' holatida bo'lsa, uni oxiriga surish!
+        # Sog'lom (active yoki standby) modellar BIRINCHI bo'lib ishlatiladi
+        cascade = self._metrics.get("cascade_status", {})
+        now_ts = time.time()
+        healthy_models = [
+            m for m in candidate_models
+            if cascade.get(m, {}).get("state") != "rate_limited" or now_ts >= cascade.get(m, {}).get("rate_limited_until", 0)
+        ]
+        rate_limited_models = [m for m in candidate_models if m not in healthy_models]
+        candidate_models = healthy_models + rate_limited_models
+
         # Kaskadli zaxira modellar bo'yicha ketma-ket urinish:
         for model_to_use in candidate_models:
             # Kichik 20b modelning 8k TPM limitiga urilmaslik uchun: agar so'rov 4,000 tokendan katta bo'lsa,
@@ -1680,8 +1710,12 @@ class AIService:
                     if pod_result and pod_result.strip():
                         return pod_result
                 except Exception as pod_err:
-                    logger.warning("Pod klasterida xatolik (%s): %s, bitta kalitli rejimga o'tilmoqda", model_to_use, pod_err)
+                    logger.warning("Pod klasterida xatolik (%s): %s", model_to_use, pod_err)
                     last_error = pod_err
+                    if "429" in str(pod_err) or "rate_limit_exceeded" in str(pod_err):
+                        self._record_model_rate_limited(model_to_use, str(pod_err))
+                        logger.warning("⚡ Model [%s] da Pod 429 limit bo'ldi. Boshqa kalitlarni qiynamasdan darhol keyingi zaxira modelga o'tilmoqda...", model_to_use)
+                        continue
 
             # 2. Ushbu model bo'yicha kalitlarni ketma-ket tekshirish (maksimal 3 ta kalit sinovi)
             model_success = False
@@ -1938,7 +1972,7 @@ class AIService:
                         self._generate_with_groq(
                             chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode
                         ),
-                        timeout=18.0,
+                        timeout=30.0,
                     )
                 except Exception as groq_err:
                     logger.warning(
