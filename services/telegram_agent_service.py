@@ -532,6 +532,27 @@ async def delete_telegram_message(
                 target_msg_id = int(msg_spec)
             elif reply_msg_id:
                 target_msg_id = reply_msg_id
+            elif msg_spec and msg_spec.lower() not in ("last", "oxirgi", "so'nggi", "shu", "bu", ""):
+                # Muallif (odam) nomi, username yoki xabar matni bo'yicha qidirib o'chirish:
+                messages = await client.get_messages(resolved_entity, limit=35)
+                found = None
+                for m in messages:
+                    sender = getattr(m, "sender", None)
+                    s_name = (getattr(sender, "first_name", "") or "") + " " + (getattr(sender, "last_name", "") or "")
+                    s_user = getattr(sender, "username", "") or ""
+                    m_text = m.text or m.message or ""
+                    # 1. Jo'natuvchi nomi yoki username mos kelsa
+                    if match_text(msg_spec, s_name) or (s_user and match_text(msg_spec, s_user)):
+                        found = m
+                        break
+                    # 2. Xabar matnida qidirilayotgan ibora bo'lsa
+                    if msg_spec.lower() in m_text.lower():
+                        found = m
+                        break
+                if found:
+                    target_msg_id = found.id
+                else:
+                    return {"ok": False, "error": f"'{target_name}' chatida '{msg_spec}' bo'yicha o'chirish uchun xabar topilmadi."}
             else:
                 # Oxirgi xabarni olish
                 messages = await client.get_messages(resolved_entity, limit=2)
@@ -2461,9 +2482,17 @@ async def execute_agent_action(
                 re.search(r"([A-Za-z0-9_'\`\u0400-\u04FF\s\-]+?)(?:dagi|dagi\s+oxirgi|dagi\s+so'nggi)\s+(?:oxirgi\s+)?xabar(?:ni)?\s+" + del_kw, orig_msg, re.I) or
                 re.search(del_kw + r"\s+(?:последнее\s+)?сообщение\s+(?:в\s+)?([A-Za-z0-9_'\`\u0400-\u04FF\s\-]+)", orig_msg, re.I)
             )
+            # Muayyan shaxs (odam) dan kelgan xabarni o'chirish: "Alidan kelgan xabarni o'chir", "Falondan shu xabarni o'chir"
+            person_m = (
+                re.search(r"([A-Za-z0-9_'\`\u0400-\u04FF]+?)(?:dan\s+kelgan|dan|ning|yozgan)\s+(?:oxirgi\s+|shu\s+)?xabar(?:ni)?\s+" + del_kw, orig_msg, re.I) or
+                re.search(del_kw + r"\s+(?:сообщение\s+от|от)\s+([A-Za-z0-9_'\`\u0400-\u04FF]+)", orig_msg, re.I)
+            )
             if grp_m:
                 del_target = grp_m.group(1).strip()
                 del_msg = "last"
+            elif person_m:
+                del_target = ""
+                del_msg = person_m.group(1).strip()
             elif reply_msg_id:
                 del_target = ""
                 del_msg = str(reply_msg_id)
