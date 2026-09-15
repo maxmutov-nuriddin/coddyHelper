@@ -715,9 +715,9 @@ class AIService:
                 "reset_requests": "0s",
             },
             "cascade_status": {
-                "qwen/qwen3.8-27b": {"role": "Asosiy (27B)", "state": "active", "context": "128k", "tpm": "30k", "rpm": 30},
-                "openai/gpt-oss-120b": {"role": "Zaxira 1 (120B)", "state": "standby", "context": "128k", "tpm": "120k", "rpm": 30},
-                "openai/gpt-oss-20b": {"role": "Zaxira 2 (20B)", "state": "standby", "context": "128k", "tpm": "30k", "rpm": 30},
+                "qwen/qwen3.8-27b": {"role": "Asosiy (27B)", "state": "active", "context": "128k", "tpm": "8k", "rpm": 30},
+                "openai/gpt-oss-120b": {"role": "Zaxira 1 (120B)", "state": "standby", "context": "128k", "tpm": "8k", "rpm": 30},
+                "openai/gpt-oss-20b": {"role": "Zaxira 2 (20B)", "state": "standby", "context": "128k", "tpm": "8k", "rpm": 30},
                 "Google Gemini": {"role": "Temir Zaxira (1M)", "state": "standby", "context": "1M", "tpm": "1M", "rpm": 15},
             },
         }
@@ -824,14 +824,62 @@ class AIService:
                     "reset_requests": rst_r_str or "0s",
                 }
 
-            cascade = self._metrics.setdefault("cascade_status", {})
-            for m_key in cascade:
-                if m_key == model_name:
-                    cascade[m_key]["state"] = "active"
-                elif cascade[m_key].get("state") != "rate_limited":
-                    cascade[m_key]["state"] = "standby"
+            self._recalculate_cascade_states(active_override=model_name)
         except Exception as err:
             logger.warning("AI metrikalarini yangilashda ogohlantirish: %s", err)
+
+    def _recalculate_cascade_states(self, active_override: str | None = None) -> None:
+        """
+        Kaskad zanjiridagi modellar holatini (active, standby, rate_limited)
+        haqiqiy holat bo'yicha dinamik qayta hisoblaydi.
+        Eng birinchi sog'lom model 'active' (🟢 Faol) bo'ladi,
+        qolgan sog'lom modellar 'standby' (🟡 Zaxirada) bo'ladi.
+        """
+        try:
+            cascade = self._metrics.setdefault("cascade_status", {})
+            now_ts = time.time()
+            priority_order = [
+                config.groq_model or "qwen/qwen3.8-27b",
+                "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b",
+                "Google Gemini",
+            ]
+            # Muddati o'tgan limitlarni tozalash
+            for m_key, info in cascade.items():
+                if info.get("state") == "rate_limited":
+                    until = info.get("rate_limited_until", 0)
+                    if now_ts >= until:
+                        info["state"] = "standby"
+                        info["last_error"] = None
+
+            if active_override and active_override in cascade:
+                for m_key, info in cascade.items():
+                    if m_key == active_override:
+                        info["state"] = "active"
+                        self._metrics["active_model"] = m_key
+                    elif info.get("state") != "rate_limited":
+                        info["state"] = "standby"
+                return
+
+            first_healthy_found = False
+            for m_key in priority_order:
+                if m_key not in cascade:
+                    continue
+                info = cascade[m_key]
+                if info.get("state") == "rate_limited":
+                    continue
+                if not first_healthy_found:
+                    info["state"] = "active"
+                    self._metrics["active_model"] = m_key
+                    first_healthy_found = True
+                else:
+                    info["state"] = "standby"
+
+            if not first_healthy_found and "Google Gemini" in cascade:
+                cascade["Google Gemini"]["state"] = "active"
+                self._metrics["active_model"] = "Google Gemini"
+        except Exception as e:
+            logger.debug("Cascade qayta hisoblashda ogohlantirish: %s", e)
 
     def _refresh_key_and_model_recovery(self) -> None:
         """60 soniyalik limit davri o'tgan kalitlar va modellarni avtomatik tiklash."""
@@ -843,13 +891,7 @@ class AIService:
                     stat["status"] = "standby"
                     stat["last_error"] = None
 
-        cascade = self._metrics.setdefault("cascade_status", {})
-        for m_name, info in cascade.items():
-            if info.get("state") == "rate_limited":
-                until = info.get("rate_limited_until", 0)
-                if now_ts >= until:
-                    info["state"] = "standby"
-                    info["last_error"] = None
+        self._recalculate_cascade_states()
 
     def _record_model_rate_limited(self, model_name: str, error_msg: str = "") -> None:
         """Model limitga uchraganida uning holatini yangilaydi (TTL: 60s, TPD bo'lsa 900s)."""
@@ -863,6 +905,7 @@ class AIService:
                     cascade[model_name]["rate_limited_until"] = time.time() + 900.0
                 else:
                     cascade[model_name]["rate_limited_until"] = time.time() + 60.0
+            self._recalculate_cascade_states()
         except Exception:
             pass
 
@@ -1560,11 +1603,11 @@ class AIService:
             messages.append({"role": "user", "content": user_content})
             model_to_use = config.groq_vision_model
         else:
-            sys_prompt = self._build_system_prompt(is_admin_mode)
+            sys_prompt = self._build_system_prompt(is_admin_mode, effective_prompt=effective_prompt)
             messages = [{"role": "system", "content": sys_prompt}]
 
             prev_assistant = ""
-            recent_history = history[-6:] if not is_admin_mode else history[-8:]
+            recent_history = history[-4:] if not is_admin_mode else history[-5:]
             for msg in recent_history:
                 content_clean = msg.content.strip()
                 if msg.role == "model":
@@ -1573,15 +1616,16 @@ class AIService:
                         continue
                     prev_assistant = content_clean
                 role = "user" if msg.role == "user" else "assistant"
-                # Tokenlar hajmi 413 limitiga urilmasligi uchun eski xabarlarni ixchamlashtirish
-                compact_content = content_clean[:600] + ("..." if len(content_clean) > 600 else "")
+                # Tokenlar hajmi 413/429 limitiga urilmasligi uchun eski xabarlarni ixchamlashtirish
+                compact_content = content_clean[:400] + ("..." if len(content_clean) > 400 else "")
                 messages.append({"role": role, "content": compact_content})
 
             messages.append({"role": "user", "content": effective_prompt})
 
         # Adaptive Cognitive Gating (System 1 vs System 2):
-        # 1. Tezkor refleks (System 1): Oddiy salomlashuvlar, Telegram Action buyruqlari yoki o'quvchilar guruhida to'g'ridan-to'g'ri tezkor javob (~0.3s).
-        # 2. Chuqur tahlil (System 2): Vazifalar guruhida yoki admin rejimida murakkab dasturlash, tahlil, rejalashtirish yoki arxitektura masalalarida Multi-Model Konsilium Pod ishga tushadi (~1.0s).
+        # 1. Tezkor refleks (System 1): Standart so'rovlar, suhbatlar, kod yozish va maslahatlarda to'g'ridan-to'g'ri 1 ta kuchli model orqali chaqmoqdek tez javob (~0.4s).
+        # 2. Chuqur tahlil (System 2 Pod): Faqatgina mentor maxsus /deep, konsilium yoki arxitektura tahlili so'raganida 3 talik komanda ishga tushadi.
+        pool, brain_type = self._get_active_pool(is_admin_mode)
         is_student_group = (chat_id < 0 and not is_escalation_chat(chat_id))
         is_simple_query = (
             len(effective_prompt.split()) <= 4
@@ -1594,27 +1638,18 @@ class AIService:
             "kim yozdi", "kim yozgan", "oxirgi xabar", "eslat", "remind", "jadval",
             "lokatsiya", "turgan joy", "joylashuv", "statistika"
         ))
+        is_pod_requested = any(k in effective_prompt.lower() for k in (
+            "/deep", "konsilium", "pod tahlil", "chuqur tahlil", "arxitektura tahlili", "multi-agent"
+        ))
         is_complex = (
             is_admin_mode
             and not image_bytes
             and not is_student_group
             and not is_simple_query
             and not is_action_query
-            and len(self._groq_clients) >= 3
-            and (
-                any(k in effective_prompt.lower() for k in (
-                    "kod", "xato", "error", "exception", "yoz", "tuz", "funksiya", "function",
-                    "def ", "class ", "for ", "if ", "while", "import ", "tushuntir", "qanday",
-                    "masala", "vazifa", "lms", "python", "javascript", "sql", "bug", "yordam",
-                    "ishlamayapti", "chiqmayapti", "tekshir", "tahlil", "reja", "arxitektura",
-                    "qanday qilsak", "nima deysan", "fikring", "strategiya", "optimal", "maslahat",
-                    "loyixa", "loyiha", "backend", "frontend", "baza", "database"
-                ))
-                or len(effective_prompt.split()) >= 7
-            )
+            and len(pool) >= 3
+            and is_pod_requested
         )
-
-        pool, brain_type = self._get_active_pool(is_admin_mode)
 
         if image_bytes:
             candidate_models = [config.groq_vision_model]
@@ -1640,8 +1675,8 @@ class AIService:
         active_messages = list(messages)
         est_tokens = self._estimate_tokens(active_messages)
 
-        # 1. Proactive Halving: Agar so'rov 4,500 tokendan oshsa, limitga yetmasdan oldin xotirani 2 ga bo'lish
-        if est_tokens > 4500 and len(active_messages) > 3:
+        # 1. Proactive Halving: Agar so'rov 3,500 tokendan oshsa, limitga yetmasdan oldin xotirani 2 ga bo'lish
+        if est_tokens > 3500 and len(active_messages) > 3:
             logger.info("⚡ So'rov hajmi katta (%d token). Xotira 2 ga bo'linib, eng muhim qismlarga qisqartirildi.", est_tokens)
             # Tizim prompti (messages[0]) + oxirgi 2 ta xabar + joriy so'rov (messages[-1])
             active_messages = [active_messages[0]] + active_messages[-3:]
@@ -1663,14 +1698,20 @@ class AIService:
 
         # Kaskadli zaxira modellar bo'yicha ketma-ket urinish:
         for model_to_use in candidate_models:
+            # Ushbu modelni aktiv deb kaskadda qayd etish
+            self._metrics["active_model"] = model_to_use
+            cascade = self._metrics.setdefault("cascade_status", {})
+            if model_to_use in cascade and cascade[model_to_use].get("state") != "rate_limited":
+                cascade[model_to_use]["state"] = "active"
+
             # Kichik 20b modelning 8k TPM limitiga urilmaslik uchun: agar so'rov 4,000 tokendan katta bo'lsa,
             # uni darhol 128k lik katta modellarga yo'naltirish
             if "20b" in model_to_use.lower() and est_tokens > 4000:
                 logger.info("Model [%s] 8k TPM limitiga to'qnashmasligi uchun o'tkazib yuborildi (%d token).", model_to_use, est_tokens)
                 continue
 
-            # 1. 3 talik komanda (Pod Klaster) orqali ushbu modelda sinash
-            if is_complex and len(pool) >= 3:
+            # 1. 3 talik komanda (Pod Klaster) - faqat maxsus konsilium so'ralganda va faqat 1-urinishda
+            if is_complex and len(pool) >= 3 and model_to_use == candidate_models[0]:
                 if brain_type == "vip":
                     idx1 = self._vip_idx % len(pool)
                     idx2 = (self._vip_idx + 1) % len(pool)
@@ -1717,12 +1758,11 @@ class AIService:
                     last_error = pod_err
                     if "429" in str(pod_err) or "rate_limit_exceeded" in str(pod_err):
                         self._record_model_rate_limited(model_to_use, str(pod_err))
-                        logger.warning("⚡ Model [%s] da Pod 429 limit bo'ldi. Boshqa kalitlarni qiynamasdan darhol keyingi zaxira modelga o'tilmoqda...", model_to_use)
+                        logger.warning("⚡ Model [%s] da Pod 429 limit bo'ldi. Darhol keyingi zaxira modelga o'tilmoqda...", model_to_use)
                         continue
 
-            # 2. Ushbu model bo'yicha kalitlarni ketma-ket tekshirish (maksimal 3 ta kalit sinovi)
-            model_success = False
-            calc_max_tokens = 800
+            # 2. To'g'ridan-to'g'ri tezkor model chaqiruvi (Direct Fast Inference)
+            calc_max_tokens = 600
             max_attempts = min(3, len(pool))
             for _ in range(max_attempts):
                 if brain_type == "vip":
@@ -1754,15 +1794,14 @@ class AIService:
                 except Exception as e:
                     logger.warning("Groq kalitida xatolik (model: %s): %s", model_to_use, e)
                     last_error = e
-                    if "429" in str(e) or "rate_limit_exceeded" in str(e) or "413" in str(e):
+                    if "429" in str(e) or "rate_limit_exceeded" in str(e):
                         self._record_model_rate_limited(model_to_use, str(e))
-
-                    # Reactive Halving: Agar 413 yoki token hajmi oshishi yuz bersa,
-                    # xotirani ikkiga bo'lib (faqat oxirgi savol qoldirilib) va max_tokens ni 2 ga qisqartirib darhol qayta urinish
-                    if "413" in str(e) and len(active_messages) > 2:
-                        logger.warning("⚠️ 413 token limiti! Xotira 2 ga bo'linib (faqat joriy so'rov) qayta urinilmoqda...")
+                        # Ushbu modelda boshqa kalitlarni qiynamasdan darhol keyingi zaxira modelga o'tish (break):
+                        break
+                    elif "413" in str(e) and len(active_messages) > 2:
+                        logger.warning("⚠️ 413 token limiti! Xotira 2 ga bo'linib qayta urinilmoqda...")
                         active_messages = [active_messages[0], active_messages[-1]]
-                        calc_max_tokens = max(400, calc_max_tokens // 2)
+                        calc_max_tokens = max(350, calc_max_tokens // 2)
                         try:
                             retry_resp = await self._call_groq_with_metrics(
                                 client,
@@ -1815,12 +1854,44 @@ class AIService:
             raise last_error
         return "Javob olinmadi."
 
-    def _build_system_prompt(self, is_admin_mode: bool) -> str:
+    def _build_system_prompt(self, is_admin_mode: bool, effective_prompt: str = "") -> str:
         """Tizim promptini bilimlar bazasi va tanlangan mentorlik uslubi (persona) bilan boyitadi."""
         sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
-        knowledge_context = memory_service.get_knowledge_context()
-        if knowledge_context:
-            sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
+        
+        if is_admin_mode:
+            is_action_prompt = any(k in (effective_prompt or "").lower() for k in (
+                "kim yozdi", "kim yozgan", "oxirgi xabar", "eslat", "remind", "jadval",
+                "lokatsiya", "turgan joy", "joylashuv", "statistika", "o'chir", "delete",
+                "blokla", "ignore", "kontakt", "top", "qidir", "send", "yoz", "action", "sozlama"
+            ))
+            if not is_action_prompt and "7. **TELEGRAM AMALLAR AGENTI" in sys_prompt:
+                # 1,500 tokenni tejash uchun qisqa cheatsheet qo'llash (8k TPM ga to'qnashmaslik uchun)
+                parts = sys_prompt.split("7. **TELEGRAM AMALLAR AGENTI")
+                concise_actions = (
+                    "7. **TELEGRAM AMALLAR AGENTI (QISQA CHEATSHEET):**\n"
+                    "Zarur bo'lganda quyidagi amallarni bering: <<<ACTION:get_recent_senders()>>>, "
+                    "<<<ACTION:schedule_message(qabul_qiluvchi, matn, vaqt)>>>, <<<ACTION:send_message(qabul_qiluvchi, matn)>>>, "
+                    "<<<ACTION:delete_message(chat, xabar_id)>>>, <<<ACTION:find_contact(ism)>>>, "
+                    "<<<ACTION:learn_fact(mavzu, qoida)>>>, <<<ACTION:get_group_info(guruh)>>>."
+                )
+                sys_prompt = parts[0] + concise_actions
+
+        # Token Budgeting: 8k TPM limitiga sig'ish uchun butun bazani emas, eng dolzarb 3 ta saboqni ulaymiz
+        if effective_prompt and effective_prompt.strip():
+            relevant = memory_service.get_relevant_learned_insights(effective_prompt, limit=3)
+            if relevant:
+                lines = ["# DOIMIY O'RGANILGAN BILIMLAR VA MENTOR QOIDALARI:"]
+                for f in relevant:
+                    lines.append(f"• [{f['topic'].upper()}]: {f['content']}")
+                sys_prompt = f"{sys_prompt}\n\n" + "\n".join(lines)
+            else:
+                knowledge_context = memory_service.get_knowledge_context(limit=3)
+                if knowledge_context:
+                    sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
+        else:
+            knowledge_context = memory_service.get_knowledge_context(limit=3)
+            if knowledge_context:
+                sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
 
         if is_admin_mode:
             try:
@@ -2010,6 +2081,7 @@ class AIService:
             if not answer and self._gemini_client:
                 try:
                     logger.info("⚡ Google Gemini zaxira tizimi ishga tushirildi...")
+                    self._recalculate_cascade_states(active_override="Google Gemini")
                     history = memory_service.get_history(chat_id)
                     recent_history = history[-6:] if not is_admin_mode else history[-8:]
                     history_lines = [

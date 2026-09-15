@@ -2330,9 +2330,9 @@
       const cCont = document.getElementById('ai-cascade-container');
       if (cCont) {
         const defaultCascade = {
-          "qwen/qwen3.8-27b": { role: "Asosiy (27B)", state: "active", context: "128k", tpm: "30k" },
-          "openai/gpt-oss-120b": { role: "Zaxira 1 (120B)", state: "standby", context: "128k", tpm: "120k" },
-          "openai/gpt-oss-20b": { role: "Zaxira 2 (20B)", state: "standby", context: "128k", tpm: "30k" },
+          "qwen/qwen3.8-27b": { role: "Asosiy (27B)", state: "active", context: "128k", tpm: "8k" },
+          "openai/gpt-oss-120b": { role: "Zaxira 1 (120B)", state: "standby", context: "128k", tpm: "8k" },
+          "openai/gpt-oss-20b": { role: "Zaxira 2 (20B)", state: "standby", context: "128k", tpm: "8k" },
           "Google Gemini": { role: "Temir Zaxira (1M)", state: "standby", context: "1M", tpm: "1M" }
         };
         const merged = Object.assign({}, defaultCascade, cascade);
@@ -2344,10 +2344,17 @@
           let badgeHtml = '';
           let borderStyle = 'border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02);';
           if (isAct) {
-            badgeHtml = '<div style="flex-shrink: 0; margin-left: 6px; white-space: nowrap;"><span style="display: inline-block; white-space: nowrap !important; background: rgba(34,197,94,0.18); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700;">🟢 Faol</span></div>';
+            const isBackup = !((info.role || '').startsWith('Asosiy'));
+            const label = isBackup ? '🟢 Faol (Zaxiradan)' : '🟢 Faol';
+            badgeHtml = `<div style="flex-shrink: 0; margin-left: 6px; white-space: nowrap;"><span style="display: inline-block; white-space: nowrap !important; background: rgba(34,197,94,0.18); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700;">${label}</span></div>`;
             borderStyle = 'border: 1px solid rgba(34,197,94,0.35); background: rgba(34,197,94,0.06);';
           } else if (isRateLim) {
-            badgeHtml = '<div style="flex-shrink: 0; margin-left: 6px; white-space: nowrap;"><span style="display: inline-block; white-space: nowrap !important; background: rgba(239,68,68,0.18); color: #ef4444; border: 1px solid rgba(239,68,68,0.4); font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700;">🔴 Limit</span></div>';
+            let remSecText = '';
+            if (info.rate_limited_until) {
+              const remSec = Math.max(1, Math.round(info.rate_limited_until - (Date.now() / 1000)));
+              remSecText = ` (${remSec}s)`;
+            }
+            badgeHtml = `<div style="flex-shrink: 0; margin-left: 6px; white-space: nowrap;"><span style="display: inline-block; white-space: nowrap !important; background: rgba(239,68,68,0.18); color: #ef4444; border: 1px solid rgba(239,68,68,0.4); font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700;">🔴 Limit${remSecText}</span></div>`;
             borderStyle = 'border: 1px solid rgba(239,68,68,0.35); background: rgba(239,68,68,0.06);';
           } else {
             badgeHtml = '<div style="flex-shrink: 0; margin-left: 6px; white-space: nowrap;"><span style="display: inline-block; white-space: nowrap !important; background: rgba(255,255,255,0.06); color: var(--hint-color); border: 1px solid rgba(255,255,255,0.1); font-size: 10px; padding: 2px 7px; border-radius: 5px;">🟡 Zaxirada</span></div>';
