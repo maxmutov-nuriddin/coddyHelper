@@ -1701,10 +1701,26 @@
         </div>
       </div>
 
+      <!-- AGENT AUTONOMOUS INSIGHTS & EXPERIENCES (O'RGANGAN SABOQLAR) -->
+      <div class="card" style="border: 1px solid rgba(139, 92, 246, 0.35); background: linear-gradient(180deg, rgba(139, 92, 246, 0.08) 0%, rgba(139, 92, 246, 0.02) 100%);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="card-title" style="margin: 0; font-size: 14px; font-weight: 700;">🧠 Agent O'rgangan Saboqlar & Tajribalar</span>
+          </div>
+          <span style="font-size: 11px; background: rgba(139, 92, 246, 0.25); color: #c4b5fd; padding: 3px 8px; border-radius: 6px; font-weight: 700; border: 1px solid rgba(139, 92, 246, 0.4);" id="agent-insights-count">0 ta</span>
+        </div>
+        <p style="font-size: 12px; color: var(--hint-color); margin: 6px 0 10px 0; line-height: 1.4;">
+          Agent murakkab dasturlash va texnik suhbatlardan mustaqil chiqargan xulosalari. Siz har bir saboqni tasdiqlashingiz yoki o'chirishingiz mumkin:
+        </p>
+        <div id="agent-insights-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 380px; overflow-y: auto; padding-right: 2px;">
+          <div style="text-align: center; color: var(--hint-color); padding: 16px; font-size: 12px;">Hozircha agent chiqargan yangi xulosalar mavjud emas</div>
+        </div>
+      </div>
+
       <!-- AGENT KNOWLEDGE & COGNITIVE INSIGHTS -->
       <div class="card">
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-          <span class="card-title" style="margin: 0; font-size: 14px; font-weight: 700;">🧠 Agent Anglagan Bilimlar & Xulosalar</span>
+          <span class="card-title" style="margin: 0; font-size: 14px; font-weight: 700;">📚 Saqlangan Baza Qoidalari & O'quvchilar Xulosalari</span>
           <span style="font-size: 11px; color: var(--accent); font-weight: 600;" id="agent-learned-count">0 ta</span>
         </div>
         <p style="font-size: 12px; color: var(--hint-color); margin: 6px 0 10px 0; line-height: 1.4;">
@@ -3369,6 +3385,50 @@
           }
         }
 
+        // Agent Autonomous Insights & Experiences (O'rgangan Saboqlar)
+        const insightsContainer = document.getElementById("agent-insights-list");
+        const insightsCount = document.getElementById("agent-insights-count");
+        if (insightsContainer) {
+          const insights = res.autonomous_insights_list || [];
+          if (insightsCount) insightsCount.innerText = insights.length + " ta";
+          if (insights.length === 0) {
+            insightsContainer.innerHTML = '<div style="text-align: center; color: var(--hint-color); padding: 16px; font-size: 12px;">Hozircha agent mustaqil chiqargan yangi xulosalar mavjud emas. Murakkab texnik muloqotlar davomida agent o\'z saboqlarini bu yerda avtomatik to\'playdi.</div>';
+          } else {
+            insightsContainer.innerHTML = insights.map(item => {
+              const isVerified = Boolean(item.is_verified);
+              const badgeClass = isVerified ? "badge-success" : "badge-warning";
+              const badgeText = isVerified ? "🟢 Tasdiqlangan" : "🟡 Kutilmoqda";
+              const borderStyle = isVerified ? "border-left: 3px solid #22c55e;" : "border-left: 3px solid #eab308;";
+
+              const actionsHtml = isVerified
+                ? `<div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+                     <button onclick="deleteInsight(${item.id})" class="btn" style="padding: 4px 10px; font-size: 11px; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; cursor: pointer;">🗑 O'chirish</button>
+                   </div>`
+                : `<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
+                     <button onclick="approveInsight(${item.id})" class="btn" style="padding: 5px 12px; font-size: 11px; background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); border-radius: 6px; font-weight: 600; cursor: pointer;">Tasdiqlash ✅</button>
+                     <button onclick="deleteInsight(${item.id})" class="btn" style="padding: 5px 12px; font-size: 11px; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; cursor: pointer;">O'chirish ❌</button>
+                   </div>`;
+
+              return `
+                <div style="background: var(--card-bg); border-radius: 8px; padding: 10px 12px; border: 1px solid var(--border-color); ${borderStyle}">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; gap: 8px; flex-wrap: wrap;">
+                    <div style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; min-width: 0; word-break: break-word;">
+                      <span style="flex-shrink: 0;">💡</span>
+                      <span style="word-break: break-word; color: #fff;">${escapeHtml(item.topic || "Xulosa")}</span>
+                    </div>
+                    <span class="badge ${badgeClass}" style="font-size: 10px; padding: 2px 7px; flex-shrink: 0; white-space: nowrap;">${badgeText}</span>
+                  </div>
+                  <div style="font-size: 12px; color: var(--text-color); line-height: 1.45; white-space: pre-wrap; word-break: break-word; margin-top: 4px;">${escapeHtml(item.content || "")}</div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+                    <div style="font-size: 10px; color: var(--hint-color);">🕒 ${escapeHtml((item.created_at || '').substring(0, 16))}</div>
+                  </div>
+                  ${actionsHtml}
+                </div>
+              `;
+            }).join("");
+          }
+        }
+
         // Agent Learned Knowledge & Cognitive Insights
         const knowContainer = document.getElementById("agent-knowledge-list");
         const knowCount = document.getElementById("agent-learned-count");
@@ -3434,6 +3494,35 @@
         }
       } catch (e) {
         showToast("Saqlashda xatolik yuz berdi");
+      }
+    }
+
+    async function approveInsight(id) {
+      try {
+        const res = await apiRequest("/api/agent/insights/approve", "POST", { id: Number(id) });
+        if (res && res.ok) {
+          showToast("Saboq tasdiqlandi va doimiy bilimga aylandi ✅");
+          loadAgentStats();
+        } else {
+          showToast("Xatolik: " + (res?.error || "Tasdiqlab bo'lmadi"));
+        }
+      } catch (err) {
+        showToast("Tarmoq xatoligi: " + err.message);
+      }
+    }
+
+    async function deleteInsight(id) {
+      if (!confirm("Haqiqatan ham ushbu saboqni xotiradan o'chirmoqchimisiz?")) return;
+      try {
+        const res = await apiRequest("/api/agent/insights/delete", "POST", { id: Number(id) });
+        if (res && res.ok) {
+          showToast("Saboq xotiradan o'chirildi 🗑");
+          loadAgentStats();
+        } else {
+          showToast("Xatolik: " + (res?.error || "O'chirib bo'lmadi"));
+        }
+      } catch (err) {
+        showToast("Tarmoq xatoligi: " + err.message);
       }
     }
 

@@ -674,6 +674,53 @@ class SQLiteMemoryService:
             logger.error("Dolzarb bilimlarni qidirishda xatolik: %s", e)
             return []
 
+    def get_autonomous_insights(self, limit: int = 50) -> list[dict]:
+        """Agent tomonidan mustaqil o'rganilgan barcha saboqlar va tajribalarni qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, category, topic, content, source, created_at, updated_at
+                    FROM learned_memory
+                    WHERE category IN ('autonomous_insight', 'verified_insight') OR source = 'agent'
+                    ORDER BY id DESC LIMIT ?
+                    """,
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "id": r[0],
+                        "category": r[1],
+                        "topic": r[2],
+                        "content": r[3],
+                        "source": r[4] or "agent",
+                        "is_verified": (r[1] == "verified_insight"),
+                        "created_at": r[5],
+                        "updated_at": r[6],
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("Avtonom saboqlarni olishda xatolik: %s", e)
+            return []
+
+    def approve_autonomous_insight(self, insight_id: int) -> bool:
+        """Mentor tomonidan avtonom saboqni tasdiqlash (verified_insight ga o'tkazish)."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE learned_memory SET category = 'verified_insight', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (int(insight_id),),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Saboqni tasdiqlashda xatolik: %s", e)
+            return False
+
     # -----------------------------------------------------------
     # Eslatmalar (Reminders) Boshqaruvi
     # -----------------------------------------------------------

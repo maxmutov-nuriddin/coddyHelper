@@ -1000,6 +1000,8 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                         "created_at": s.get("last_active", "") or s.get("created_at", ""),
                     })
 
+            autonomous_insights = memory_service.get_autonomous_insights(limit=50)
+
             return web.json_response({
                 "ok": True,
                 "level": stats.get("level", 1),
@@ -1016,6 +1018,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                     "saved_locations": len(saved_locations),
                     "today_plans": len(today_plans),
                     "learned_knowledge": len(knowledge_items),
+                    "autonomous_insights": len(autonomous_insights),
                     "total_messages": stats.get("total_messages", 0),
                     "total_students": stats.get("total_students", 0),
                     "sent_reminders": stats.get("sent_reminders", 0),
@@ -1024,6 +1027,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "saved_locations_list": saved_locations,
                 "today_plans_list": today_plans,
                 "learned_knowledge_list": knowledge_items,
+                "autonomous_insights_list": autonomous_insights,
             })
         except Exception as e:
             logger.error("Agent statistikasini olishda xatolik: %s", e)
@@ -1039,6 +1043,32 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 if raw_id:
                     memory_service.set_setting("emergency_contact_id", raw_id)
             return web.json_response({"ok": True})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_approve_insight(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+            insight_id = data.get("id")
+            if not insight_id:
+                return web.json_response({"ok": False, "error": "ID kiritilmadi"}, status=400)
+            ok = memory_service.approve_autonomous_insight(int(insight_id))
+            return web.json_response({"ok": ok})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_delete_insight(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+            insight_id = data.get("id")
+            if not insight_id:
+                return web.json_response({"ok": False, "error": "ID kiritilmadi"}, status=400)
+            ok = memory_service.delete_learned_fact(int(insight_id))
+            return web.json_response({"ok": ok})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
@@ -1075,6 +1105,8 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_post("/api/curriculum-topics/delete", handle_api_delete_curriculum_topic)
     app.router.add_get("/api/agent/stats", handle_api_agent_stats)
     app.router.add_post("/api/agent/settings", handle_api_agent_update_settings)
+    app.router.add_post("/api/agent/insights/approve", handle_api_approve_insight)
+    app.router.add_post("/api/agent/insights/delete", handle_api_delete_insight)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 
