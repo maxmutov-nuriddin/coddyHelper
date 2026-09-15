@@ -871,7 +871,7 @@ class SQLiteMemoryService:
         """Avtonom miya tomonidan o'rganilgan yangi saboqni bazaga saqlaydi."""
         return self.add_learned_fact(topic, content, category="autonomous_insight")
 
-    def add_precomputed_answer(self, topic: str, question_pattern: str, answer_text: str) -> None:
+    def add_precomputed_answer(self, topic: str, question_pattern: str, answer_text: str) -> int | None:
         """Kelgusida so'ralishi mumkin bo'lgan savollarga oldindan tayyorlangan mukammal javobni saqlaydi."""
         try:
             with self._get_connection() as conn:
@@ -890,7 +890,8 @@ class SQLiteMemoryService:
                     )
                 except Exception:
                     pass
-                conn.execute(
+                cur = conn.cursor()
+                cur.execute(
                     """
                     INSERT INTO precomputed_answers (topic, question_pattern, answer_text)
                     VALUES (?, ?, ?)
@@ -899,8 +900,10 @@ class SQLiteMemoryService:
                 )
                 conn.commit()
                 logger.info("Avtonom Miya oldindan javob saqladi: [%s] -> %s", topic, question_pattern[:40])
+                return cur.lastrowid
         except Exception as e:
             logger.error("Oldindan tayyorlangan javobni saqlashda xatolik: %s", e)
+            return None
 
     def find_precomputed_answer(self, query: str) -> dict | None:
         """Foydalanuvchi savoliga oldindan tayyorlab qo'yilgan mukammal yechim mavjudligini tekshiradi."""
@@ -926,6 +929,46 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Oldindan tayyorlangan javobni qidirishda xatolik: %s", e)
         return None
+
+    def get_all_precomputed_answers(self, limit: int = 50) -> list[dict]:
+        """Oldindan tayyorlangan barcha yechimlar ro'yxatini qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, topic, question_pattern, answer_text, usage_count, created_at
+                    FROM precomputed_answers
+                    ORDER BY id DESC LIMIT ?
+                    """,
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "id": r[0],
+                        "topic": r[1],
+                        "question_pattern": r[2],
+                        "answer_text": r[3],
+                        "usage_count": r[4],
+                        "created_at": str(r[5]),
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("Precomputed answers olishda xatolik: %s", e)
+            return []
+
+    def delete_precomputed_answer(self, item_id: int) -> bool:
+        """Oldindan tayyorlangan yechimni bazadan o'chiradi."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM precomputed_answers WHERE id = ?", (item_id,))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error("Precomputed answer o'chirishda xatolik: %s", e)
+            return False
 
     # -----------------------------------------------------------
     # Eslatmalar (Reminders) Boshqaruvi

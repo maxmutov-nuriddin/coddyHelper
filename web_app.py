@@ -1082,6 +1082,37 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+    # -----------------------------------------------------------
+    # 14. Miya 4: Avtonom Ong va Pre-Computation API lari
+    # -----------------------------------------------------------
+    async def handle_api_autonomous_brain_status(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        return web.json_response({"ok": True, "status": autonomous_brain_service.get_status()})
+
+    async def handle_api_autonomous_brain_trigger(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        res = await autonomous_brain_service.run_cycle_now()
+        return web.json_response(res)
+
+    async def handle_api_get_precomputed_answers(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        items = memory_service.get_all_precomputed_answers(limit=60)
+        return web.json_response({"ok": True, "items": items})
+
+    async def handle_api_delete_precomputed_answer(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+            item_id = int(data.get("id", 0))
+            ok = memory_service.delete_precomputed_answer(item_id)
+            return web.json_response({"ok": ok})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
@@ -1117,6 +1148,10 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_post("/api/agent/settings", handle_api_agent_update_settings)
     app.router.add_post("/api/agent/insights/approve", handle_api_approve_insight)
     app.router.add_post("/api/agent/insights/delete", handle_api_delete_insight)
+    app.router.add_get("/api/autonomous-brain/status", handle_api_autonomous_brain_status)
+    app.router.add_post("/api/autonomous-brain/trigger", handle_api_autonomous_brain_trigger)
+    app.router.add_get("/api/precomputed-answers", handle_api_get_precomputed_answers)
+    app.router.add_post("/api/precomputed-answers/delete", handle_api_delete_precomputed_answer)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

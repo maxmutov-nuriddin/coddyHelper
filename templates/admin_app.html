@@ -150,6 +150,15 @@
       flex-shrink: 0;
     }
 
+    @keyframes pulseGlow {
+      0% { transform: scale(0.92); opacity: 0.75; }
+      50% { transform: scale(1.18); opacity: 1; filter: drop-shadow(0 0 5px currentColor); }
+      100% { transform: scale(0.92); opacity: 0.75; }
+    }
+    .pulse-animated {
+      animation: pulseGlow 1.8s infinite ease-in-out;
+    }
+
     /* MAIN CONTAINER */
     .container {
       flex: 1;
@@ -1154,23 +1163,100 @@
         </div>
       </div>
 
-      <!-- AGENT RESTART ACTION CARD -->
-      <div class="card" style="border: 1px solid rgba(239, 68, 68, 0.35); background: linear-gradient(180deg, rgba(239, 68, 68, 0.08) 0%, var(--card-bg) 100%);">
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <div>
-            <div style="font-size: 14px; font-weight: 700; color: #ef4444; display: flex; align-items: center; gap: 6px;">
-              <span>🔄</span> Agentni Qayta Ishga Tushirish
-            </div>
-            <div style="font-size: 11px; color: var(--hint-color); margin-top: 2px;">
-              Xabarlarga javob to'xtab qolsa yoki navbat qotib qolsa, bir marta bosish bilan barcha qotgan vazifalarni bekor qiladi va AI klasterini qayta ishga tushiradi.
-            </div>
+      <!-- ==================== SAHIFA 1 - BO'LIM 2: MIYA 4: AVTONOM ONG & TAFAKKUR MARKAZI ==================== -->
+      <div class="section-header-badge" style="background: rgba(168, 85, 247, 0.12); color: #c084fc; border-color: rgba(168, 85, 247, 0.3);">
+        🧬 Miya 4: Avtonom Ong & Tafakkur Markazi
+      </div>
+
+      <div class="card" id="auto-brain-card" style="border: 1px solid rgba(168, 85, 247, 0.4); background: linear-gradient(180deg, rgba(168, 85, 247, 0.1) 0%, var(--card-bg) 100%);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="card-title" style="color: #c084fc; margin-bottom: 0;">🧬 Avtonom Fikrlash Dvigateli (24/7)</span>
           </div>
-          <button id="btn-restart-agent" onclick="restartAgent()" class="btn-secondary" style="padding: 8px 16px; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.5); display: flex; align-items: center; gap: 6px; white-space: nowrap;">
-            <span id="restart-spinner" style="display:none;">⏳</span>
-            <span>🔄 Agentni Qayta Ishga Tushirish</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span id="auto-brain-status-badge" class="badge" style="background: rgba(34, 197, 94, 0.18); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 11px; padding: 3px 8px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px;">
+              <span class="status-dot" style="background: #22c55e;"></span>
+              <span id="auto-brain-status-text">🟢 Faol (Kuzatuvda)</span>
+            </span>
+            <button onclick="triggerAutonomousBrainNow()" id="btn-trigger-brain" class="btn-secondary" style="padding: 5px 11px; font-size: 11px; font-weight: 700; border-radius: 7px; cursor: pointer; background: rgba(168,85,247,0.22); color: #e9d5ff; border: 1px solid rgba(168,85,247,0.5); display: inline-flex; align-items: center; gap: 5px;" title="Navbatni kutmasdan hoziroq fikrlash siklini ishga tushirish">
+              <span id="brain-trigger-icon">⚡</span>
+              <span>Hozir Fikrlash</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- CURRENT LIVE ACTIVITY BANNER -->
+        <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px;">
+          <div style="font-size: 10.5px; color: var(--hint-color); text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="display: flex; align-items: center; gap: 5px;">
+              <span class="status-dot pulse-animated" style="background: #c084fc;"></span>
+              <span>Ayni damdagi harakat / Fikr:</span>
+            </span>
+            <span id="auto-brain-last-time" style="font-size: 10px; color: #a855f7;">Oxirgi: --:--:--</span>
+          </div>
+          <div id="auto-brain-current-activity" style="font-size: 12.5px; font-weight: 600; color: #f3e8ff; margin-top: 4px; line-height: 1.4; word-break: break-word;">
+            O'quv dasturi va so'nggi savollar tahlili uchun navbat kutilmoqda...
+          </div>
+        </div>
+
+        <!-- METRICS COUNTERS -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px;">
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 4px; text-align: center;">
+            <div style="font-size: 9.5px; color: var(--hint-color);">🔄 Sikllar</div>
+            <div id="auto-brain-cycle-count" style="font-size: 14px; font-weight: 700; color: #fff; margin-top: 2px;">0</div>
+            <div style="font-size: 8.5px; color: var(--hint-color);">marta</div>
+          </div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 4px; text-align: center;">
+            <div style="font-size: 9.5px; color: var(--hint-color);">💡 Saboqlar</div>
+            <div id="auto-brain-insights-count" style="font-size: 14px; font-weight: 700; color: #22c55e; margin-top: 2px;">0</div>
+            <div style="font-size: 8.5px; color: var(--hint-color);">sintez</div>
+          </div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 4px; text-align: center;">
+            <div style="font-size: 9.5px; color: var(--hint-color);">⚡ Kesh Javob</div>
+            <div id="auto-brain-answers-count" style="font-size: 14px; font-weight: 700; color: #2ea6ff; margin-top: 2px;">0</div>
+            <div style="font-size: 8.5px; color: var(--hint-color);">tayyor</div>
+          </div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 4px; text-align: center;">
+            <div style="font-size: 9.5px; color: var(--hint-color);">⏳ Keyingi Sikl</div>
+            <div id="auto-brain-next-run" style="font-size: 12px; font-weight: 700; color: #f59e0b; margin-top: 3px;">~30 daq</div>
+            <div style="font-size: 8.5px; color: var(--hint-color);">avtomatik</div>
+          </div>
+        </div>
+
+        <!-- SUB-TABS: PRECOMPUTED ANSWERS & ACTIVITY LOGS -->
+        <div style="display: flex; gap: 6px; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">
+          <button id="btn-subtab-precomputed" onclick="switchBrainSubtab('precomputed')" type="button" style="flex: 1; padding: 6px 8px; font-size: 11.5px; font-weight: 700; border-radius: 6px; cursor: pointer; border: 1px solid rgba(46,166,255,0.4); background: rgba(46,166,255,0.2); color: #64b5f6; transition: all 0.2s;">
+            ⚡ Keshdagi Tayyor Javoblar (<span id="precomputed-items-badge">0</span>)
+          </button>
+          <button id="btn-subtab-logs" onclick="switchBrainSubtab('logs')" type="button" style="flex: 1; padding: 6px 8px; font-size: 11.5px; font-weight: 600; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--hint-color); transition: all 0.2s;">
+            📜 Fikrlar & Qidiruvlar Logi
           </button>
         </div>
+
+        <!-- CONTENT 1: PRECOMPUTED CACHED ANSWERS -->
+        <div id="brain-subtab-precomputed-content">
+          <div style="font-size: 11px; color: var(--hint-color); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <span>Miya 4 o'quvchilar tez-tez beradigan savollariga oldindan tayyorlab qo'ygan javoblari:</span>
+            <button onclick="loadPrecomputedAnswers()" style="background: none; border: none; color: #2ea6ff; font-size: 11px; cursor: pointer; padding: 0;">🔄 Yangilash</button>
+          </div>
+          <div id="precomputed-answers-container" style="display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; padding-right: 2px;">
+            <div style="font-size: 11px; color: var(--hint-color); padding: 8px; text-align: center;">Tayyor yechimlar yuklanmoqda...</div>
+          </div>
+        </div>
+
+        <!-- CONTENT 2: LIVE ACTIVITY LOGS -->
+        <div id="brain-subtab-logs-content" style="display: none;">
+          <div style="font-size: 11px; color: var(--hint-color); margin-bottom: 6px;">
+            Miya 4 ning real vaqt rejimidagi fikrlash, o'rganish va sintez faoliyati:
+          </div>
+          <div id="brain-activity-logs-container" style="display: flex; flex-direction: column; gap: 5px; max-height: 240px; overflow-y: auto; font-family: monospace; font-size: 11px; padding-right: 2px;">
+            <div style="font-size: 11px; color: var(--hint-color); padding: 8px; text-align: center;">Loglar yuklanmoqda...</div>
+          </div>
+        </div>
       </div>
+
+      <!-- ==================== SAHIFA 1 - BO'LIM 3: AVTO-JAVOB & BOT REJIMLARI ==================== -->
+      <div class="section-header-badge">⚡ Avto-Javob & Bot Rejimlari</div>
 
       <!-- QUICK TOGGLE SWITCHES -->
       <div class="card">
@@ -1308,6 +1394,29 @@
             <option value="full_code">💻 To'liq ishlaydigan kod variantini taqdim etish</option>
             <option value="hints_only">💡 Faqat maslahat va yo'nalish (Tayyor kod bermaslik)</option>
           </select>
+        </div>
+      </div>
+
+      <!-- ==================== SAHIFA 1 - BO'LIM 4: TIZIMNI TIKLASH & XAVFSIZLIK ==================== -->
+      <div class="section-header-badge" style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">
+        🛠 Qayta Ishga Tushirish & Tiklash
+      </div>
+
+      <!-- AGENT RESTART ACTION CARD -->
+      <div class="card" style="border: 1px solid rgba(239, 68, 68, 0.35); background: linear-gradient(180deg, rgba(239, 68, 68, 0.08) 0%, var(--card-bg) 100%);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <div style="font-size: 14px; font-weight: 700; color: #ef4444; display: flex; align-items: center; gap: 6px;">
+              <span>🔄</span> Agentni Qayta Ishga Tushirish
+            </div>
+            <div style="font-size: 11px; color: var(--hint-color); margin-top: 2px;">
+              Xabarlarga javob to'xtab qolsa yoki navbat qotib qolsa, bir marta bosish bilan barcha qotgan vazifalarni bekor qiladi va AI klasterini qayta ishga tushiradi.
+            </div>
+          </div>
+          <button id="btn-restart-agent" onclick="restartAgent()" class="btn-secondary" style="padding: 8px 16px; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.5); display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+            <span id="restart-spinner" style="display:none;">⏳</span>
+            <span>🔄 Agentni Qayta Ishga Tushirish</span>
+          </button>
         </div>
       </div>
     </div> <!-- /tab-dashboard -->
@@ -1940,6 +2049,8 @@
       if (tabId === "dashboard") {
         loadStatus();
         refreshAiMetrics();
+        refreshAutonomousBrainStatus();
+        loadPrecomputedAnswers();
       } else if (tabId === "students") {
         loadStudents();
       } else if (tabId === "reminders") {
@@ -2003,6 +2114,9 @@
       try {
         await Promise.allSettled([
           loadStatus(),
+          refreshAiMetrics(),
+          refreshAutonomousBrainStatus(),
+          loadPrecomputedAnswers(),
           loadStudents(),
           loadReminders(),
           loadKnowledge(),
@@ -2433,8 +2547,227 @@
             showToast('✅ AI metrikalari yangilandi');
           }
         }
+        // Miya 4 statusini ham birga yangilash
+        refreshAutonomousBrainStatus();
       } catch (e) {
         console.error('refreshAiMetrics xatosi:', e);
+      }
+    }
+
+    // ===========================================================
+    // MIYA 4: AVTONOM ONG & TAFAKKUR MARKAZI JAVASCRIPT LOGIKASI
+    // ===========================================================
+    let currentBrainSubtab = 'precomputed';
+
+    function switchBrainSubtab(tab) {
+      haptic();
+      currentBrainSubtab = tab;
+      const btnPre = document.getElementById('btn-subtab-precomputed');
+      const btnLog = document.getElementById('btn-subtab-logs');
+      const panePre = document.getElementById('brain-subtab-precomputed-content');
+      const paneLog = document.getElementById('brain-subtab-logs-content');
+
+      if (tab === 'precomputed') {
+        if (btnPre) {
+          btnPre.style.border = '1px solid rgba(46,166,255,0.4)';
+          btnPre.style.background = 'rgba(46,166,255,0.2)';
+          btnPre.style.color = '#64b5f6';
+          btnPre.style.fontWeight = '700';
+        }
+        if (btnLog) {
+          btnLog.style.border = '1px solid rgba(255,255,255,0.08)';
+          btnLog.style.background = 'rgba(255,255,255,0.03)';
+          btnLog.style.color = 'var(--hint-color)';
+          btnLog.style.fontWeight = '600';
+        }
+        if (panePre) panePre.style.display = 'block';
+        if (paneLog) paneLog.style.display = 'none';
+        loadPrecomputedAnswers();
+      } else {
+        if (btnLog) {
+          btnLog.style.border = '1px solid rgba(168,85,247,0.4)';
+          btnLog.style.background = 'rgba(168,85,247,0.2)';
+          btnLog.style.color = '#c084fc';
+          btnLog.style.fontWeight = '700';
+        }
+        if (btnPre) {
+          btnPre.style.border = '1px solid rgba(255,255,255,0.08)';
+          btnPre.style.background = 'rgba(255,255,255,0.03)';
+          btnPre.style.color = 'var(--hint-color)';
+          btnPre.style.fontWeight = '600';
+        }
+        if (panePre) panePre.style.display = 'none';
+        if (paneLog) paneLog.style.display = 'block';
+        refreshAutonomousBrainStatus();
+      }
+    }
+
+    function renderAutonomousBrain(st) {
+      if (!st) return;
+
+      const badgeEl = document.getElementById('auto-brain-status-badge');
+      const textEl = document.getElementById('auto-brain-status-text');
+      const actEl = document.getElementById('auto-brain-current-activity');
+      const timeEl = document.getElementById('auto-brain-last-time');
+      const cyclesEl = document.getElementById('auto-brain-cycle-count');
+      const insEl = document.getElementById('auto-brain-insights-count');
+      const ansEl = document.getElementById('auto-brain-answers-count');
+      const nextEl = document.getElementById('auto-brain-next-run');
+
+      if (cyclesEl) cyclesEl.innerText = st.cycle_count || 0;
+      if (insEl) insEl.innerText = st.insights_generated || 0;
+      if (ansEl) ansEl.innerText = st.answers_precomputed || 0;
+      if (nextEl) nextEl.innerText = st.next_run_estimated ? `~${st.next_run_estimated}` : '~30 daq';
+      if (timeEl) timeEl.innerText = st.last_run_time ? `Oxirgi: ${st.last_run_time}` : 'Oxirgi: Hali ishga tushmadi';
+
+      if (actEl) {
+        actEl.innerText = st.current_activity || "Kuzatuvda... O'quvchilar va dastur tahlili";
+      }
+
+      if (badgeEl && textEl) {
+        if (!st.is_running) {
+          badgeEl.style.background = 'rgba(239,68,68,0.18)';
+          badgeEl.style.color = '#ef4444';
+          badgeEl.style.border = '1px solid rgba(239,68,68,0.4)';
+          textEl.innerText = "🔴 To'xtatilgan";
+        } else if (st.is_busy) {
+          badgeEl.style.background = 'rgba(168,85,247,0.25)';
+          badgeEl.style.color = '#e9d5ff';
+          badgeEl.style.border = '1px solid rgba(168,85,247,0.6)';
+          textEl.innerText = "🧠 Tafakkur Qilmoqda...";
+        } else {
+          badgeEl.style.background = 'rgba(34,197,94,0.18)';
+          badgeEl.style.color = '#22c55e';
+          badgeEl.style.border = '1px solid rgba(34,197,94,0.4)';
+          textEl.innerText = "🟢 Faol (Kuzatuvda)";
+        }
+      }
+
+      // Render live activity logs
+      const logCont = document.getElementById('brain-activity-logs-container');
+      if (logCont && st.activity_logs) {
+        if (!st.activity_logs.length) {
+          logCont.innerHTML = '<div style="color: var(--hint-color); padding: 6px;">Hozircha faoliyat qayd etilmadi.</div>';
+        } else {
+          logCont.innerHTML = st.activity_logs.map(l => {
+            let color = '#93c5fd';
+            let icon = '🔹';
+            if (l.type === 'think' || l.type === 'cycle_start') { color = '#c084fc'; icon = '🧠'; }
+            else if (l.type === 'precompute') { color = '#38bdf8'; icon = '⚡'; }
+            else if (l.type === 'insight') { color = '#4ade80'; icon = '💡'; }
+            else if (l.type === 'error') { color = '#f87171'; icon = '⚠️'; }
+            else if (l.type === 'start') { color = '#a3e635'; icon = '🚀'; }
+
+            return `
+              <div style="background: rgba(255,255,255,0.02); border-left: 2px solid ${color}; padding: 4px 8px; border-radius: 0 4px 4px 0;">
+                <span style="color: var(--hint-color); font-size: 9.5px;">[${escapeHtml(l.time || '')}]</span>
+                <span style="color: ${color}; font-weight: 600; margin-left: 3px;">${icon}</span>
+                <span style="color: #e2e8f0; margin-left: 4px;">${escapeHtml(l.text || '')}</span>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+    }
+
+    async function refreshAutonomousBrainStatus() {
+      try {
+        const res = await apiRequest('/api/autonomous-brain/status');
+        if (res && res.ok && res.status) {
+          renderAutonomousBrain(res.status);
+        }
+      } catch (e) {
+        console.error('refreshAutonomousBrainStatus xatosi:', e);
+      }
+    }
+
+    async function triggerAutonomousBrainNow() {
+      const btn = document.getElementById('btn-trigger-brain');
+      const icon = document.getElementById('brain-trigger-icon');
+      if (btn) btn.disabled = true;
+      if (icon) icon.innerText = '⏳';
+      haptic();
+      showToast('🧠 Miya 4 tafakkur sikli boshlandi...');
+
+      try {
+        const res = await apiRequest('/api/autonomous-brain/trigger', 'POST');
+        if (res && res.ok) {
+          showToast(res.message || '✅ Tafakkur sikli muvaffaqiyatli yakunlandi!');
+          await refreshAutonomousBrainStatus();
+          await loadPrecomputedAnswers();
+        } else {
+          showToast('⚠️ ' + (res?.message || res?.error || 'Kutilmagan xatolik'), true);
+        }
+      } catch (e) {
+        showToast('Xatolik: ' + e.message, true);
+      } finally {
+        if (btn) btn.disabled = false;
+        if (icon) icon.innerText = '⚡';
+      }
+    }
+
+    async function loadPrecomputedAnswers() {
+      try {
+        const res = await apiRequest('/api/precomputed-answers');
+        const cont = document.getElementById('precomputed-answers-container');
+        const badge = document.getElementById('precomputed-items-badge');
+
+        if (res && res.ok && res.items) {
+          const items = res.items;
+          if (badge) badge.innerText = items.length;
+          if (!cont) return;
+
+          if (!items.length) {
+            cont.innerHTML = `
+              <div style="background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 8px; padding: 14px; text-align: center; color: var(--hint-color); font-size: 11.5px;">
+                Miya 4 hali yechimlarni keshlamagan.<br>
+                Yuqoridagi <b>"Hozir Fikrlash"</b> tugmasini bosib, o'quv dasturi bo'yicha birinchi yechimlarni hosil qilishingiz mumkin!
+              </div>
+            `;
+            return;
+          }
+
+          cont.innerHTML = items.map(item => `
+            <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 10px; font-size: 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                <div style="min-width: 0; flex: 1;">
+                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px;">
+                    <span style="font-weight: 700; color: #2ea6ff; font-size: 11px; background: rgba(46,166,255,0.15); padding: 1px 6px; border-radius: 4px;">
+                      🏷️ ${escapeHtml(item.topic || 'Umumiy')}
+                    </span>
+                    <span style="font-size: 10px; color: var(--hint-color);">🎯 ${escapeHtml(item.created_at || '')}</span>
+                  </div>
+                  <div style="font-weight: 600; color: #f8fafc; font-size: 12px; margin-bottom: 4px;">
+                    ❓ ${escapeHtml(item.question_pattern || '')}
+                  </div>
+                  <div id="pre-ans-${item.id}" style="font-size: 11px; color: #cbd5e1; background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 8px; font-family: monospace; white-space: pre-wrap; line-height: 1.35; max-height: 90px; overflow-y: auto;">${escapeHtml(item.answer_code || '')}</div>
+                </div>
+                <button onclick="deletePrecomputedAnswer(${item.id})" title="Keshdan o'chirish" style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); color: #ef4444; border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; flex-shrink: 0; margin-top: 2px;">
+                  🗑
+                </button>
+              </div>
+            </div>
+          `).join('');
+        }
+      } catch (e) {
+        console.error('loadPrecomputedAnswers xatosi:', e);
+      }
+    }
+
+    async function deletePrecomputedAnswer(id) {
+      if (!confirm("Ushbu kesh yechimni o'chirmoqchimisiz?")) return;
+      haptic();
+      try {
+        const res = await apiRequest('/api/precomputed-answers/delete', 'POST', { id });
+        if (res && res.ok) {
+          showToast("🗑 Yechim keshdan o'chirildi");
+          await loadPrecomputedAnswers();
+          await refreshAutonomousBrainStatus();
+        } else {
+          showToast("Xatolik: O'chirib bo'lmadi", true);
+        }
+      } catch (e) {
+        showToast('Tarmoq xatosi: ' + e.message, true);
       }
     }
 

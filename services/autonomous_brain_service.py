@@ -23,9 +23,17 @@ logger = logging.getLogger(__name__)
 def _get_tashkent_now_str() -> str:
     try:
         tz = ZoneInfo("Asia/Tashkent")
-        return datetime.now(tz).strftime("%d.%m.%Y %H:%M:%S")
+        return datetime.now(tz).strftime("%H:%M:%S (%d.%m.%Y)")
     except Exception:
-        return datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        return datetime.now().strftime("%H:%M:%S (%d.%m.%Y)")
+
+
+def _get_tashkent_time_only() -> str:
+    try:
+        tz = ZoneInfo("Asia/Tashkent")
+        return datetime.now(tz).strftime("%H:%M:%S")
+    except Exception:
+        return datetime.now().strftime("%H:%M:%S")
 
 
 class AutonomousBrainService:
@@ -33,22 +41,44 @@ class AutonomousBrainService:
 
     def __init__(self):
         self._is_running = False
+        self._is_busy = False
         self._task: asyncio.Task | None = None
         self._cycle_count: int = 0
         self._insights_generated: int = 0
         self._answers_precomputed: int = 0
         self._last_run_time: str = "Hali ishga tushmadi"
+        self._next_run_estimated: str = "Kutilmoqda..."
+        self._current_activity: str = "Tizim ishga tushirilishi kutilmoqda..."
         self._last_error: str | None = None
+        self._recent_insights: list[dict[str, Any]] = []
+        self._recent_precomputations: list[dict[str, Any]] = []
+        self._activity_logs: list[dict[str, str]] = []
+
+    def _log_activity(self, text: str, action_type: str = "info") -> None:
+        entry = {
+            "time": _get_tashkent_time_only(),
+            "text": text,
+            "type": action_type,
+        }
+        self._activity_logs.append(entry)
+        if len(self._activity_logs) > 40:
+            self._activity_logs = self._activity_logs[-40:]
 
     def get_status(self) -> dict[str, Any]:
         """Web App paneli va telemetriya uchun Miya 4 holati."""
         return {
             "is_running": self._is_running,
+            "is_busy": self._is_busy,
             "cycle_count": self._cycle_count,
             "insights_generated": self._insights_generated,
             "answers_precomputed": self._answers_precomputed,
             "last_run_time": self._last_run_time,
+            "next_run_estimated": self._next_run_estimated,
+            "current_activity": self._current_activity,
             "last_error": self._last_error,
+            "recent_insights": self._recent_insights[-6:],
+            "recent_precomputations": self._recent_precomputations[-6:],
+            "activity_logs": list(reversed(self._activity_logs[-15:])),
         }
 
     async def start(self, client=None) -> None:
@@ -56,6 +86,7 @@ class AutonomousBrainService:
         if self._is_running:
             return
         self._is_running = True
+        self._log_activity("Miya 4 avtonom dvigateli yuklanmoqda...", "start")
         self._task = asyncio.create_task(self._run_loop(client))
         logger.info("🧬 Miya 4: Avtonom Tafakkur Dvigateli (Autonomous Cogitation Daemon) ishga tushirildi.")
 
@@ -68,17 +99,59 @@ class AutonomousBrainService:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        self._log_activity("Miya 4 to'xtatildi.", "stop")
         logger.info("🧬 Miya 4 to'xtatildi.")
+
+    async def run_cycle_now(self) -> dict[str, Any]:
+        """Web App panelidan zudlik bilan qo'lda tafakkur siklini ishga tushirish."""
+        if self._is_busy:
+            return {
+                "ok": False,
+                "message": "Miya 4 ayni paytda allaqachon tahlil bilan band. Iltimos, 15 soniya kuting.",
+                "status": self.get_status(),
+            }
+
+        try:
+            self._is_busy = True
+            self._current_activity = "Mentor so'rovi bo'yicha zudlik bilan tafakkur sikli boshlandi..."
+            self._log_activity("⚡ Qo'lda yangi tafakkur sikli ishga tushirildi!", "trigger")
+            
+            await self._synthesize_insights()
+            await self._precompute_upcoming_answers()
+            
+            self._cycle_count += 1
+            self._last_run_time = _get_tashkent_now_str()
+            self._current_activity = f"Sikl muvaffaqiyatli yakunlandi ({self._last_run_time})."
+            self._log_activity(f"✅ Sikl #{self._cycle_count} muvaffaqiyatli bajarildi.", "success")
+            return {
+                "ok": True,
+                "message": f"Miya 4 muvaffaqiyatli fikrlab chiqdi! Jami saboqlar: {self._insights_generated}, Kesh yechimlar: {self._answers_precomputed}",
+                "status": self.get_status(),
+            }
+        except Exception as e:
+            self._last_error = str(e)
+            self._log_activity(f"Xatolik: {e}", "error")
+            return {
+                "ok": False,
+                "error": str(e),
+                "status": self.get_status(),
+            }
+        finally:
+            self._is_busy = False
 
     async def _run_loop(self, client=None) -> None:
         """Doimiy orqa fon tahlil va fikrlash davri."""
-        # Bot ishga tushganda birinchi 60 soniya sokin kutish (bot to'liq yuklanishi uchun):
-        await asyncio.sleep(60)
+        # Bot ishga tushganda 5 soniya sokin kutish (sozlamalar yuklanishi uchun):
+        self._current_activity = "Tizim modullari tekshirilmoqda (5s)..."
+        await asyncio.sleep(5)
 
         while self._is_running:
             try:
+                self._is_busy = True
                 self._last_run_time = _get_tashkent_now_str()
                 self._cycle_count += 1
+                self._current_activity = f"Sikl #{self._cycle_count}: O'quvchilar xatolari va amaliy bilimlar tahlili..."
+                self._log_activity(f"🧬 Sikl #{self._cycle_count} boshlandi...", "cycle")
                 logger.info("🧬 Miya 4 tafakkur davri boshlandi (Davr #%d)...", self._cycle_count)
 
                 # 1. Sikl: O'quvchilarning so'nggi savollaridan xulosa va saboq chiqarish
@@ -88,41 +161,82 @@ class AutonomousBrainService:
                 await self._precompute_upcoming_answers()
 
                 self._last_error = None
+                self._is_busy = False
+                
+                # Keyingi sikl vaqti (300 soniya / 5 daqiqa)
+                try:
+                    from datetime import timedelta
+                    tz = ZoneInfo("Asia/Tashkent")
+                    next_time = (datetime.now(tz) + timedelta(seconds=300)).strftime("%H:%M:%S")
+                    self._next_run_estimated = f"{next_time} da"
+                except Exception:
+                    self._next_run_estimated = "5 daqiqadan so'ng"
+
+                self._current_activity = f"Sokin rejimda. Keyingi tafakkur sikli: {self._next_run_estimated}"
+                self._log_activity(f"Sikl yakunlandi. Jami: {self._insights_generated} saboq, {self._answers_precomputed} kesh yechim.", "info")
                 logger.info(
                     "🧬 Miya 4 davri yakunlandi: Jami %d saboq, %d kesh yechim tayyorlandi.",
                     self._insights_generated,
                     self._answers_precomputed,
                 )
 
-                # Har bir chuqur tafakkur davridan so'ng 7 daqiqa oraliq (420 soniya):
-                await asyncio.sleep(420)
+                # Har bir chuqur tafakkur davridan so'ng 5 daqiqa oraliq (300 soniya):
+                await asyncio.sleep(300)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                self._is_busy = False
                 self._last_error = str(e)
+                self._current_activity = f"Kutilmagan ogohlantirish: {str(e)[:60]}"
+                self._log_activity(f"Ogohlantirish: {e}", "warning")
                 logger.warning("Miya 4 tafakkur davrida ogohlantirish: %s", e)
-                # Xatolik bo'lsa 60 soniya kutib davom etish
-                await asyncio.sleep(60)
+                # Xatolik bo'lsa 45 soniya kutib davom etish
+                await asyncio.sleep(45)
 
     async def _synthesize_insights(self) -> None:
         """So'nggi savollardan umumiy saboq va tavsiyalar sintezi."""
         from services.ai_service import ai_service
         questions = memory_service.get_recent_user_questions(limit=8)
-        if not questions or len(questions) < 2:
-            return
+        
+        fallback_topics = [
+            "Python list comprehension vs for loop tezligi va xotirasi",
+            "JavaScript Event Loop, Microtasks va Macrotasks ishlashi",
+            "FastAPI da asinxron def vs oddiy def funksiyalar farqi",
+            "React da useEffect dependency array va infinite loop xatosi",
+            "Telegram Bot API da FloodWait va rate limit boshqaruvi",
+            "SQL da B-Tree Index qanday ishlaydi va qachon sekinlashadi",
+            "Python da mutable default argument (def f(x=[])) tuzog'i",
+            "JavaScript da closure va xotira sizib chiqishi (memory leak)",
+            "Python da asyncio.gather vs asyncio.wait_for va TimeoutError",
+            "Docker konteynerlarida caching va multiline RUN optimallashtirish",
+        ]
 
-        q_list_str = "\n".join(f"- {q}" for q in questions[:6])
-        prompt = (
-            "Siz CoddyCamp IT akademiyasi o'quv markazining Avtonom Tafakkur Miyasisiz (Miya 4).\n"
-            "Quyida o'quvchilar va guruhlardan kelgan so'nggi savollar berilgan:\n"
-            f"{q_list_str}\n\n"
-            "Vazifa: Ushbu savollar asosida o'quvchilar eng ko'p qaysi mavzuda qiynalayotganini aniqlang va "
-            "bitta muhim amaliy tushuntirish/xulosa (insight) chiqaring.\n"
-            "Javobingizni quyidagi aniq formatda bering:\n"
-            "MAVZU: [Mavzu nomi]\n"
-            "XULOSA: [1-2 ta lo'nda, foydali, aniq qoida yoki dasturlash tushuntirishi]"
-        )
+        if questions and len(questions) >= 2:
+            q_list_str = "\n".join(f"- {q}" for q in questions[:6])
+            self._current_activity = "O'quvchilarning jonli savollaridan universal saboq chiqarilmoqda..."
+            prompt = (
+                "Siz CoddyCamp IT akademiyasi o'quv markazining Avtonom Tafakkur Miyasisiz (Miya 4).\n"
+                "Quyida o'quvchilar va guruhlardan kelgan so'nggi savollar berilgan:\n"
+                f"{q_list_str}\n\n"
+                "Vazifa: Ushbu savollar asosida o'quvchilar eng ko'p qaysi mavzuda qiynalayotganini aniqlang va "
+                "bitta muhim amaliy tushuntirish/xulosa (insight) chiqaring.\n"
+                "Javobingizni quyidagi aniq formatda bering:\n"
+                "MAVZU: [Mavzu nomi]\n"
+                "XULOSA: [1-2 ta lo'nda, foydali, aniq qoida yoki dasturlash tushuntirishi]"
+            )
+        else:
+            chosen_topic = fallback_topics[self._cycle_count % len(fallback_topics)]
+            self._current_activity = f"'{chosen_topic}' bo'yicha muhim texnik saboq tahlil qilinmoqda..."
+            prompt = (
+                "Siz CoddyCamp IT akademiyasining Avtonom Tafakkur Miyasisiz (Miya 4).\n"
+                f"Mavzu: '{chosen_topic}'\n\n"
+                "Vazifa: Dasturchilar va o'quvchilar ushbu mavzuda eng ko'p yo'l qo'yadigan jiddiy xatoni aniqlang "
+                "va uning oldini olish bo'yicha 1 ta oltin qoida (insight) bering.\n"
+                "Javobingizni quyidagi aniq formatda bering:\n"
+                f"MAVZU: {chosen_topic}\n"
+                "XULOSA: [1-2 ta lo'nda, foydali, aniq qoida yoki dasturlash tushuntirishi]"
+            )
 
         reply = await ai_service.generate_autonomous_reflection(prompt)
         if not reply:
@@ -141,6 +255,14 @@ class AutonomousBrainService:
         if content and len(content) >= 15:
             memory_service.add_autonomous_insight(topic[:50], content)
             self._insights_generated += 1
+            self._recent_insights.append({
+                "time": _get_tashkent_time_only(),
+                "topic": topic[:50],
+                "content": content[:180],
+            })
+            if len(self._recent_insights) > 15:
+                self._recent_insights = self._recent_insights[-15:]
+            self._log_activity(f"💡 Yangi saboq: [{topic[:30]}] {content[:80]}...", "insight")
             logger.info("✅ Miya 4 yangi saboq kashf qildi: [%s]", topic[:30])
 
     async def _precompute_upcoming_answers(self) -> None:
@@ -153,9 +275,13 @@ class AutonomousBrainService:
             "Telegram bot (Telethon, Aiogram) asinxron xatolar",
             "SQL va SQLite baza ulanish xatolari",
             "Python string metodlari va formatlash",
+            "JavaScript async await va fetch xatolari",
+            "React useState va props uzatish xatolari",
             "LMS dasturlash topshiriqlari tahlili",
+            "Python try except va error handling",
         ]
         topic = core_topics[self._cycle_count % len(core_topics)]
+        self._current_activity = f"'{topic}' mavzusida kelgusi savollarga ideal yechim tayyorlanmoqda..."
 
         prompt = (
             f"Siz CoddyCamp IT akademiyasining Avtonom Tafakkur Miyasisiz.\n"
@@ -179,6 +305,15 @@ class AutonomousBrainService:
                 if q_pattern and answer_code:
                     memory_service.add_precomputed_answer(topic, q_pattern, answer_code)
                     self._answers_precomputed += 1
+                    self._recent_precomputations.append({
+                        "time": _get_tashkent_time_only(),
+                        "topic": topic,
+                        "question": q_pattern[:100],
+                        "answer": answer_code[:180],
+                    })
+                    if len(self._recent_precomputations) > 15:
+                        self._recent_precomputations = self._recent_precomputations[-15:]
+                    self._log_activity(f"⚡ Yechim keshlandi: [{topic}] {q_pattern[:40]}...", "precompute")
                     logger.info("✅ Miya 4 oldindan yechim tayyorlab qo'ydi: [%s] -> %s", topic, q_pattern[:35])
             except Exception as e:
                 logger.debug("Pre-compute javobini ajratishda ogohlantirish: %s", e)
