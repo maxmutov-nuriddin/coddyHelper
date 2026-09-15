@@ -809,13 +809,32 @@ class AIService:
         except Exception as err:
             logger.warning("AI metrikalarini yangilashda ogohlantirish: %s", err)
 
+    def _refresh_key_and_model_recovery(self) -> None:
+        """60 soniyalik limit davri o'tgan kalitlar va modellarni avtomatik tiklash."""
+        now_ts = time.time()
+        for idx, stat in self._key_stats.items():
+            if stat.get("status") in ("rate_limited", "error"):
+                until = stat.get("rate_limited_until", 0)
+                if now_ts >= until:
+                    stat["status"] = "standby"
+                    stat["last_error"] = None
+
+        cascade = self._metrics.setdefault("cascade_status", {})
+        for m_name, info in cascade.items():
+            if info.get("state") == "rate_limited":
+                until = info.get("rate_limited_until", 0)
+                if now_ts >= until:
+                    info["state"] = "standby"
+                    info["last_error"] = None
+
     def _record_model_rate_limited(self, model_name: str, error_msg: str = "") -> None:
-        """Model limitga uchraganida uning holatini yangilaydi."""
+        """Model limitga uchraganida uning holatini yangilaydi (TTL: 60s)."""
         try:
             cascade = self._metrics.setdefault("cascade_status", {})
             if model_name in cascade:
                 cascade[model_name]["state"] = "rate_limited"
                 cascade[model_name]["last_error"] = str(error_msg)[:120]
+                cascade[model_name]["rate_limited_until"] = time.time() + 60.0
         except Exception:
             pass
 
@@ -863,7 +882,7 @@ class AIService:
             logger.debug("Kalit statistikasini yangilashda ogohlantirish: %s", e)
 
     def _mark_key_error(self, key_idx: int, error_msg: str = "") -> None:
-        """Kalitda xatolik yoki limit bo'lganda holatini qayd etadi."""
+        """Kalitda xatolik yoki limit bo'lganda holatini qayd etadi (TTL: 60s)."""
         try:
             if not self._groq_keys or key_idx < 0 or key_idx >= len(self._groq_keys):
                 return
@@ -871,16 +890,20 @@ class AIService:
                 self._key_stats[key_idx] = {"requests": 0, "last_used": None, "status": "standby", "errors": 0}
             self._key_stats[key_idx]["errors"] = self._key_stats[key_idx].get("errors", 0) + 1
             err_str = str(error_msg).lower()
+            now_ts = time.time()
             if "429" in err_str or "rate_limit" in err_str or "413" in err_str:
                 self._key_stats[key_idx]["status"] = "rate_limited"
+                self._key_stats[key_idx]["rate_limited_until"] = now_ts + 60.0
             else:
                 self._key_stats[key_idx]["status"] = "error"
+                self._key_stats[key_idx]["rate_limited_until"] = now_ts + 30.0
             self._key_stats[key_idx]["last_error"] = str(error_msg)[:100]
         except Exception:
             pass
 
     def get_metrics(self) -> dict[str, Any]:
         """Tizimning joriy AI modeli, TPM/RPM limitlari, kalitlar va jamoalar statistikasi."""
+        self._refresh_key_and_model_recovery()
         total_keys = len(self._groq_keys)
         def _resolve_brain_info(k_idx: int) -> tuple[str, str]:
             if total_keys >= 30:
@@ -1097,7 +1120,21 @@ class AIService:
 
         # 3. 3 ta mustaqil miyaga kalitlar taqsimoti (Limitlar va TPM/RPM mutlaq izolyatsiya qilingan):
         total = len(self._groq_clients)
-        if total >= 30:
+        has_explicit = bool(config.groq_frontline_keys or config.groq_vip_keys or config.groq_autonomous_keys)
+        if has_explicit:
+            f_keys = config.groq_frontline_keys or []
+            v_keys = config.groq_vip_keys or []
+            a_keys = config.groq_autonomous_keys or []
+            self._frontline_clients = [c for c in self._groq_clients if self._groq_keys[self._client_to_idx.get(id(c), 0)] in f_keys]
+            self._vip_clients = [c for c in self._groq_clients if self._groq_keys[self._client_to_idx.get(id(c), 0)] in v_keys]
+            self._autonomous_clients = [c for c in self._groq_clients if self._groq_keys[self._client_to_idx.get(id(c), 0)] in a_keys]
+            if not self._frontline_clients:
+                self._frontline_clients = list(self._groq_clients[:12]) if total >= 12 else list(self._groq_clients)
+            if not self._vip_clients:
+                self._vip_clients = list(self._groq_clients[12:21]) if total >= 21 else list(self._groq_clients)
+            if not self._autonomous_clients:
+                self._autonomous_clients = list(self._groq_clients[21:]) if total >= 22 else list(self._groq_clients)
+        elif total >= 30:
             # 30 ta kalit (10 ta 3 kishilik Pod komanda):
             # Miya 1: Frontline (Talabalar & Umumiy) -> 12 ta kalit (Jamoalar #1-#4)
             # Miya 2: VIP Vazifalar Guruhi -> 9 ta kalit (Jamoalar #5-#7)
@@ -1534,6 +1571,9 @@ class AIService:
             active_messages = [active_messages[0]] + active_messages[-3:]
             est_tokens = self._estimate_tokens(active_messages)
 
+        # Cooldown o'tgan kalitlar va modellarni avtomatik tiklash:
+        self._refresh_key_and_model_recovery()
+
         # Kaskadli zaxira modellar bo'yicha ketma-ket urinish:
         for model_to_use in candidate_models:
             # Kichik 20b modelning 8k TPM limitiga urilmaslik uchun: agar so'rov 4,000 tokendan katta bo'lsa,
@@ -1626,9 +1666,9 @@ class AIService:
                     if "429" in str(e) or "rate_limit_exceeded" in str(e) or "413" in str(e):
                         self._record_model_rate_limited(model_to_use, str(e))
 
-                    # Reactive Halving: Agar 413 yoki token limiti oshishi yuz bersa,
+                    # Reactive Halving: Agar 413 yoki token hajmi oshishi yuz bersa,
                     # xotirani ikkiga bo'lib (faqat oxirgi savol qoldirilib) va max_tokens ni 2 ga qisqartirib darhol qayta urinish
-                    if ("413" in str(e) or "rate_limit_exceeded" in str(e)) and len(active_messages) > 2:
+                    if "413" in str(e) and len(active_messages) > 2:
                         logger.warning("⚠️ 413 token limiti! Xotira 2 ga bo'linib (faqat joriy so'rov) qayta urinilmoqda...")
                         active_messages = [active_messages[0], active_messages[-1]]
                         calc_max_tokens = max(400, calc_max_tokens // 2)
@@ -1649,6 +1689,12 @@ class AIService:
                         except Exception as r_err:
                             logger.warning("Qisqartirilgan xotira bilan qayta urinishda ham xatolik: %s", r_err)
                             last_error = r_err
+
+                    # Agar 429 (Rate limit) bo'lsa, xuddi shu modelda boshqa kalitlarni
+                    # behuda qiynab ularni ham 'Limit' ga tiqmaslik uchun darhol keyingi zaxira modelga o'tish (break):
+                    if "429" in str(e) or "rate_limit_exceeded" in str(e):
+                        logger.warning("⚡ Model [%s] da 429 limit bo'ldi. Boshqa kalitlarni qiynamasdan darhol keyingi zaxira modelga o'tilmoqda...", model_to_use)
+                        break
 
             # Agar bu modelda barcha kalitlar muvaffaqiyatsiz bo'lsa (masalan limit to'lsa)
             logger.warning("⚠️ Model [%s] bo'yicha limit yoki xatolik yuz berdi. Keyingi zaxira modelga o'tilmoqda...", model_to_use)

@@ -34,6 +34,9 @@ class Config:
     gemini_model: str
     groq_api_key: str = ""
     groq_api_keys: list[str] = None
+    groq_frontline_keys: list[str] = None
+    groq_vip_keys: list[str] = None
+    groq_autonomous_keys: list[str] = None
     groq_model: str = "qwen/qwen3.8-27b"
     groq_vision_model: str = "qwen/qwen3.8-27b"
     auto_reply_enabled: bool = True
@@ -66,12 +69,24 @@ class Config:
         gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
         gemini_model = os.getenv("GEMINI_MODEL", "gemini-flash-latest").strip()
         
+        raw_frontline = os.getenv("GROQ_FRONTLINE_KEYS", "").strip()
+        raw_vip = os.getenv("GROQ_VIP_KEYS", "").strip()
+        raw_auto = os.getenv("GROQ_AUTONOMOUS_KEYS", "").strip() or os.getenv("GROQ_EXTRA_KEYS", "").strip()
+
+        groq_frontline_keys = [k.strip() for k in raw_frontline.split(",") if k.strip()]
+        groq_vip_keys = [k.strip() for k in raw_vip.split(",") if k.strip()]
+        groq_autonomous_keys = [k.strip() for k in raw_auto.split(",") if k.strip()]
+
         raw_groq_keys = os.getenv("GROQ_API_KEYS", "").strip() or os.getenv("GROQ_API_KEY", "").strip()
-        raw_extra = os.getenv("GROQ_EXTRA_KEYS", "").strip() or os.getenv("GROQ_AUTONOMOUS_KEYS", "").strip()
-        if raw_extra:
-            raw_groq_keys = f"{raw_groq_keys},{raw_extra}".strip(",")
-        groq_api_keys = [k.strip() for k in raw_groq_keys.split(",") if k.strip()]
+        all_keys_list = [k.strip() for k in raw_groq_keys.split(",") if k.strip()]
+
+        combined_keys = []
+        for k in (groq_frontline_keys + groq_vip_keys + groq_autonomous_keys + all_keys_list):
+            if k and k not in combined_keys:
+                combined_keys.append(k)
+        groq_api_keys = combined_keys
         groq_api_key = groq_api_keys[0] if groq_api_keys else ""
+
         raw_groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
         if not raw_groq_model or "llama" in raw_groq_model.lower():
             groq_model = "qwen/qwen3.8-27b"
@@ -117,6 +132,9 @@ class Config:
             gemini_model=gemini_model,
             groq_api_key=groq_api_key,
             groq_api_keys=groq_api_keys,
+            groq_frontline_keys=groq_frontline_keys,
+            groq_vip_keys=groq_vip_keys,
+            groq_autonomous_keys=groq_autonomous_keys,
             groq_model=groq_model,
             groq_vision_model=groq_vision_model,
             auto_reply_enabled=auto_reply_enabled,

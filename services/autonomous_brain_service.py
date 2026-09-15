@@ -157,20 +157,23 @@ class AutonomousBrainService:
                 # 1. Sikl: O'quvchilarning so'nggi savollaridan xulosa va saboq chiqarish
                 await self._synthesize_insights()
 
+                # So'rovlar orasida Groq TPM xotirjam bo'lishi uchun 4s tanaffus:
+                await asyncio.sleep(4.0)
+
                 # 2. Sikl: Keyinchalik so'ralishi mumkin bo'lgan savollarga oldindan yechim tayyorlash
                 await self._precompute_upcoming_answers()
 
                 self._last_error = None
                 self._is_busy = False
                 
-                # Keyingi sikl vaqti (300 soniya / 5 daqiqa)
+                # Keyingi sikl vaqti (1200 soniya / 20 daqiqa):
                 try:
                     from datetime import timedelta
                     tz = ZoneInfo("Asia/Tashkent")
-                    next_time = (datetime.now(tz) + timedelta(seconds=300)).strftime("%H:%M:%S")
+                    next_time = (datetime.now(tz) + timedelta(seconds=1200)).strftime("%H:%M:%S")
                     self._next_run_estimated = f"{next_time} da"
                 except Exception:
-                    self._next_run_estimated = "5 daqiqadan so'ng"
+                    self._next_run_estimated = "20 daqiqadan so'ng"
 
                 self._current_activity = f"Sokin rejimda. Keyingi tafakkur sikli: {self._next_run_estimated}"
                 self._log_activity(f"Sikl yakunlandi. Jami: {self._insights_generated} saboq, {self._answers_precomputed} kesh yechim.", "info")
@@ -180,8 +183,8 @@ class AutonomousBrainService:
                     self._answers_precomputed,
                 )
 
-                # Har bir chuqur tafakkur davridan so'ng 5 daqiqa oraliq (300 soniya):
-                await asyncio.sleep(300)
+                # Har bir chuqur tafakkur davridan so'ng 20 daqiqa oraliq (1200 soniya):
+                await asyncio.sleep(1200)
 
             except asyncio.CancelledError:
                 break
@@ -191,8 +194,8 @@ class AutonomousBrainService:
                 self._current_activity = f"Kutilmagan ogohlantirish: {str(e)[:60]}"
                 self._log_activity(f"Ogohlantirish: {e}", "warning")
                 logger.warning("Miya 4 tafakkur davrida ogohlantirish: %s", e)
-                # Xatolik bo'lsa 45 soniya kutib davom etish
-                await asyncio.sleep(45)
+                # Limit yoki xatolik bo'lsa 120 soniya kutib davom etish:
+                await asyncio.sleep(120)
 
     async def _synthesize_insights(self) -> None:
         """So'nggi savollardan umumiy saboq va tavsiyalar sintezi."""
