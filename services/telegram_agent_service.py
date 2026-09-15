@@ -606,29 +606,32 @@ async def schedule_telegram_message(
     delay_sec = None
     remind_at_dt = None
 
-    rel_match = re.search(r"(\d+)\s*(daqiqa|minut|sekund|soniya|soat|kun)", time_str.lower())
-    if rel_match:
-        val = int(rel_match.group(1))
-        unit = rel_match.group(2)
-        if "sekund" in unit or "soniya" in unit:
-            delay_sec = float(val)
-        elif "soat" in unit:
-            delay_sec = float(val * 3600)
-        elif "kun" in unit:
-            delay_sec = float(val * 86400)
-        else:
-            delay_sec = float(val * 60)
-        remind_at_dt = now + timedelta(seconds=delay_sec)
-    else:
-        from services.ai_service import extract_smart_reminder
-        parsed = extract_smart_reminder(time_str, current_tashkent_time=now.strftime("%Y-%m-%d %H:%M:%S"))
-        if parsed and parsed.get("remind_at"):
-            try:
-                remind_at_dt = datetime.strptime(parsed["remind_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tashkent_tz)
-                diff = (remind_at_dt - now).total_seconds()
-                delay_sec = max(5.0, diff)
-            except Exception:
-                pass
+    from services.ai_service import extract_smart_reminder
+    parsed = extract_smart_reminder(time_str, current_tashkent_time=now.strftime("%Y-%m-%d %H:%M:%S"))
+    if parsed and parsed.get("remind_at"):
+        try:
+            remind_at_dt = datetime.strptime(parsed["remind_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tashkent_tz)
+            diff = (remind_at_dt - now).total_seconds()
+            if diff >= 5.0:
+                delay_sec = diff
+        except Exception:
+            pass
+
+    if not delay_sec:
+        rel_match = re.search(r"(\d+|bir\s+necha|1\s+necha|yarim)\s*(daqiqa\w*|minut\w*|sekund\w*|soniya\w*|soat\w*|kun\w*|chas\w*)", time_str.lower())
+        if rel_match:
+            raw_val = rel_match.group(1).strip()
+            unit = rel_match.group(2).lower()
+            val = 2.0 if "necha" in raw_val else (0.5 if "yarim" in raw_val else float(raw_val))
+            if "sekund" in unit or "soniya" in unit:
+                delay_sec = float(val)
+            elif "soat" in unit or "chas" in unit:
+                delay_sec = float(val * 3600)
+            elif "kun" in unit:
+                delay_sec = float(val * 86400)
+            else:
+                delay_sec = float(val * 60)
+            remind_at_dt = now + timedelta(seconds=delay_sec)
 
     if not delay_sec or delay_sec < 5:
         delay_sec = 120.0
@@ -1913,27 +1916,24 @@ async def execute_agent_action(
         )
 
         if remind_pattern_1:
-            time_part = remind_pattern_1.group(1) or ""
             subj = remind_pattern_1.group(2).strip()
             sched_target = "me"
             sched_text = f"🔔 Eslatma: {subj}"
-            sched_time = f"{time_part} daqiqa" if time_part.isdigit() else orig_msg
+            sched_time = orig_msg
         elif remind_pattern_2:
-            time_part = remind_pattern_2.group(1) or ""
             subj = remind_pattern_2.group(2).strip()
             sched_target = "me"
             sched_text = f"🔔 Eslatma: {subj}"
-            sched_time = f"{time_part} daqiqa" if time_part.isdigit() else orig_msg
+            sched_time = orig_msg
         elif remind_pattern_ru:
-            time_part = remind_pattern_ru.group(1) or ""
             subj = remind_pattern_ru.group(2).strip()
             sched_target = "me"
             sched_text = f"🔔 Напоминание: {subj}"
-            sched_time = f"{time_part} минут" if time_part.isdigit() else orig_msg
+            sched_time = orig_msg
         elif remind_pattern_other:
             sched_target = remind_pattern_other.group(1).strip()
             sched_text = remind_pattern_other.group(2).strip()
-            sched_time = remind_pattern_other.group(3).strip() if len(remind_pattern_other.groups()) >= 3 and remind_pattern_other.group(3) else orig_msg
+            sched_time = orig_msg
 
     if sched_target and sched_text:
         res = await schedule_telegram_message(client, sched_target, sched_text, sched_time or orig_msg, chat_id=chat_id or 0)

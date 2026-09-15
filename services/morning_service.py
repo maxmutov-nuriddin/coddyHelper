@@ -15,11 +15,12 @@ from services.memory_service import memory_service
 
 logger = logging.getLogger("coddyHelper.morning_service")
 
-# Uyg'onishni kuzatish holati
+# Uyg'onishni kuzatish holati (Faqat ertalabki brifingdan keyin faollashadi)
 PENDING_WAKEUP: dict = {
     "date": "",
     "timestamp": 0.0,
-    "confirmed": False,
+    "active": False,
+    "confirmed": True,
     "escalated": False,
 }
 
@@ -166,6 +167,7 @@ async def send_morning_briefing(client, bot=None) -> bool:
     PENDING_WAKEUP = {
         "date": today_str,
         "timestamp": time.time(),
+        "active": True,
         "confirmed": False,
         "escalated": False,
     }
@@ -275,7 +277,24 @@ async def _monitor_wakeup_escalation(client, date_str: str, wait_seconds: float 
 
 
 def is_wakeup_confirmation_text(text: str) -> bool:
-    """Matn uyg'onish tasdig'i ekanini tekshiradi."""
+    """
+    Matn uyg'onish tasdig'i ekanini tekshiradi.
+    Faqat va faqat faol ertalabki kutilish bo'lgandagina va ertalabki vaqtda (05:00-11:00) tasdiqlanadi.
+    Kunduzi yoki kechqurun oddiy 'salom' deb yozilganda ASLO uyg'onish tasdig'i deb qabul qilinmaydi!
+    """
+    global PENDING_WAKEUP
+    if not PENDING_WAKEUP.get("active") or PENDING_WAKEUP.get("confirmed", True):
+        return False
+
+    # Toshkent vaqti bo'yicha ertalabki oraliqni tekshirish
+    try:
+        tashkent_tz = ZoneInfo("Asia/Tashkent")
+        now_h = datetime.now(tashkent_tz).hour
+        if now_h < 5 or now_h >= 11:
+            return False
+    except Exception:
+        pass
+
     clean = text.lower().strip().rstrip("!?.,~ ")
     triggers = {
         "turdim", "ha turdim", "uyg'ondim", "uygondim", "ha uyg'ondim", "turvoldim",
@@ -289,6 +308,7 @@ def confirm_wakeup_success() -> str:
     """Uyg'onishni tasdiqlaydi va javob matnini beradi."""
     global PENDING_WAKEUP
     PENDING_WAKEUP["confirmed"] = True
+    PENDING_WAKEUP["active"] = False
     return "Ajoyib, Nuriddin! Uyg'onganingiz tasdiqlandi. Kuningiz barakali va unumli o'tsin! 🚀"
 
 

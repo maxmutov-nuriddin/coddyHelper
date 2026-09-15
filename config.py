@@ -56,6 +56,8 @@ class Config:
     mentor_wait_seconds: float = 5.0
     web_app_url: str = "https://coddyhelper.onrender.com"
     mentor_user_id: int = 8105823872
+    mongodb_uri: str = "mongodb+srv://mahmudovnuriddin35_db_user:a5YQNcWB2EzfMKLy@agent.i4l6lje.mongodb.net/?appName=Agent"
+    mongodb_db_name: str = "CoddyAgentBrain"
 
     @classmethod
     def load(cls) -> "Config":
@@ -121,6 +123,11 @@ class Config:
         web_app_url = os.getenv("RENDER_EXTERNAL_URL", os.getenv("WEB_APP_URL", "https://coddyhelper.onrender.com")).strip().rstrip("/")
         raw_mentor_id = os.getenv("MENTOR_USER_ID", "8105823872").strip()
         mentor_user_id = int(raw_mentor_id) if raw_mentor_id.isdigit() else 8105823872
+        mongodb_uri = os.getenv(
+            "MONGODB_URI",
+            "mongodb+srv://mahmudovnuriddin35_db_user:a5YQNcWB2EzfMKLy@agent.i4l6lje.mongodb.net/?appName=Agent"
+        ).strip()
+        mongodb_db_name = os.getenv("MONGODB_DB_NAME", "CoddyAgentBrain").strip()
 
         return cls(
             api_id=api_id,
@@ -151,6 +158,8 @@ class Config:
             mentor_wait_seconds=mentor_wait_seconds,
             web_app_url=web_app_url,
             mentor_user_id=mentor_user_id,
+            mongodb_uri=mongodb_uri,
+            mongodb_db_name=mongodb_db_name,
         )
 
     def validate(self) -> list[str]:

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 from config import config
+from services.mongo_memory_service import mongo_memory_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,12 @@ class SQLiteMemoryService:
         self.db_path = db_path
         self.limit = config.memory_limit or limit
         self._init_db()
+        try:
+            if mongo_memory_service.is_connected():
+                # Dastlabki ishga tushishda avtomatik sinxronlash
+                mongo_memory_service.migrate_from_sqlite(self.db_path)
+        except Exception as me:
+            logger.debug("MongoDB bilan avto-sinxronlashda ogohlantirish: %s", me)
 
     def _get_connection(self) -> sqlite3.Connection:
         return sqlite3.connect(str(self.db_path), timeout=10.0)
@@ -180,7 +187,15 @@ class SQLiteMemoryService:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
 
     def get_setting(self, key: str, default: str | None = None) -> str | None:
-        """Doimiy sozlamani o'qiydi."""
+        """Doimiy sozlamani o'qiydi (MongoDB Atlas -> SQLite fallback)."""
+        try:
+            if mongo_memory_service.is_connected():
+                val = mongo_memory_service.get_setting(key, None)
+                if val is not None:
+                    return val
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -192,7 +207,13 @@ class SQLiteMemoryService:
             return default
 
     def set_setting(self, key: str, value: str) -> None:
-        """Doimiy sozlamani saqlaydi."""
+        """Doimiy sozlamani saqlaydi (Dual-Persistence: MongoDB + SQLite)."""
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.set_setting(key, str(value))
+        except Exception:
+            pass
+
         try:
             with self._get_connection() as conn:
                 conn.execute(
@@ -358,10 +379,18 @@ class SQLiteMemoryService:
         return True
 
     def add_message(self, chat_id: int, role: Literal["user", "model"], content: str) -> None:
-        """Yangi xabarni doimiy bazaga qo'shadi."""
+        """Yangi xabarni doimiy bazaga qo'shadi (Dual-Persistence: MongoDB + SQLite)."""
         if not content or not content.strip():
             return
 
+        # 1. MongoDB Atlas'ga yozish
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.add_conversation_message(chat_id, role, content.strip())
+        except Exception as me:
+            logger.debug("MongoDB ga suhbat yozishda ogohlantirish: %s", me)
+
+        # 2. Mahalliy SQLite keshiga yozish
         try:
             with self._get_connection() as conn:
                 conn.execute(
@@ -389,7 +418,15 @@ class SQLiteMemoryService:
             logger.error("Oxirgi xabarni yangilashda xatolik: %s", e)
 
     def get_history(self, chat_id: int) -> list[ChatMessage]:
-        """Oxirgi N ta xabarlar tarixini xronologik tartibda qaytaradi."""
+        """Oxirgi N ta xabarlar tarixini xronologik tartibda qaytaradi (MongoDB -> SQLite)."""
+        try:
+            if mongo_memory_service.is_connected():
+                docs = mongo_memory_service.get_conversation_history(chat_id, limit=self.limit)
+                if docs:
+                    return [ChatMessage(role=d["role"], content=d["content"]) for d in docs]
+        except Exception as me:
+            logger.debug("MongoDB dan tarixni olishda ogohlantirish: %s", me)
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -682,11 +719,21 @@ class SQLiteMemoryService:
     # O'z ustida ishlash va Bilimlar Bazasi (Continuous Learning)
     # -----------------------------------------------------------
     def add_learned_fact(self, topic: str, content: str, category: str = "rule") -> int:
-        """Mentor ko'rsatmasi, qoidasi yoki yangi faktni doimiy xotiraga yozadi."""
+        """Mentor ko'rsatmasi, qoidasi yoki yangi faktni doimiy xotiraga yozadi (Dual-Persistence)."""
         t = topic.strip()
         c = content.strip()
         if not t or not c:
             return 0
+
+        # 1. MongoDB Atlas'ga saqlash va XP/IQ oshirish
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_learned_insight(key=t, content=c, category=category)
+                mongo_memory_service.update_cognitive_growth(xp_gain=15, iq_points=1, reason=f"O'rganildi: {t}")
+        except Exception as me:
+            logger.debug("MongoDB ga saboq yozishda ogohlantirish: %s", me)
+
+        # 2. Mahalliy SQLite keshiga saqlash
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -711,7 +758,25 @@ class SQLiteMemoryService:
             return 0
 
     def get_all_learned_facts(self, limit: int = 50) -> list[dict]:
-        """Barcha o'rganilgan bilimlar va qoidalarni qaytaradi."""
+        """Barcha o'rganilgan bilimlar va qoidalarni qaytaradi (MongoDB -> SQLite)."""
+        try:
+            if mongo_memory_service.is_connected():
+                docs = mongo_memory_service.get_all_learned_insights()
+                if docs:
+                    return [
+                        {
+                            "id": str(d.get("_id", "")),
+                            "category": d.get("category", "general"),
+                            "topic": d.get("key", ""),
+                            "content": d.get("content", ""),
+                            "created_at": str(d.get("created_at", "")),
+                            "updated_at": str(d.get("updated_at", "")),
+                        }
+                        for d in docs[:limit]
+                    ]
+        except Exception as me:
+            logger.debug("MongoDB dan saboqlarni olishda ogohlantirish: %s", me)
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1431,7 +1496,15 @@ class SQLiteMemoryService:
     # Kunlik Rejalar va Vazifalar (Daily Plans / Checklist)
     # -----------------------------------------------------------
     def add_daily_plan(self, title: str, plan_date: str, plan_time: str = "", priority: str = "normal") -> int:
-        """Kunlik rejaga yangi vazifa qo'shadi."""
+        """Kunlik rejaga yangi vazifa qo'shadi (Dual-Persistence)."""
+        # 1. MongoDB Atlas
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.add_daily_plan(date_str=plan_date.strip(), title=title.strip(), plan_time=plan_time.strip())
+        except Exception as me:
+            logger.debug("MongoDB ga reja yozishda ogohlantirish: %s", me)
+
+        # 2. SQLite kesh
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1449,7 +1522,28 @@ class SQLiteMemoryService:
             return 0
 
     def get_plans_for_date(self, plan_date: str) -> list[dict]:
-        """Muayyan sanadagi barcha rejalarni qaytaradi (YYYY-MM-DD)."""
+        """Muayyan sanadagi barcha rejalarni qaytaradi (MongoDB -> SQLite)."""
+        try:
+            if mongo_memory_service.is_connected():
+                docs = mongo_memory_service.get_daily_plans(date_str=plan_date)
+                if docs:
+                    return [
+                        {
+                            "id": str(d.get("_id", "")),
+                            "title": d.get("title", ""),
+                            "plan_text": d.get("title", ""),
+                            "plan_date": d.get("date", plan_date),
+                            "plan_time": d.get("plan_time", ""),
+                            "is_completed": bool(d.get("is_completed", False)),
+                            "status": "completed" if d.get("is_completed", False) else "pending",
+                            "priority": "normal",
+                            "created_at": str(d.get("created_at", "")),
+                        }
+                        for d in docs
+                    ]
+        except Exception as me:
+            logger.debug("MongoDB dan rejalarni olishda ogohlantirish: %s", me)
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1481,8 +1575,14 @@ class SQLiteMemoryService:
             logger.error("Sanadagi rejalarni olishda xatolik: %s", e)
             return []
 
-    def mark_plan_completed(self, plan_id: int, is_completed: bool = True) -> bool:
-        """Rejadagi vazifani bajarilgan yoki kutilayotgan deb belgilaydi."""
+    def mark_plan_completed(self, plan_id: int | str, is_completed: bool = True) -> bool:
+        """Rejadagi vazifani bajarilgan yoki kutilayotgan deb belgilaydi (Dual-Persistence)."""
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.set_plan_completed(str(plan_id), is_completed=is_completed)
+        except Exception as me:
+            logger.debug("MongoDB rejasini yangilashda ogohlantirish: %s", me)
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1709,6 +1809,70 @@ class SQLiteMemoryService:
                                 r,
                             )
                         imported_stats.append(f"{len(rows)} ta o'quvchi")
+
+                    # 6. learned_memory (Agent o'rgangan barcha saboqlar va bilimlar bazasi)
+                    if "learned_memory" in tables:
+                        s_cursor.execute("SELECT category, topic, content, source, created_at, updated_at FROM learned_memory")
+                        rows = s_cursor.fetchall()
+                        target_conn.executemany(
+                            """
+                            INSERT INTO learned_memory (category, topic, content, source, created_at, updated_at)
+                            SELECT ?, ?, ?, ?, ?, ?
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM learned_memory WHERE LOWER(topic) = LOWER(?) AND LOWER(content) = LOWER(?)
+                            )
+                            """,
+                            [(r[0], r[1], r[2], r[3], r[4], r[5], r[1], r[2]) for r in rows],
+                        )
+                        imported_stats.append(f"{len(rows)} ta bilim/saboq")
+
+                    # 7. precomputed_answers (Keshdagi tayyor yechimlar)
+                    if "precomputed_answers" in tables:
+                        s_cursor.execute("SELECT topic, question_pattern, answer_text, usage_count, created_at FROM precomputed_answers")
+                        rows = s_cursor.fetchall()
+                        target_conn.executemany(
+                            """
+                            INSERT INTO precomputed_answers (topic, question_pattern, answer_text, usage_count, created_at)
+                            SELECT ?, ?, ?, ?, ?
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM precomputed_answers WHERE LOWER(question_pattern) = LOWER(?)
+                            )
+                            """,
+                            [(r[0], r[1], r[2], r[3], r[4], r[1]) for r in rows],
+                        )
+                        imported_stats.append(f"{len(rows)} ta kesh yechim")
+
+                    # 8. saved_locations (Shaxsiy lokatsiyalar)
+                    if "saved_locations" in tables:
+                        s_cursor.execute("SELECT name, name_clean, lat, long, address, created_at FROM saved_locations")
+                        rows = s_cursor.fetchall()
+                        target_conn.executemany(
+                            """
+                            INSERT INTO saved_locations (name, name_clean, lat, long, address, created_at)
+                            SELECT ?, ?, ?, ?, ?, ?
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM saved_locations WHERE LOWER(name) = LOWER(?)
+                            )
+                            """,
+                            [(r[0], r[1], r[2], r[3], r[4], r[5], r[0]) for r in rows],
+                        )
+                        imported_stats.append(f"{len(rows)} ta lokatsiya")
+
+                    # 9. daily_plans (Kunlik rejalar)
+                    if "daily_plans" in tables:
+                        s_cursor.execute("SELECT title, plan_date, plan_time, is_completed, priority, created_at FROM daily_plans")
+                        rows = s_cursor.fetchall()
+                        target_conn.executemany(
+                            """
+                            INSERT INTO daily_plans (title, plan_date, plan_time, is_completed, priority, created_at)
+                            SELECT ?, ?, ?, ?, ?, ?
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM daily_plans WHERE plan_date = ? AND title = ?
+                            )
+                            """,
+                            [(r[0], r[1], r[2], r[3], r[4], r[5], r[1], r[0]) for r in rows],
+                        )
+                        imported_stats.append(f"{len(rows)} ta reja")
 
                     target_conn.commit()
 

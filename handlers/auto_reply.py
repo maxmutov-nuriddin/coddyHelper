@@ -1123,6 +1123,31 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             logger.info("Chat [%s]: Qisqa tasdiq so'zi ('%s'), AI jim turadi.", event.chat_id, clean_text)
             return
 
+        # Nuqta (.), bitta harf, raqam yoki no-savol belgilar kelganda og'ir LLM/qidiruvsiz tezkor salomlashish:
+        is_admin_or_vazifalar = is_mentor_user or is_vazifalar or is_escalation_chat(event.chat_id)
+        if not is_admin_or_vazifalar and not has_photo and not has_voice and not has_doc_file:
+            stripped_msg = message_text.strip()
+            is_just_symbol_or_short = (
+                len(stripped_msg) <= 2
+                and clean_text not in ignored_acknowledgments
+                and not stripped_msg.startswith(config.command_prefix)
+            ) or (re.fullmatch(r"^[\W\d_]+$", stripped_msg) is not None and clean_text not in ignored_acknowledgments)
+
+            if is_just_symbol_or_short:
+                # Guruh bo'lsa faqat botga murojaat bo'lgandagina javob qaytaradi (guruhni shovqin qilmaslik uchun)
+                if is_group and not (reply_to_me or is_mentioned):
+                    return
+
+                logger.info("Chat [%s]: Qisqa belgi/nuqta ('%s') keldi, tezkor salomlashuv yuborilmoqda.", chat_id, stripped_msg)
+                greeting_reply = (
+                    "Assalomu alaykum! Sizga dasturlash yoki CoddyCamp darslari bo'yicha qanday yordam bera olaman? "
+                    "Bemalol savolingizni yoki vazifa bo'yicha kodingizni to'liq yuborishingiz mumkin. Yordam berishdan xursandman! 😊"
+                )
+                sent_msg = await event.reply(greeting_reply)
+                if sent_msg:
+                    BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+                return
+
         # Guruhlarda xabarning o'rinliligini tekshirish (Vazifalar admin guruhi bundan mustasno)
         if is_group and not is_escalation_chat(event.chat_id) and not is_relevant_group_message(
             message_text=message_text,

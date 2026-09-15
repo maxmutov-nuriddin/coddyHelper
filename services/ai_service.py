@@ -470,6 +470,9 @@ def extract_smart_reminder(text: str, current_tashkent_time: str | None = None) 
 
     # 0. O'zbekcha so'z bilan yozilgan sonlarni raqamga o'girish (ikki soat -> 2 soat)
     uz_num_map = [
+        (r"\b(?:1|bir)?\s*necha\s*(?:bo['’‘`]?lsa\s*ham\s*)?soat\w*", "2 soat"),
+        (r"\b(?:1|bir)?\s*necha\s*(?:bo['’‘`]?lsa\s*ham\s*)?(?:daqiqa|minut)\w*", "15 daqiqa"),
+        (r"\b(?:1|bir)?\s*necha\s*(?:bo['’‘`]?lsa\s*ham\s*)?kun\w*", "2 kun"),
         (r"\bo['’‘`]?n\s+besh\b", "15"),
         (r"\byigirma\s+besh\b", "25"),
         (r"\bo['’‘`]?ttiz\b", "30"),
@@ -1818,6 +1821,28 @@ class AIService:
         knowledge_context = memory_service.get_knowledge_context()
         if knowledge_context:
             sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
+
+        if is_admin_mode:
+            try:
+                now_tashkent = datetime.now(ZoneInfo("Asia/Tashkent"))
+                h = now_tashkent.hour
+                if 5 <= h < 11:
+                    period_uz = "Erta tong (Xayrli tong)"
+                elif 11 <= h < 17:
+                    period_uz = "Kunduzi / Peshin (Assalomu alaykum)"
+                elif 17 <= h < 22:
+                    period_uz = "Oqshom / Kechqurun (Xayrli kech)"
+                else:
+                    period_uz = "Tun (Tungi sokinlik)"
+                time_block = (
+                    f"\n\n# JORIY VAQT VA SHAROIT (Asia/Tashkent):\n"
+                    f"Hozirgi sana va vaqt: {now_tashkent.strftime('%d.%m.%Y %H:%M')}\n"
+                    f"Kunning joriy davri: {period_uz}\n"
+                    f"Eslatma: Mentor bilan salomlashganda joriy vaqtga ({period_uz}) to'la mos ohangda javob bering!"
+                )
+                sys_prompt = f"{sys_prompt}{time_block}"
+            except Exception:
+                pass
 
         if not is_admin_mode:
             # 1. O'quv markazining rasmiy o'quv dasturi va mavzular chegarasi (Curriculum Boundary)
