@@ -114,6 +114,29 @@ class AutonomousBrainService:
             return 1200  # 20 daqiqa
         return 600       # 10 daqiqa (optimal - default)
 
+    def get_focus(self) -> str:
+        """Miya 4 ning kognitiv fokus yo'nalishini oladi:
+        - 'universal': Standart (O'quv dasturi + mentor slangi + xatolar balansi)
+        - 'curriculum': Faqat ta'lim / o'qish (Saboqlar va kesh yechimlar)
+        - 'mentor': Faqat menga oid (Mentor slangi va qisqartmalari)
+        - 'self_reflection': Faqat o'zini takomillashtirish (O'z xatolari va oltin qoidalar)
+        """
+        val = memory_service.get_setting("autonomous_brain_focus", "universal").lower().strip()
+        return val if val in ("universal", "curriculum", "mentor", "self_reflection") else "universal"
+
+    def set_focus(self, focus: str) -> None:
+        """Miya 4 kognitiv fokus yo'nalishini o'zgartirish."""
+        f = str(focus).lower().strip()
+        if f in ("universal", "curriculum", "mentor", "self_reflection"):
+            memory_service.set_setting("autonomous_brain_focus", f)
+            labels = {
+                "universal": "Universal (Standart)",
+                "curriculum": "Faqat Ta'lim (O'quv dasturi)",
+                "mentor": "Faqat Mentor (Slang & Uslub)",
+                "self_reflection": "Faqat O'zini Takomillashtirish (Xatolar)",
+            }
+            self._log_activity(f"Miya 4 fokusi: {labels.get(f, f).upper()}", "config")
+
     def get_status(self) -> dict[str, Any]:
         """Web App paneli va telemetriya uchun Miya 4 holati."""
         priorities = self._assess_priorities()
@@ -123,6 +146,7 @@ class AutonomousBrainService:
             "is_busy": self._is_busy,
             "enabled": self.is_enabled(),
             "mode": self.get_mode(),
+            "focus": self.get_focus(),
             "interval_seconds": interval_sec,
             "interval_minutes": interval_sec // 60,
             "cycle_count": self._cycle_count,
@@ -205,18 +229,29 @@ class AutonomousBrainService:
             self._log_activity("⚡ Qo'lda yangi tafakkur sikli ishga tushirildi!", "trigger")
 
             priorities = self._assess_priorities()
-            is_saturated = priorities.get("curriculum_saturated", False)
             priority_topic = priorities.get("priority_topic")
+            focus = self.get_focus()
 
-            if is_saturated:
-                await self._learn_mentor_lexicon()
-                await self._reflect_on_mistakes()
-                await self._precompute_upcoming_answers(topic=priority_topic)
-            else:
+            if focus == "curriculum":
                 await self._synthesize_insights(topic=priority_topic)
-                await self._learn_mentor_lexicon()
-                await self._reflect_on_mistakes()
+                await asyncio.sleep(4.0)
                 await self._precompute_upcoming_answers(topic=priority_topic)
+            elif focus == "mentor":
+                await self._learn_mentor_lexicon()
+            elif focus == "self_reflection":
+                await self._reflect_on_mistakes()
+            else:
+                # Universal (Standart)
+                is_saturated = priorities.get("curriculum_saturated", False)
+                if is_saturated:
+                    await self._learn_mentor_lexicon()
+                    await self._reflect_on_mistakes()
+                    await self._precompute_upcoming_answers(topic=priority_topic)
+                else:
+                    await self._synthesize_insights(topic=priority_topic)
+                    await self._learn_mentor_lexicon()
+                    await self._reflect_on_mistakes()
+                    await self._precompute_upcoming_answers(topic=priority_topic)
 
             self._cycle_count += 1
             self._last_run_time = _get_tashkent_now_str()
@@ -265,44 +300,50 @@ class AutonomousBrainService:
                 is_curriculum_saturated = priorities.get("curriculum_saturated", False)
                 priority_topic = priorities.get("priority_topic")
                 mode = self.get_mode()
+                focus = self.get_focus()
 
-                self._current_activity = f"Sikl #{self._cycle_count} [{mode.upper()}]: Kognitiv adaptatsiya va tahlil..."
-                self._log_activity(f"🧬 Sikl #{self._cycle_count} boshlandi ({mode.upper()} rejim)...", "cycle")
+                self._current_activity = f"Sikl #{self._cycle_count} [{mode.upper()} / {focus.upper()}]: Kognitiv tahlil..."
+                self._log_activity(f"🧬 Sikl #{self._cycle_count} [{focus.upper()}] boshlandi...", "cycle")
                 logger.info(
-                    "🧬 Miya 4 tafakkur davri boshlandi (Davr #%d, Rejim: %s, Saturated: %s)...",
+                    "🧬 Miya 4 tafakkur davri boshlandi (Davr #%d, Rejim: %s, Fokus: %s, Saturated: %s)...",
                     self._cycle_count,
                     mode,
+                    focus,
                     is_curriculum_saturated,
                 )
 
-                # DINAMIK RESURS TAQSIMOTI:
-                # Agar o'quv dasturi yetarlicha to'yingan bo'lsa (har bir mavzuda >= 15 ta insight):
-                # Resurslar to'liq o'z ustida ishlash (slang + xatolar) ga yo'naltiriladi!
-                if is_curriculum_saturated:
-                    # 1. Mentor slangi va qisqartmalarini o'rganish:
-                    await self._learn_mentor_lexicon()
-                    await asyncio.sleep(4.0)
-
-                    # 2. Xatolar va mentor tanqididan saboq chiqarish:
-                    await self._reflect_on_mistakes()
-                    await asyncio.sleep(4.0)
-
-                    # 3. Kesh yechimlarni to'ldirish (agar sikl toq bo'lsa):
-                    if self._cycle_count % 2 == 1:
-                        await self._precompute_upcoming_answers(topic=priority_topic)
-                else:
-                    # Hali bilimlar bazasida o'quv mavzulari kam:
-                    # Sikllar navbati: 0 -> O'quv sabog'i, 1 -> Mentor slangi, 2 -> Xatolar tahlili
-                    mod = self._cycle_count % 3
-                    if mod == 0:
-                        await self._synthesize_insights(topic=priority_topic)
-                    elif mod == 1:
-                        await self._learn_mentor_lexicon()
-                    else:
-                        await self._reflect_on_mistakes()
-
+                # FOKUS VA KOGNITIV RESURS TAQSIMOTI:
+                if focus == "curriculum":
+                    # 100% Faqat o'quv dasturi saboqlari va kesh yechimlari
+                    await self._synthesize_insights(topic=priority_topic)
                     await asyncio.sleep(4.0)
                     await self._precompute_upcoming_answers(topic=priority_topic)
+                elif focus == "mentor":
+                    # 100% Faqat mentor leksikoni va internet slangi
+                    await self._learn_mentor_lexicon()
+                elif focus == "self_reflection":
+                    # 100% Faqat o'z xatolari va oltin qoidalar
+                    await self._reflect_on_mistakes()
+                else:
+                    # Universal (Standart Bounded Governor):
+                    if is_curriculum_saturated:
+                        await self._learn_mentor_lexicon()
+                        await asyncio.sleep(4.0)
+                        await self._reflect_on_mistakes()
+                        await asyncio.sleep(4.0)
+                        if self._cycle_count % 2 == 1:
+                            await self._precompute_upcoming_answers(topic=priority_topic)
+                    else:
+                        mod = self._cycle_count % 3
+                        if mod == 0:
+                            await self._synthesize_insights(topic=priority_topic)
+                        elif mod == 1:
+                            await self._learn_mentor_lexicon()
+                        else:
+                            await self._reflect_on_mistakes()
+
+                        await asyncio.sleep(4.0)
+                        await self._precompute_upcoming_answers(topic=priority_topic)
 
                 self._last_error = None
                 self._is_busy = False

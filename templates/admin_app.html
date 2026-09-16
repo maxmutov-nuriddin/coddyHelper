@@ -1251,6 +1251,28 @@
           </div>
         </div>
 
+        <!-- FOCUS / YO'NALISH SELECTOR ROW -->
+        <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px;">
+          <div style="font-size: 11px; font-weight: 700; color: #c084fc; margin-bottom: 7px; display: flex; align-items: center; justify-content: space-between;">
+            <span>🎯 Tafakkur Fokus Yo'nalishi:</span>
+            <span id="auto-brain-focus-badge" style="font-size: 10px; color: #e9d5ff; background: rgba(168,85,247,0.25); padding: 2px 7px; border-radius: 5px; font-weight: 600;">Universal (Standart)</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px;">
+            <button type="button" id="brain-focus-universal" onclick="setAutonomousBrainFocus('universal')" style="padding: 7px 8px; font-size: 11px; font-weight: 700; border-radius: 7px; border: 1px solid rgba(168,85,247,0.7); cursor: pointer; background: rgba(168,85,247,0.3); color: #f3e8ff; transition: all 0.2s;" title="Universal: O'quv dasturi, mentor slangi va xatolar mutanosib tahlil qilinadi">
+              🌐 Universal (Standart)
+            </button>
+            <button type="button" id="brain-focus-curriculum" onclick="setAutonomousBrainFocus('curriculum')" style="padding: 7px 8px; font-size: 11px; font-weight: 600; border-radius: 7px; border: 1px solid transparent; cursor: pointer; background: rgba(255,255,255,0.03); color: var(--hint-color); transition: all 0.2s;" title="Faqat O'qish: Rasmiy ta'lim dasturi bo'yicha saboqlar va kesh yechimlar">
+              📚 Faqat O'qish (Ta'lim)
+            </button>
+            <button type="button" id="brain-focus-mentor" onclick="setAutonomousBrainFocus('mentor')" style="padding: 7px 8px; font-size: 11px; font-weight: 600; border-radius: 7px; border: 1px solid transparent; cursor: pointer; background: rgba(255,255,255,0.03); color: var(--hint-color); transition: all 0.2s;" title="Faqat Menga Oid: Mentorning internet slangi, qisqartmalari va tili">
+              👤 Faqat Menga Oid
+            </button>
+            <button type="button" id="brain-focus-self_reflection" onclick="setAutonomousBrainFocus('self_reflection')" style="padding: 7px 8px; font-size: 11px; font-weight: 600; border-radius: 7px; border: 1px solid transparent; cursor: pointer; background: rgba(255,255,255,0.03); color: var(--hint-color); transition: all 0.2s;" title="Faqat O'zini Takomillashtirish: O'tmishdagi xatolar va oltin qoidalar">
+              🛡 O'zini Takomillashtirish
+            </button>
+          </div>
+        </div>
+
         <!-- CURRENT LIVE ACTIVITY BANNER -->
         <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px;">
           <div style="font-size: 10.5px; color: var(--hint-color); text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;">
@@ -2815,6 +2837,9 @@
       if (st.mode) {
         updateModeButtonsUI(st.mode);
       }
+      if (st.focus) {
+        updateFocusButtonsUI(st.focus);
+      }
 
       if (actEl) {
         actEl.innerText = st.current_activity || "Kuzatuvda... O'quvchilar va dastur tahlili";
@@ -2914,6 +2939,60 @@
           btn.style.fontWeight = '700';
         } else {
           btn.style.background = 'transparent';
+          btn.style.color = 'var(--hint-color)';
+          btn.style.borderColor = 'transparent';
+          btn.style.fontWeight = '600';
+        }
+      });
+    }
+
+    async function setAutonomousBrainFocus(focus) {
+      haptic();
+      updateFocusButtonsUI(focus);
+      const labels = {
+        'universal': 'Universal (Standart)',
+        'curriculum': 'Faqat O\'qish (Ta\'lim)',
+        'mentor': 'Faqat Menga Oid',
+        'self_reflection': 'O\'zini Takomillashtirish',
+      };
+      const label = labels[focus] || focus;
+      showToast(`🎯 Miya 4 fokusi: ${label} ga o'tkazilmoqda...`);
+
+      try {
+        const res = await apiRequest('/api/autonomous-brain/settings', 'POST', { focus: focus });
+        if (res && res.ok && res.status) {
+          renderAutonomousBrain(res.status);
+          showToast(`✅ Fokus muvaffaqiyatli saqlandi: ${label}`);
+        }
+      } catch (e) {
+        showToast('Xatolik: ' + e.message, true);
+        await refreshAutonomousBrainStatus();
+      }
+    }
+
+    function updateFocusButtonsUI(focus) {
+      const foci = ['universal', 'curriculum', 'mentor', 'self_reflection'];
+      const labels = {
+        'universal': 'Universal (Standart)',
+        'curriculum': 'Faqat O\'qish (Ta\'lim)',
+        'mentor': 'Faqat Menga Oid',
+        'self_reflection': 'O\'zini Takomillashtirish',
+      };
+      const badge = document.getElementById('auto-brain-focus-badge');
+      if (badge && labels[focus]) {
+        badge.innerText = labels[focus];
+      }
+
+      foci.forEach(f => {
+        const btn = document.getElementById(`brain-focus-${f}`);
+        if (!btn) return;
+        if (f === focus) {
+          btn.style.background = 'rgba(168,85,247,0.3)';
+          btn.style.color = '#f3e8ff';
+          btn.style.borderColor = 'rgba(168,85,247,0.7)';
+          btn.style.fontWeight = '700';
+        } else {
+          btn.style.background = 'rgba(255,255,255,0.03)';
           btn.style.color = 'var(--hint-color)';
           btn.style.borderColor = 'transparent';
           btn.style.fontWeight = '600';

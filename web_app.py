@@ -1123,6 +1123,8 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 autonomous_brain_service.set_enabled(bool(data["enabled"]))
             if "mode" in data and str(data["mode"]).strip() in ("sokin", "optimal", "tezkor"):
                 autonomous_brain_service.set_mode(str(data["mode"]).strip())
+            if "focus" in data and str(data["focus"]).strip() in ("universal", "curriculum", "mentor", "self_reflection"):
+                autonomous_brain_service.set_focus(str(data["focus"]).strip())
             return web.json_response({
                 "ok": True,
                 "status": autonomous_brain_service.get_status(),
