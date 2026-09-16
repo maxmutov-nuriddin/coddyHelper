@@ -813,6 +813,16 @@ def register_command_handlers(client: TelegramClient) -> None:
                 "- `ai eslatma <vaqt va vazifa>` — Eslatma o'rnatish\n"
                 "- `eslatmalar` — Barcha faol eslatmalar\n"
                 "- `ai eslatma bekor <ID>` — Eslatmani bekor qilish\n\n"
+                "**JARVIS Ovoz va Brifing:**\n"
+                f"- `{prefix}speak <matn>` — Mac karnayidan ovoz chiqarib gapirish\n"
+                f"- `{prefix}briefing` — Kunlik reja va darslar ovozli brifingi\n"
+                f"- `{prefix}voice` — Ovozli javoblarni yoqish/o'chirish\n\n"
+                "**JARVIS Mac OS Boshqaruv Qo'llari:**\n"
+                f"- `{prefix}open <dastur/sayt>` — Dastur yoki saytni Mac'da ochish\n"
+                f"- `{prefix}vol <0-100|mute|max>` — Mac ovozini sozlash\n"
+                f"- `{prefix}lock` — Mac ekranini qulflash\n"
+                f"- `{prefix}sysinfo` — Mac batareyasi, CPU va holatini ko'rish\n"
+                f"- `{prefix}shortcut <nom>` — Mac Shortcuts ssenariysini bajarish\n\n"
                 "**GitHub Code Review:**\n"
                 f"- `{prefix}review <link>` yoki reply qilib `review` — Repozitoriy tahlili\n\n"
                 "**Qo'shimcha komandalar:**\n"
@@ -824,6 +834,137 @@ def register_command_handlers(client: TelegramClient) -> None:
                 f"- `{prefix}help` — Ushbu yordam oynasini ko'rsatish"
             )
             await event.edit(help_text)
+            return
+
+        # -----------------------------------------------------------
+        # JARVIS: Mahalliy Mac Karnayidan Gapirish (.speak <matn>)
+        # -----------------------------------------------------------
+        is_speak_cmd = False
+        speak_text = ""
+        for kw in [f"{prefix}speak", "ai speak", "jarvis speak", f"{prefix}gapir"]:
+            if lower_text.startswith(kw):
+                is_speak_cmd = True
+                speak_text = raw_text[len(kw):].strip()
+                break
+
+        if is_speak_cmd:
+            if not speak_text:
+                await event.edit(f"ℹ️ **Foydalanish:** `{prefix}speak <matn>`\nMasalan: `{prefix}speak Salom Ustoz, barcha tizimlar faol!`")
+                return
+            await event.edit(f"🎙 **JARVIS gapirmoqda...**\n`{speak_text[:120]}`")
+            try:
+                from services.speaker_service import speaker_service
+                ok = await speaker_service.speak_text(speak_text, is_mentor=True)
+                if ok:
+                    await event.edit(f"🔊 **JARVIS muvaffaqiyatli gapirdi:**\n`{speak_text}`")
+                else:
+                    await event.edit("⚠️ **Audio ijrosida ogohlantirish (audio pleyer mavjud emas yoki xatolik).**")
+            except Exception as spk_e:
+                await event.edit(f"❌ **Xatolik:** {spk_e}")
+            return
+
+        # -----------------------------------------------------------
+        # JARVIS: Tonggi / Kunlik Brifing (.briefing)
+        # -----------------------------------------------------------
+        is_briefing_cmd = False
+        for kw in [f"{prefix}briefing", "ai briefing", "brifing", f"{prefix}brifing"]:
+            if lower_text == kw or lower_text.startswith(kw + " "):
+                is_briefing_cmd = True
+                break
+
+        if is_briefing_cmd:
+            await event.edit("🌅 **JARVIS bugungi kunlik brifingni tayyorlamoqda...**")
+            try:
+                from services.briefing_service import briefing_service
+                full_text, spoken_text = await briefing_service.generate_briefing()
+                await event.edit(full_text)
+                from services.speaker_service import speaker_service
+                if speaker_service.is_available():
+                    asyncio.create_task(speaker_service.speak_text(spoken_text, is_mentor=True))
+                voice_reply_enabled = memory_service.get_setting("voice_reply_enabled", "true").lower() == "true"
+                if voice_reply_enabled:
+                    from services.tts_service import generate_voice_message
+                    v_path = await generate_voice_message(spoken_text, is_mentor=True)
+                    if v_path and v_path.exists():
+                        await event.reply(file=str(v_path), voice_note=True, caption="🎙 **Jarvis Ovozli Brifingi**")
+                        v_path.unlink(missing_ok=True)
+            except Exception as br_e:
+                logger.error("Briefing xatolik: %s", br_e)
+            return
+
+        # -----------------------------------------------------------
+        # JARVIS: Ovozli javoblarni yoqish/o'chirish (.voice)
+        # -----------------------------------------------------------
+        if lower_text in [f"{prefix}voice", f"{prefix}ovoz", "ai voice", "voice toggle"]:
+            curr = memory_service.get_setting("voice_reply_enabled", "true").lower() == "true"
+            new_val = not curr
+            memory_service.set_setting("voice_reply_enabled", "true" if new_val else "false")
+            st_text = "🟢 **YOQILDI** (Ovozli xabarlarga audio javob beriladi)" if new_val else "🔴 **O'CHIRILDI** (Faqat matnli javob beriladi)"
+            await event.edit(f"🎙 **JARVIS Ovozli Javoblar (Voice-to-Voice):** {st_text}")
+            return
+
+        # -----------------------------------------------------------
+        # JARVIS: Mac OS Boshqaruv Qo'llari (2-Pog'ona)
+        # -----------------------------------------------------------
+        # .sysinfo / .mac - Tizim holati hisoboti
+        if lower_text in [f"{prefix}sysinfo", f"{prefix}mac", "ai mac", "jarvis status", f"{prefix}pc"]:
+            await event.edit("🔄 **Mac OS tizim holati tekshirilmoqda...**")
+            from services.mac_control_service import mac_control_service
+            s = await mac_control_service.get_system_status()
+            batt_str = f"{s['battery_pct']}%" if s['battery_pct'] is not None else "Aniqlanmadi"
+            batt_state = "⚡ Quvvatlanmoqda" if s['battery_state'] == "charging" else ("✅ To'liq" if s['battery_state'] == "full" else "🔋 Batareyada")
+            vol_str = f"0% (Muted)" if s['muted'] else f"{s['volume']}%"
+            msg = (
+                "💻 **JARVIS — Mac OS Tizim Holati**\n\n"
+                f"🔋 **Batareya:** `{batt_str}` ({batt_state})\n"
+                f"⚙️ **CPU Yuklamasi:** `{s['cpu_pct']}%` ({s['cpu_cores']} yadroli)\n"
+                f"💾 **Xotira (RAM):** `{s['ram_total_gb']} GB`\n"
+                f"🔊 **Karnay Ovozi:** `{vol_str}`\n"
+                f"🖥 **OS Platformasi:** `{s['platform']}`"
+            )
+            await event.edit(msg)
+            return
+
+        # .vol <0-100|mute|max> - Ovozni sozlash
+        if lower_text.startswith(f"{prefix}vol ") or lower_text.startswith("ai vol "):
+            parts = text.split(maxsplit=1)
+            val = parts[1].strip() if len(parts) > 1 else "50"
+            from services.mac_control_service import mac_control_service
+            ok, msg = await mac_control_service.set_volume(val)
+            await event.edit(f"🔊 **Mac Ovoz Boshqaruvi:**\n{msg}")
+            return
+
+        # .lock - Mac ekranini qulflash
+        if lower_text in [f"{prefix}lock", "ai lock", "mac lock", f"{prefix}qulf"]:
+            await event.edit("🔒 **Mac ekrani qulflanmoqda...**")
+            from services.mac_control_service import mac_control_service
+            ok, msg = await mac_control_service.lock_screen()
+            await event.edit(msg)
+            return
+
+        # .open <dastur/sayt> - Dastur yoki havola ochish
+        if lower_text.startswith(f"{prefix}open ") or lower_text.startswith("ai open "):
+            parts = text.split(maxsplit=1)
+            target = parts[1].strip() if len(parts) > 1 else ""
+            if not target:
+                await event.edit("⚠️ **Ochish uchun dastur nomi yoki havolani kiriting:** `.open Chrome`")
+                return
+            from services.mac_control_service import mac_control_service
+            ok, msg = await mac_control_service.open_app_or_url(target)
+            await event.edit(msg)
+            return
+
+        # .shortcut <nomi> - Apple Shortcuts buyrug'ini bajarish
+        if lower_text.startswith(f"{prefix}shortcut ") or lower_text.startswith("ai shortcut "):
+            parts = text.split(maxsplit=1)
+            sc_name = parts[1].strip() if len(parts) > 1 else ""
+            if not sc_name:
+                await event.edit("⚠️ **Shortcut nomini kiriting:** `.shortcut <nomi>`")
+                return
+            await event.edit(f"⚡ **Mac Shortcuts:** `{sc_name}` bajarilmoqda...")
+            from services.mac_control_service import mac_control_service
+            ok, msg = await mac_control_service.run_shortcut(sc_name)
+            await event.edit(msg)
             return
 
     # -----------------------------------------------------------

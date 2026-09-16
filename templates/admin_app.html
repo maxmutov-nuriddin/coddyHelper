@@ -4,6 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>coddyHelper Admin Panel</title>
+  <!-- PWA & Mobile Web App Meta -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#17212b" />
+  <link rel="icon" type="image/svg+xml" href="/app-icon.svg" />
+  <link rel="apple-touch-icon" href="/app-icon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Coddy Admin" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>/*__INITIAL_TOKEN__*/</script>
   <style>
@@ -139,6 +147,33 @@
       background: rgba(239, 68, 68, 0.15);
       color: var(--danger);
       border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .pwa-install-btn {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      background: linear-gradient(135deg, #2ea6ff, #0088cc);
+      color: #ffffff;
+      border: none;
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(46, 166, 255, 0.4);
+      transition: all 0.2s ease;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .pwa-install-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(46, 166, 255, 0.6);
+    }
+
+    .pwa-install-btn:active {
+      transform: scale(0.96);
     }
 
     .status-dot {
@@ -1056,9 +1091,14 @@
         <p id="header-sub">ID: 8105823872 • Vazifalar Admin</p>
       </div>
     </div>
-    <div class="status-pill" id="global-status">
-      <span class="status-dot"></span>
-      <span id="global-status-text">Faol</span>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button id="pwa-install-btn" class="pwa-install-btn" onclick="triggerPwaInstall()" title="Ilovani o'rnatish">
+        <span>📲 O'rnatish</span>
+      </button>
+      <div class="status-pill" id="global-status">
+        <span class="status-dot"></span>
+        <span id="global-status-text">Faol</span>
+      </div>
     </div>
   </header>
 
@@ -1191,7 +1231,88 @@
         </div>
       </div>
 
-      <!-- ==================== SAHIFA 1 - BO'LIM 2: MIYA 4: AVTONOM ONG & TAFAKKUR MARKAZI ==================== -->
+      <!-- ==================== SAHIFA 1 - BO'LIM 2: MAC OS & JARVIS BOSHQARUV MARKAZI ==================== -->
+      <div class="section-header-badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">
+        💻 2-Pog'ona: Mac OS & JARVIS Boshqaruv Markazi
+      </div>
+
+      <div class="card" id="mac-control-card" style="border: 1px solid rgba(56, 189, 248, 0.35); background: linear-gradient(180deg, rgba(56, 189, 248, 0.08) 0%, var(--card-bg) 100%);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="card-title" style="color: #38bdf8; margin-bottom: 0;">💻 Mac OS Jonli Tizim & Boshqaruv</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button onclick="loadMacStatus(true)" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; cursor: pointer; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">
+              🔄 Yangilash
+            </button>
+            <button onclick="controlMac('lock')" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; font-weight: 700; border-radius: 6px; cursor: pointer; background: rgba(239,68,68,0.2); color: #f87171; border: 1px solid rgba(239,68,68,0.4);" title="Mac ekranini darhol qulflash">
+              🔒 Qulflash
+            </button>
+          </div>
+        </div>
+
+        <!-- METRICS ROW: BATTERY, CPU, RAM -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;">
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 9px; padding: 8px; text-align: center;">
+            <div style="font-size: 10px; color: var(--hint-color); text-transform: uppercase;">🔋 Batareya</div>
+            <div id="mac-battery-val" style="font-size: 14px; font-weight: 700; color: #22c55e; margin-top: 2px;">--%</div>
+            <div id="mac-battery-state" style="font-size: 9.5px; color: var(--hint-color);">Kuzatilmoqda</div>
+          </div>
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 9px; padding: 8px; text-align: center;">
+            <div style="font-size: 10px; color: var(--hint-color); text-transform: uppercase;">⚙️ CPU Yuklama</div>
+            <div id="mac-cpu-val" style="font-size: 14px; font-weight: 700; color: #38bdf8; margin-top: 2px;">--%</div>
+            <div id="mac-cpu-cores" style="font-size: 9.5px; color: var(--hint-color);">8 yadroli</div>
+          </div>
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 9px; padding: 8px; text-align: center;">
+            <div style="font-size: 10px; color: var(--hint-color); text-transform: uppercase;">💾 Xotira (RAM)</div>
+            <div id="mac-ram-val" style="font-size: 14px; font-weight: 700; color: #a855f7; margin-top: 2px;">-- GB</div>
+            <div style="font-size: 9.5px; color: var(--hint-color);">Umumiy hajm</div>
+          </div>
+        </div>
+
+        <!-- VOLUME SLIDER & QUICK VOLUME -->
+        <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 9px; padding: 10px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 600; color: var(--text-color);">🔊 Mac Karnay Ovoz Darajasi:</span>
+            <span id="mac-vol-label" style="font-size: 12px; font-weight: 700; color: #38bdf8;">50%</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="range" id="mac-vol-range" min="0" max="100" value="50" onchange="controlMac('volume', {level: this.value})" style="flex: 1; accent-color: #38bdf8; cursor: pointer;">
+          </div>
+          <div style="display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;">
+            <button onclick="controlMac('volume', {level: 'mute'})" class="btn-secondary" style="flex: 1; padding: 4px 6px; font-size: 11px; border-radius: 6px; cursor: pointer;">🔇 Mute</button>
+            <button onclick="controlMac('volume', {level: 25})" class="btn-secondary" style="flex: 1; padding: 4px 6px; font-size: 11px; border-radius: 6px; cursor: pointer;">🔉 25%</button>
+            <button onclick="controlMac('volume', {level: 60})" class="btn-secondary" style="flex: 1; padding: 4px 6px; font-size: 11px; border-radius: 6px; cursor: pointer;">🔊 60%</button>
+            <button onclick="controlMac('volume', {level: 100})" class="btn-secondary" style="flex: 1; padding: 4px 6px; font-size: 11px; border-radius: 6px; cursor: pointer;">📢 100%</button>
+          </div>
+        </div>
+
+        <!-- QUICK APPS LAUNCHER -->
+        <div style="margin-bottom: 12px;">
+          <div style="font-size: 11.5px; font-weight: 700; color: var(--hint-color); text-transform: uppercase; margin-bottom: 6px;">🚀 Tezkor Dasturlarni Ochish:</div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+            <button onclick="controlMac('open', {target: 'Google Chrome'})" class="btn-secondary" style="padding: 6px 4px; font-size: 11px; font-weight: 600; border-radius: 7px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.04);">🌐 Chrome</button>
+            <button onclick="controlMac('open', {target: 'Telegram'})" class="btn-secondary" style="padding: 6px 4px; font-size: 11px; font-weight: 600; border-radius: 7px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.04);">💬 Telegram</button>
+            <button onclick="controlMac('open', {target: 'Visual Studio Code'})" class="btn-secondary" style="padding: 6px 4px; font-size: 11px; font-weight: 600; border-radius: 7px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.04);">💻 VS Code</button>
+            <button onclick="controlMac('open', {target: 'Music'})" class="btn-secondary" style="padding: 6px 4px; font-size: 11px; font-weight: 600; border-radius: 7px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.04);">🎵 Musiqa</button>
+          </div>
+        </div>
+
+        <!-- APPLE SHORTCUTS RUNNER -->
+        <div>
+          <div style="font-size: 11.5px; font-weight: 700; color: var(--hint-color); text-transform: uppercase; margin-bottom: 6px;">⚡ Apple Shortcuts (Tezkor Buyruqlar):</div>
+          <div style="display: flex; gap: 6px;">
+            <select id="mac-shortcuts-dropdown" class="form-input" style="flex: 1; padding: 6px 10px; font-size: 12px; border-radius: 7px; background: rgba(0,0,0,0.25);">
+              <option value="">Mavjud buyruqlar yuklanmoqda...</option>
+            </select>
+            <button onclick="runSelectedShortcut()" class="btn-secondary" style="padding: 6px 12px; font-size: 12px; font-weight: 700; border-radius: 7px; cursor: pointer; background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); white-space: nowrap;">
+              ⚡ Bajarish
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== SAHIFA 1 - BO'LIM 3: MIYA 4: AVTONOM ONG & TAFAKKUR MARKAZI ==================== -->
       <div class="section-header-badge" style="background: rgba(168, 85, 247, 0.12); color: #c084fc; border-color: rgba(168, 85, 247, 0.3);">
         🧬 Miya 4: Avtonom Ong & Tafakkur Markazi
       </div>
@@ -4535,6 +4656,170 @@
         refreshAiMetrics();
       }
     }, 10000);
+
+    // ==================== PWA & INSTALL SUPPORT ====================
+    let deferredInstallPrompt = null;
+    const pwaInstallBtn = document.getElementById('pwa-install-btn');
+
+    // 1. Service Worker ro'yxatdan o'tkazish
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+          console.log('Coddy PWA Service Worker faollashdi:', reg.scope);
+        }).catch((err) => {
+          console.log('Coddy PWA Service Worker ogohlantirish:', err);
+        });
+      });
+    }
+
+    // 2. Brauzerda (Chrome/Edge/Android) "Install" taklifi hodisasi
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      if (pwaInstallBtn) {
+        pwaInstallBtn.style.display = 'inline-flex';
+      }
+    });
+
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      if (pwaInstallBtn) {
+        pwaInstallBtn.style.display = 'none';
+      }
+      showToast("Coddy Admin ilovasi muvaffaqiyatli o'rnatildi! 🎉");
+    });
+
+    // 3. Telegram WebApp ichida o'rnatishni tekshirish
+    if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.checkHomeScreenStatus === 'function') {
+      try {
+        window.Telegram.WebApp.checkHomeScreenStatus((status) => {
+          if (status !== 'added' && status !== 'unsupported' && pwaInstallBtn) {
+            pwaInstallBtn.style.display = 'inline-flex';
+          }
+        });
+      } catch (tgErr) {
+        console.log('TG HomeScreen check error:', tgErr);
+      }
+    } else {
+      // Agar standalone emas oddiy brauzerda ochilgan bo'lsa
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+      if (!isStandalone && pwaInstallBtn) {
+        pwaInstallBtn.style.display = 'inline-flex';
+      }
+    }
+
+    // 4. O'rnatish tugmasi bosilganda ishlovchi funksiya
+    function triggerPwaInstall() {
+      // Telegram Mini App ichida bo'lsa:
+      if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.addToHomeScreen === 'function') {
+        try {
+          window.Telegram.WebApp.addToHomeScreen();
+          return;
+        } catch (tgErr) {
+          console.log('TG addToHomeScreen error:', tgErr);
+        }
+      }
+
+      // Brauzerda PWA taklifi mavjud bo'lsa:
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.then((choiceResult) => {
+          if (choiceResult && choiceResult.outcome === 'accepted') {
+            showToast("Ilova o'rnatilmoqda... 🚀");
+          }
+          deferredInstallPrompt = null;
+          if (pwaInstallBtn) pwaInstallBtn.style.display = 'none';
+        });
+        return;
+      }
+
+      // iOS Safari yoki boshqa brauzerlarda yo'riqnoma ko'rsatish:
+      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      if (isIos) {
+        alert("📲 Ilovani o'rnatish uchun:\nSafari pastki menyusidagi 'Ulashish' (Share ⬆️) tugmasini bosing va 'Bosh ekranga qo'shish' (Add to Home Screen) ni tanlang.");
+      } else {
+        alert("💻 Kompyuterda o'rnatish uchun:\nBrauzeringiz (Chrome/Edge) manzil satrining o'ng tomonidagi 'Ilovani o'rnatish' (Install App 🖥) belgisini bosing.");
+      }
+    }
+
+    // ==================== MAC OS & JARVIS CONTROL ====================
+    async function loadMacStatus(manual = false) {
+      try {
+        const res = await apiRequest("/api/mac/status");
+        if (res && res.ok && res.status) {
+          const s = res.status;
+          const battEl = document.getElementById("mac-battery-val");
+          const battStateEl = document.getElementById("mac-battery-state");
+          if (battEl) {
+            battEl.textContent = s.battery_pct !== null ? s.battery_pct + "%" : "--%";
+            if (s.battery_pct !== null) {
+              battEl.style.color = s.battery_pct > 20 ? "#22c55e" : "#ef4444";
+            }
+          }
+          if (battStateEl) {
+            const stateText = s.battery_state === "charging" ? "⚡ Quvvatlanmoqda" : (s.battery_state === "full" ? "✅ To'liq" : "🔋 Batareyada");
+            battStateEl.textContent = stateText;
+          }
+
+          const cpuEl = document.getElementById("mac-cpu-val");
+          const cpuCoresEl = document.getElementById("mac-cpu-cores");
+          if (cpuEl) cpuEl.textContent = (s.cpu_pct || 0) + "%";
+          if (cpuCoresEl) cpuCoresEl.textContent = (s.cpu_cores || 8) + " yadroli";
+
+          const ramEl = document.getElementById("mac-ram-val");
+          if (ramEl) ramEl.textContent = (s.ram_total_gb || 16) + " GB";
+
+          const volRange = document.getElementById("mac-vol-range");
+          const volLabel = document.getElementById("mac-vol-label");
+          if (volRange && !volRange.matches(':active')) {
+            volRange.value = s.volume || 50;
+          }
+          if (volLabel) {
+            volLabel.textContent = s.muted ? "0% (Muted)" : (s.volume || 50) + "%";
+          }
+
+          if (res.shortcuts && Array.isArray(res.shortcuts)) {
+            const scSelect = document.getElementById("mac-shortcuts-dropdown");
+            if (scSelect && scSelect.options.length <= 1) {
+              scSelect.innerHTML = res.shortcuts.map(sc => `<option value="${sc}">${sc}</option>`).join("");
+            }
+          }
+
+          if (manual) showToast("Mac tizim holati yangilandi 💻");
+        }
+      } catch (err) {
+        console.log("Mac status xatolik:", err);
+      }
+    }
+
+    async function controlMac(action, payload = {}) {
+      try {
+        const body = { action, ...payload };
+        const res = await apiRequest("/api/mac/control", "POST", body);
+        if (res && res.ok) {
+          showToast(res.message || "Bajarildi ✅");
+          setTimeout(() => loadMacStatus(), 1000);
+        } else {
+          showToast("Xatolik: " + (res?.error || res?.message || "Bajarilmadi"));
+        }
+      } catch (err) {
+        showToast("Tarmoq xatosi: " + err.message);
+      }
+    }
+
+    async function runSelectedShortcut() {
+      const scSelect = document.getElementById("mac-shortcuts-dropdown");
+      const name = scSelect ? scSelect.value : "";
+      if (!name) {
+        showToast("Iltimos, avval buyruqni tanlang!");
+        return;
+      }
+      showToast(`⚡ "${name}" bajarilmoqda...`);
+      await controlMac("shortcut", { name });
+    }
+
+    // Sahifa yuklanganda Mac statusini yuklash
+    loadMacStatus();
   </script>
 </body>
 </html>

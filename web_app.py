@@ -210,6 +210,98 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             return web.Response(text=f"<h1>Xatolik: {e}</h1>", content_type="text/html", status=500)
 
     # -----------------------------------------------------------
+    # PWA: Manifest, Service Worker va Ikonka
+    # -----------------------------------------------------------
+    async def handle_manifest_json(request: web.Request):
+        manifest_data = {
+            "name": "CoddyHelper Admin Panel",
+            "short_name": "Coddy Admin",
+            "description": "CoddyCamp AI Mentor & Agent Dashboard",
+            "start_url": "/app",
+            "scope": "/",
+            "display": "standalone",
+            "orientation": "any",
+            "background_color": "#0e1621",
+            "theme_color": "#17212b",
+            "icons": [
+                {
+                    "src": "/app-icon.svg",
+                    "sizes": "any",
+                    "type": "image/svg+xml",
+                    "purpose": "any maskable"
+                }
+            ]
+        }
+        return web.json_response(manifest_data, content_type="application/manifest+json")
+
+    async def handle_service_worker(request: web.Request):
+        sw_code = """
+const CACHE_NAME = 'coddy-admin-v1';
+const OFFLINE_URL = '/app';
+
+self.addEventListener('install', (event) => {
+    event.waitUntil(
+        caches.open(CACHE_NAME).then((cache) => {
+            return cache.addAll(['/app', '/manifest.json', '/app-icon.svg']);
+        })
+    );
+    self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil(
+        caches.keys().then((keys) => {
+            return Promise.all(
+                keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+            );
+        })
+    );
+    self.clients.claim();
+});
+
+self.addEventListener('fetch', (event) => {
+    if (event.request.url.includes('/api/')) {
+        return;
+    }
+    event.respondWith(
+        fetch(event.request).catch(() => {
+            return caches.match(event.request).then((res) => {
+                return res || caches.match(OFFLINE_URL);
+            });
+        })
+    );
+});
+""".strip()
+        return web.Response(text=sw_code, content_type="application/javascript")
+
+    async def handle_app_icon(request: web.Request):
+        svg_icon = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1f2b38"/>
+      <stop offset="100%" stop-color="#0e1621"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>
+  <circle cx="256" cy="230" r="110" fill="url(#accent)"/>
+  <circle cx="215" cy="215" r="22" fill="#ffffff"/>
+  <circle cx="297" cy="215" r="22" fill="#ffffff"/>
+  <circle cx="218" cy="215" r="12" fill="#0f172a"/>
+  <circle cx="294" cy="215" r="12" fill="#0f172a"/>
+  <path d="M 210 270 Q 256 305 302 270" stroke="#ffffff" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <line x1="256" y1="120" x2="256" y2="80" stroke="#38bdf8" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="256" cy="70" r="18" fill="#38bdf8"/>
+  <text x="256" y="415" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="52" font-weight="800" fill="#f8fafc" text-anchor="middle" letter-spacing="2">CODDY</text>
+  <text x="256" y="455" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" font-weight="600" fill="#38bdf8" text-anchor="middle" letter-spacing="4">ADMIN</text>
+</svg>"""
+        return web.Response(text=svg_icon, content_type="image/svg+xml")
+
+    # -----------------------------------------------------------
     # 2. Autentifikatsiya API (Kirish ruxsati tekshiruvi)
     # -----------------------------------------------------------
     async def handle_api_auth(request: web.Request):
@@ -1177,8 +1269,62 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         items = memory_service.get_recent_self_mistakes(limit=50)
         return web.json_response({"ok": True, "items": items})
 
+    # -----------------------------------------------------------
+    # 15. Mac OS va JARVIS Tizim Boshqaruvi API
+    # -----------------------------------------------------------
+    async def handle_api_mac_status(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        from services.mac_control_service import mac_control_service
+        status = await mac_control_service.get_system_status()
+        shortcuts = await mac_control_service.get_available_shortcuts()
+        return web.json_response({"ok": True, "status": status, "shortcuts": shortcuts})
+
+    async def handle_api_mac_control(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON format xato"}, status=400)
+
+        from services.mac_control_service import mac_control_service
+        action = str(data.get("action", "")).strip().lower()
+
+        if action == "volume":
+            level = data.get("level", 50)
+            ok, msg = await mac_control_service.set_volume(level)
+            return web.json_response({"ok": ok, "message": msg})
+
+        elif action == "open":
+            target = str(data.get("target", "")).strip()
+            ok, msg = await mac_control_service.open_app_or_url(target)
+            return web.json_response({"ok": ok, "message": msg})
+
+        elif action == "lock":
+            ok, msg = await mac_control_service.lock_screen()
+            return web.json_response({"ok": ok, "message": msg})
+
+        elif action == "shortcut":
+            name = str(data.get("name", "")).strip()
+            ok, msg = await mac_control_service.run_shortcut(name)
+            return web.json_response({"ok": ok, "message": msg})
+
+        elif action == "notify":
+            title = str(data.get("title", "JARVIS")).strip()
+            msg_text = str(data.get("message", "")).strip()
+            ok = await mac_control_service.send_notification(title, msg_text)
+            return web.json_response({"ok": ok, "message": "Bildirishnoma yuborildi" if ok else "Xatolik"})
+
+        return web.json_response({"ok": False, "error": f"Noma'lum amal: {action}"}, status=400)
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
+    app.router.add_get("/manifest.json", handle_manifest_json)
+    app.router.add_get("/sw.js", handle_service_worker)
+    app.router.add_get("/app-icon.svg", handle_app_icon)
+    app.router.add_get("/api/mac/status", handle_api_mac_status)
+    app.router.add_post("/api/mac/control", handle_api_mac_control)
     app.router.add_post("/api/auth", handle_api_auth)
     app.router.add_get("/api/status", handle_api_status)
     app.router.add_get("/api/ai_metrics", handle_api_ai_metrics)
