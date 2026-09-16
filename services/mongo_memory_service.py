@@ -268,7 +268,7 @@ class MongoMemoryService:
                     "history": [],
                 }
             current["xp"] = current.get("xp", 500) + xp_gain
-            current["iq_score"] = min(200, current.get("iq_score", 140) + iq_points)
+            current["iq_score"] = current.get("iq_score", 140) + iq_points
             current["level"] = max(1, current["xp"] // 300)
             
             log_entry = {

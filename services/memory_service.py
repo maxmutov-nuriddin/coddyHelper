@@ -2268,8 +2268,8 @@ class SQLiteMemoryService:
                 xp_current_level = xp % 250
                 progress_pct = int((xp_current_level / 250) * 100)
 
-                # IQ Indeksi va Tahlilini hisoblash (Base: 115 IQ + tajriba/o'rganishlar orqali oshib boradi)
-                iq_bonus = min(50, int((level * 2.5) + (total_learned * 2.0) + (total_students * 1.5) + (total_locations * 2.0) + (completed_plans * 1.5)))
+                # IQ Indeksi va Tahlilini hisoblash (Base: 115 IQ + tajriba/o'rganishlar orqali cheksiz oshib boradi)
+                iq_bonus = int((level * 2.5) + (total_learned * 2.0) + (total_students * 1.5) + (total_locations * 2.0) + (completed_plans * 1.5))
                 iq_score = 115 + iq_bonus
 
                 if iq_score < 125:
@@ -2278,8 +2278,12 @@ class SQLiteMemoryService:
                     iq_status = "Yuqori Intellekt (High IQ)"
                 elif iq_score < 155:
                     iq_status = "Katta Strategik Hamkor (Superior IQ)"
-                else:
+                elif iq_score < 175:
                     iq_status = "Daho Avtonom AI (Genius Level)"
+                elif iq_score < 200:
+                    iq_status = "Super-Kognitiv Intellekt (Polymath AI)"
+                else:
+                    iq_status = "Mutlaq Kiber-Intellekt (Superhuman AGI)"
 
                 # Kognitiv qobiliyatlar tahlili (0-100% shkalada)
                 cognitive_metrics = {
