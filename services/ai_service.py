@@ -2341,6 +2341,24 @@ class AIService:
             if escalation_info:
                 escalation_info = redact_sensitive_data(escalation_info)
 
+            # Begona mavzu yoki CoddyCamp ta'lim doirasidan tashqari murojaatlarda
+            # foydalanuvchiga mentorga yetkazilganini bildirish va Vazifalar guruhiga uzatish
+            if not is_admin_mode:
+                off_topic_patterns = [
+                    r"CoddyCamp dasturlash ta['’`]?limi bo['’`]?yicha yordam beraman",
+                    r"darslarimiz haqida gaplashaylik",
+                    r"обучени[юя]\s+программированию\s+в\s+CoddyCamp",
+                    r"поговорим\s+о\s+наших\s+уроках",
+                ]
+                if any(re.search(pat, answer, re.IGNORECASE) for pat in off_topic_patterns):
+                    if not any(k in answer.lower() for k in ["yetkazdim", "xabar qildim", "передал", "сообщил"]):
+                        if is_russian_text(answer):
+                            answer = f"{answer} Я также передал ваше сообщение нашему ментору (Нуриддину)."
+                        else:
+                            answer = f"{answer} Ushbu xabaringizni mentorimizga (Nuriddin akaga) ham yetkazdim."
+                    if not escalation_info:
+                        escalation_info = "Dasturlashga aloqador bo'lmagan yoki begona mavzuda murojaat"
+
             # Faqatgina bir xil kunda, davom etayotgan suhbatda va foydalanuvchi o'zi salom bermagan bo'lsa:
             # Qayta-qayta sun'iy "Assalomu alaykum" yoki "Salom" deb salom berishni tozalash.
             # Agar bu yangi kun (ertasi kuni) yoki oradan 6+ soat o'tgan yangi sessiya bo'lsa, salomlashish tabiiy va to'g'ri,
