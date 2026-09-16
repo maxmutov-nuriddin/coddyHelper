@@ -83,12 +83,48 @@ class AutonomousBrainService:
         if len(self._activity_logs) > 40:
             self._activity_logs = self._activity_logs[-40:]
 
+    def is_enabled(self) -> bool:
+        """Miya 4 yoqilgan yoki o'chirilganligini tekshiradi."""
+        return memory_service.get_setting("autonomous_brain_enabled", "true").lower() == "true"
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Miya 4 ni yoqish yoki to'xtatish (on/off switch)."""
+        memory_service.set_setting("autonomous_brain_enabled", "true" if enabled else "false")
+        act = "faollashtirildi" if enabled else "to'xtatildi (pauza)"
+        self._log_activity(f"Miya 4 {act}.", "config")
+
+    def get_mode(self) -> str:
+        """Joriy tezlik rejimini oladi: 'sokin' (20 daq), 'optimal' (10 daq), 'tezkor' (5 daq)."""
+        val = memory_service.get_setting("autonomous_brain_mode", "optimal").lower().strip()
+        return val if val in ("sokin", "optimal", "tezkor") else "optimal"
+
+    def set_mode(self, mode: str) -> None:
+        """Miya 4 tezlik rejimini o'zgartirish."""
+        m = str(mode).lower().strip()
+        if m in ("sokin", "optimal", "tezkor"):
+            memory_service.set_setting("autonomous_brain_mode", m)
+            self._log_activity(f"Miya 4 tezlik rejimi o'zgartirildi: {m.upper()}", "config")
+
+    def get_interval_seconds(self) -> int:
+        """Tanlangan rejim bo'yicha interval soniyasini qaytaradi."""
+        mode = self.get_mode()
+        if mode == "tezkor":
+            return 300   # 5 daqiqa
+        elif mode == "sokin":
+            return 1200  # 20 daqiqa
+        return 600       # 10 daqiqa (optimal - default)
+
     def get_status(self) -> dict[str, Any]:
         """Web App paneli va telemetriya uchun Miya 4 holati."""
         priorities = self._assess_priorities()
+        interval_sec = self.get_interval_seconds()
         return {
             "is_running": self._is_running,
             "is_busy": self._is_busy,
+            "enabled": self.is_enabled(),
+            "mode": self.get_mode(),
+            "interval_seconds": interval_sec,
+            "interval_minutes": interval_sec // 60,
             "cycle_count": self._cycle_count,
             "insights_generated": self._insights_generated,
             "answers_precomputed": self._answers_precomputed,
@@ -210,6 +246,14 @@ class AutonomousBrainService:
 
         while self._is_running:
             try:
+                # Agar o'chirilgan bo'lsa, sokin kutib turadi:
+                if not self.is_enabled():
+                    self._is_busy = False
+                    self._current_activity = "⏸️ Miya 4 to'xtatilgan (O'chirilgan rejimda)."
+                    self._next_run_estimated = "To'xtatilgan"
+                    await asyncio.sleep(10)
+                    continue
+
                 # 0. 20:00 Kunlik hisobot (Daily Debrief) tekshiruvi:
                 await self._check_and_send_daily_debrief()
 
@@ -220,12 +264,14 @@ class AutonomousBrainService:
                 priorities = self._assess_priorities()
                 is_curriculum_saturated = priorities.get("curriculum_saturated", False)
                 priority_topic = priorities.get("priority_topic")
+                mode = self.get_mode()
 
-                self._current_activity = f"Sikl #{self._cycle_count}: Kognitiv adaptatsiya va tahlil..."
-                self._log_activity(f"🧬 Sikl #{self._cycle_count} boshlandi (Dinamik taqsimot)...", "cycle")
+                self._current_activity = f"Sikl #{self._cycle_count} [{mode.upper()}]: Kognitiv adaptatsiya va tahlil..."
+                self._log_activity(f"🧬 Sikl #{self._cycle_count} boshlandi ({mode.upper()} rejim)...", "cycle")
                 logger.info(
-                    "🧬 Miya 4 tafakkur davri boshlandi (Davr #%d, Saturated: %s)...",
+                    "🧬 Miya 4 tafakkur davri boshlandi (Davr #%d, Rejim: %s, Saturated: %s)...",
                     self._cycle_count,
+                    mode,
                     is_curriculum_saturated,
                 )
 
@@ -261,26 +307,29 @@ class AutonomousBrainService:
                 self._last_error = None
                 self._is_busy = False
 
-                # Keyingi sikl vaqti (1200 soniya / 20 daqiqa):
+                # Tanlangan tezlik rejimi bo'yicha intervalni hisoblash:
+                interval_sec = self.get_interval_seconds()
+                interval_min = interval_sec // 60
+
                 try:
                     tz = ZoneInfo("Asia/Tashkent")
-                    next_time = (datetime.now(tz) + timedelta(seconds=1200)).strftime("%H:%M:%S")
-                    self._next_run_estimated = f"{next_time} da"
+                    next_time = (datetime.now(tz) + timedelta(seconds=interval_sec)).strftime("%H:%M:%S")
+                    self._next_run_estimated = f"{next_time} da ({interval_min} daq)"
                 except Exception:
-                    self._next_run_estimated = "20 daqiqadan so'ng"
+                    self._next_run_estimated = f"{interval_min} daqiqadan so'ng"
 
-                self._current_activity = f"Sokin rejimda. Keyingi tafakkur sikli: {self._next_run_estimated}"
+                self._current_activity = f"Sokin rejimda [{mode.upper()}]. Keyingi tafakkur sikli: {self._next_run_estimated}"
                 self._log_activity(
-                    f"Sikl yakunlandi. Jami: {self._insights_generated} saboq, {self._lexicon_learned} leksikon, {self._mistakes_reflected} xato qoidasi, {self._answers_precomputed} kesh.",
+                    f"Sikl #{self._cycle_count} yakunlandi [{mode.upper()}]. Jami: {self._insights_generated} saboq, {self._lexicon_learned} leksikon, {self._mistakes_reflected} xato qoidasi, {self._answers_precomputed} kesh.",
                     "info",
                 )
 
-                # Har 60 soniyada soatni tekshirib turish uchun 20 ta 60 soniyalik interval bilan kutamiz
-                for _ in range(20):
-                    if not self._is_running:
+                # Har 15 soniyada rejim yoki to'xtatish o'zgarishini tekshirish (foydalanuvchi appda rejimni o'zgartirsa darhol sezish uchun):
+                steps = max(1, interval_sec // 15)
+                for _ in range(steps):
+                    if not self._is_running or not self.is_enabled():
                         break
-                    await asyncio.sleep(60)
-                    # 20:00 hisobot tekshiruvi:
+                    await asyncio.sleep(15)
                     await self._check_and_send_daily_debrief()
 
             except asyncio.CancelledError:

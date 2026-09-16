@@ -1223,6 +1223,34 @@
           </div>
         </div>
 
+        <!-- CONTROLS ROW: TOGGLE & SPEED MODES -->
+        <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px;">
+          <!-- ON/OFF TOGGLE -->
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <label class="switch" style="margin: 0;">
+              <input type="checkbox" id="switch-autonomous-brain" onchange="toggleAutonomousBrain(this.checked)" checked>
+              <span class="slider"></span>
+            </label>
+            <div>
+              <div id="auto-brain-power-label" style="font-size: 12.5px; font-weight: 700; color: #e2e8f0;">🟢 Yoqilgan</div>
+              <div style="font-size: 9.5px; color: var(--hint-color);">Avtonom kognitiv rejim</div>
+            </div>
+          </div>
+
+          <!-- 3 SPEED MODES -->
+          <div style="display: flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.35); padding: 3px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+            <button type="button" id="brain-mode-sokin" onclick="setAutonomousBrainMode('sokin')" style="padding: 5px 9px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid transparent; cursor: pointer; background: transparent; color: var(--hint-color); transition: all 0.2s;" title="Sokin rejim: Har 20 daqiqada 1 sikl (Token tejamkor)">
+              🐢 Sokin (20 daq)
+            </button>
+            <button type="button" id="brain-mode-optimal" onclick="setAutonomousBrainMode('optimal')" style="padding: 5px 9px; font-size: 11px; font-weight: 700; border-radius: 6px; border: 1px solid rgba(168,85,247,0.7); cursor: pointer; background: rgba(168,85,247,0.3); color: #f3e8ff; transition: all 0.2s;" title="Optimal rejim: Har 10 daqiqada 1 sikl (Tavsiya etiladi, 0% limit xavfi)">
+              🌟 Optimal (10 daq)
+            </button>
+            <button type="button" id="brain-mode-tezkor" onclick="setAutonomousBrainMode('tezkor')" style="padding: 5px 9px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid transparent; cursor: pointer; background: transparent; color: var(--hint-color); transition: all 0.2s;" title="Tezkor rejim: Har 5 daqiqada 1 sikl (Turbo o'rganish)">
+              ⚡ Tezkor (5 daq)
+            </button>
+          </div>
+        </div>
+
         <!-- CURRENT LIVE ACTIVITY BANNER -->
         <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px;">
           <div style="font-size: 10.5px; color: var(--hint-color); text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;">
@@ -1237,12 +1265,22 @@
           </div>
         </div>
 
-        <!-- METRICS COUNTERS -->
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px;">
+        <!-- METRICS COUNTERS (6 TA KO'RSATKICH) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-bottom: 12px;">
           <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 4px; text-align: center;">
             <div style="font-size: 9.5px; color: var(--hint-color);">🔄 Sikllar</div>
             <div id="auto-brain-cycle-count" style="font-size: 14px; font-weight: 700; color: #fff; margin-top: 2px;">0</div>
             <div style="font-size: 8.5px; color: var(--hint-color);">marta</div>
+          </div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 4px; text-align: center;">
+            <div style="font-size: 9.5px; color: var(--hint-color);">📚 Leksikon</div>
+            <div id="auto-brain-lexicon-count" style="font-size: 14px; font-weight: 700; color: #a855f7; margin-top: 2px;">0</div>
+            <div style="font-size: 8.5px; color: var(--hint-color);">slang</div>
+          </div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 4px; text-align: center;">
+            <div style="font-size: 9.5px; color: var(--hint-color);">🛡 Xatolar</div>
+            <div id="auto-brain-mistakes-count" style="font-size: 14px; font-weight: 700; color: #f59e0b; margin-top: 2px;">0</div>
+            <div style="font-size: 8.5px; color: var(--hint-color);">qoida</div>
           </div>
           <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 4px; text-align: center;">
             <div style="font-size: 9.5px; color: var(--hint-color);">💡 Saboqlar</div>
@@ -1256,7 +1294,7 @@
           </div>
           <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 4px; text-align: center;">
             <div style="font-size: 9.5px; color: var(--hint-color);">⏳ Keyingi Sikl</div>
-            <div id="auto-brain-next-run" style="font-size: 12px; font-weight: 700; color: #f59e0b; margin-top: 3px;">~30 daq</div>
+            <div id="auto-brain-next-run" style="font-size: 11px; font-weight: 700; color: #f59e0b; margin-top: 3px;">~10 daq</div>
             <div style="font-size: 8.5px; color: var(--hint-color);">avtomatik</div>
           </div>
         </div>
@@ -2758,15 +2796,32 @@
       if (cyclesEl) cyclesEl.innerText = st.cycle_count || 0;
       if (insEl) insEl.innerText = st.insights_generated || 0;
       if (ansEl) ansEl.innerText = st.answers_precomputed || 0;
-      if (nextEl) nextEl.innerText = st.next_run_estimated ? `~${st.next_run_estimated}` : '~30 daq';
+      if (nextEl) nextEl.innerText = st.next_run_estimated ? `~${st.next_run_estimated}` : '~10 daq';
       if (timeEl) timeEl.innerText = st.last_run_time ? `Oxirgi: ${st.last_run_time}` : 'Oxirgi: Hali ishga tushmadi';
+
+      const lexEl = document.getElementById('auto-brain-lexicon-count');
+      const mistEl = document.getElementById('auto-brain-mistakes-count');
+      if (lexEl) lexEl.innerText = st.lexicon_learned || 0;
+      if (mistEl) mistEl.innerText = st.mistakes_reflected || 0;
+
+      const switchEl = document.getElementById('switch-autonomous-brain');
+      const powerLabel = document.getElementById('auto-brain-power-label');
+      if (switchEl && typeof st.enabled !== 'undefined') {
+        switchEl.checked = !!st.enabled;
+      }
+      if (powerLabel && typeof st.enabled !== 'undefined') {
+        powerLabel.innerText = st.enabled ? '🟢 Yoqilgan' : "🔴 To'xtatilgan";
+      }
+      if (st.mode) {
+        updateModeButtonsUI(st.mode);
+      }
 
       if (actEl) {
         actEl.innerText = st.current_activity || "Kuzatuvda... O'quvchilar va dastur tahlili";
       }
 
       if (badgeEl && textEl) {
-        if (!st.is_running) {
+        if (!st.is_running || !st.enabled) {
           badgeEl.style.background = 'rgba(239,68,68,0.18)';
           badgeEl.style.color = '#ef4444';
           badgeEl.style.border = '1px solid rgba(239,68,68,0.4)';
@@ -2780,7 +2835,8 @@
           badgeEl.style.background = 'rgba(34,197,94,0.18)';
           badgeEl.style.color = '#22c55e';
           badgeEl.style.border = '1px solid rgba(34,197,94,0.4)';
-          textEl.innerText = "🟢 Faol (Kuzatuvda)";
+          const modeLabel = (st.mode || 'optimal').toUpperCase();
+          textEl.innerText = `🟢 Faol (${modeLabel})`;
         }
       }
 
@@ -2809,6 +2865,60 @@
           }).join('');
         }
       }
+    }
+
+    async function toggleAutonomousBrain(enabled) {
+      haptic();
+      const label = document.getElementById('auto-brain-power-label');
+      if (label) label.innerText = enabled ? '🟢 Yoqilgan' : "🔴 To'xtatilgan";
+      showToast(enabled ? '🟢 Miya 4 faollashtirildi' : "⏸️ Miya 4 to'xtatildi");
+
+      try {
+        const res = await apiRequest('/api/autonomous-brain/settings', 'POST', { enabled: enabled });
+        if (res && res.ok && res.status) {
+          renderAutonomousBrain(res.status);
+        }
+      } catch (e) {
+        showToast('Xatolik: ' + e.message, true);
+        await refreshAutonomousBrainStatus();
+      }
+    }
+
+    async function setAutonomousBrainMode(mode) {
+      haptic();
+      updateModeButtonsUI(mode);
+      const min = mode === 'tezkor' ? '5' : (mode === 'sokin' ? '20' : '10');
+      showToast(`⚡ Miya 4 rejimi: ${mode.toUpperCase()} (${min} daqiqa) ga o'tkazilmoqda...`);
+
+      try {
+        const res = await apiRequest('/api/autonomous-brain/settings', 'POST', { mode: mode });
+        if (res && res.ok && res.status) {
+          renderAutonomousBrain(res.status);
+          showToast(`✅ ${mode.toUpperCase()} rejim yoqildi (${min} daqiqa oralig'ida)`);
+        }
+      } catch (e) {
+        showToast('Xatolik: ' + e.message, true);
+        await refreshAutonomousBrainStatus();
+      }
+    }
+
+    function updateModeButtonsUI(mode) {
+      const modes = ['sokin', 'optimal', 'tezkor'];
+      modes.forEach(m => {
+        const btn = document.getElementById(`brain-mode-${m}`);
+        if (!btn) return;
+        if (m === mode) {
+          btn.style.background = 'rgba(168,85,247,0.3)';
+          btn.style.color = '#f3e8ff';
+          btn.style.borderColor = 'rgba(168,85,247,0.7)';
+          btn.style.fontWeight = '700';
+        } else {
+          btn.style.background = 'transparent';
+          btn.style.color = 'var(--hint-color)';
+          btn.style.borderColor = 'transparent';
+          btn.style.fontWeight = '600';
+        }
+      });
     }
 
     async function refreshAutonomousBrainStatus() {

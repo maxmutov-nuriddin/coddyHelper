@@ -1114,6 +1114,22 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         res = await autonomous_brain_service.run_cycle_now()
         return web.json_response(res)
 
+    async def handle_api_autonomous_brain_settings(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+            if "enabled" in data:
+                autonomous_brain_service.set_enabled(bool(data["enabled"]))
+            if "mode" in data and str(data["mode"]).strip() in ("sokin", "optimal", "tezkor"):
+                autonomous_brain_service.set_mode(str(data["mode"]).strip())
+            return web.json_response({
+                "ok": True,
+                "status": autonomous_brain_service.get_status(),
+            })
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     async def handle_api_get_precomputed_answers(request: web.Request):
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
@@ -1191,6 +1207,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_post("/api/agent/insights/delete", handle_api_delete_insight)
     app.router.add_get("/api/autonomous-brain/status", handle_api_autonomous_brain_status)
     app.router.add_post("/api/autonomous-brain/trigger", handle_api_autonomous_brain_trigger)
+    app.router.add_post("/api/autonomous-brain/settings", handle_api_autonomous_brain_settings)
     app.router.add_get("/api/precomputed-answers", handle_api_get_precomputed_answers)
     app.router.add_post("/api/precomputed-answers/delete", handle_api_delete_precomputed_answer)
     app.router.add_get("/api/mentor-lexicon", handle_api_get_mentor_lexicon)
