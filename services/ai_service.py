@@ -724,11 +724,11 @@ class AIService:
                 "timestamp": None,
             },
             "rate_limits": {
-                "remaining_tokens": 12000,
-                "limit_tokens": 12000,
+                "remaining_tokens": 8000,
+                "limit_tokens": 8000,
                 "used_tokens_pct": 0.0,
-                "remaining_requests": 30,
-                "limit_requests": 30,
+                "remaining_requests": 1000,
+                "limit_requests": 1000,
                 "reset_tokens": "0s",
                 "reset_requests": "0s",
             },
@@ -910,11 +910,14 @@ class AIService:
             cascade = self._metrics.setdefault("cascade_status", {})
             now_ts = time.time()
             priority_order = [
-                config.groq_model or "openai/gpt-oss-120b",
+                "openai/gpt-oss-120b",
                 "openai/gpt-oss-20b",
                 "groq/compound-mini",
                 "Google Gemini",
             ]
+            if config.groq_model and config.groq_model not in priority_order:
+                priority_order.insert(0, config.groq_model)
+
             # Muddati o'tgan limitlarni tozalash
             for m_key, info in cascade.items():
                 if info.get("state") == "rate_limited":
@@ -944,6 +947,11 @@ class AIService:
                     self._metrics["active_model"] = m_key
                     first_healthy_found = True
                 else:
+                    info["state"] = "standby"
+
+            # Agar yuqorida bo'lmagan boshqa modellar bo'lsa, ularni ham standby qilish
+            for m_key, info in cascade.items():
+                if m_key != self._metrics.get("active_model") and info.get("state") != "rate_limited":
                     info["state"] = "standby"
 
             if not first_healthy_found and "Google Gemini" in cascade:
@@ -1853,10 +1861,7 @@ class AIService:
         # Kaskadli zaxira modellar bo'yicha ketma-ket urinish:
         for model_to_use in candidate_models:
             # Ushbu modelni aktiv deb kaskadda qayd etish
-            self._metrics["active_model"] = model_to_use
-            cascade = self._metrics.setdefault("cascade_status", {})
-            if model_to_use in cascade and cascade[model_to_use].get("state") != "rate_limited":
-                cascade[model_to_use]["state"] = "active"
+            self._recalculate_cascade_states(active_override=model_to_use)
 
             # Kichik 8k kontekstli modellar (Gemma) limitiga urilmaslik uchun:
             if "gemma" in model_to_use.lower() and est_tokens > 7000:

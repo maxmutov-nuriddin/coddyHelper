@@ -89,11 +89,29 @@ class Config:
         groq_api_keys = combined_keys
         groq_api_key = groq_api_keys[0] if groq_api_keys else ""
 
+        deprecated_text_models = {
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "gemma2-9b-it",
+            "mixtral-8x7b-32768",
+            "llama3-70b-8192",
+            "llama3-8b-8192",
+        }
         raw_groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
-        groq_model = raw_groq_model if raw_groq_model else "openai/gpt-oss-120b"
+        if not raw_groq_model or raw_groq_model in deprecated_text_models:
+            groq_model = "openai/gpt-oss-120b"
+        else:
+            groq_model = raw_groq_model
 
+        deprecated_vision_models = {
+            "llama-3.2-11b-vision-preview",
+            "llama-3.2-90b-vision-preview",
+        }
         raw_vision = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
-        groq_vision_model = raw_vision if raw_vision else "qwen/qwen3.8-27b"
+        if not raw_vision or raw_vision in deprecated_vision_models:
+            groq_vision_model = "qwen/qwen3.8-27b"
+        else:
+            groq_vision_model = raw_vision
 
         auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
         group_reply_enabled = str_to_bool(os.getenv("GROUP_REPLY_ENABLED", "true"), default=True)

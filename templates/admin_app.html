@@ -2444,8 +2444,8 @@
 
       // TPM (Tokens Per Minute)
       const rl = metrics.rate_limits || {};
-      const remTokens = rl.remaining_tokens !== undefined ? rl.remaining_tokens : 12000;
-      const limTokens = rl.limit_tokens !== undefined ? rl.limit_tokens : 12000;
+      const remTokens = rl.remaining_tokens !== undefined ? rl.remaining_tokens : 8000;
+      const limTokens = rl.limit_tokens !== undefined ? rl.limit_tokens : 8000;
       const usedTokens = Math.max(0, limTokens - remTokens);
       const usedPct = rl.used_tokens_pct !== undefined ? rl.used_tokens_pct : (limTokens > 0 ? Math.round((usedTokens / limTokens) * 100) : 0);
 
@@ -2479,8 +2479,8 @@
       if (tpmReset) tpmReset.innerText = `⏳ Yangilanish: ${rl.reset_tokens || '0s'}`;
 
       // RPM (Requests Per Minute)
-      const remReq = rl.remaining_requests !== undefined ? rl.remaining_requests : 30;
-      const limReq = rl.limit_requests !== undefined ? rl.limit_requests : 30;
+      const remReq = rl.remaining_requests !== undefined ? rl.remaining_requests : 1000;
+      const limReq = rl.limit_requests !== undefined ? rl.limit_requests : 1000;
       const usedReq = Math.max(0, limReq - remReq);
       const rpmText = document.getElementById('ai-rpm-text');
       if (rpmText) rpmText.innerText = `${usedReq} / ${limReq}`;
