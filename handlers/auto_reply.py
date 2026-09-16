@@ -767,13 +767,14 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     await asyncio.sleep(retry_delay)
 
             if not raw_reply:
-                # Agar Groq klasteri uzoq band bo'lsa, zaxira Google Gemini ga murojaat (agar yoqilgan bo'lsa):
+                # Agar Groq klasteri uzoq band bo'lsa, zaxira Google Gemini ga murojaat:
                 gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
-                if gemini_backup_enabled:
+                allow_gemini = gemini_backup_enabled or bool(image_bytes)
+                if allow_gemini:
                     try:
                         loop = asyncio.get_running_loop()
                         raw_reply = await loop.run_in_executor(
-                            None, ai_service._generate_with_genai, input_text, chats_context or "", True
+                            None, ai_service._generate_with_genai, input_text, chats_context or "", True, image_bytes
                         )
                     except Exception as final_gem_err:
                         logger.error("Vazifalar VIP zaxira Gemini ham xato berdi: %s", final_gem_err)

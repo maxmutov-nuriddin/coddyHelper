@@ -733,9 +733,9 @@ class AIService:
                 "reset_requests": "0s",
             },
             "cascade_status": {
-                "llama-3.3-70b-versatile": {"role": "Asosiy (70B)", "state": "active", "context": "128k", "tpm": "6k", "rpm": 30},
-                "llama-3.1-8b-instant": {"role": "Zaxira 1 (8B)", "state": "standby", "context": "128k", "tpm": "20k", "rpm": 30},
-                "gemma2-9b-it": {"role": "Zaxira 2 (9B)", "state": "standby", "context": "8k", "tpm": "15k", "rpm": 30},
+                "openai/gpt-oss-120b": {"role": "Asosiy (120B)", "state": "active", "context": "128k", "tpm": "8k", "rpm": 1000},
+                "openai/gpt-oss-20b": {"role": "Zaxira 1 (20B)", "state": "standby", "context": "128k", "tpm": "8k", "rpm": 1000},
+                "groq/compound-mini": {"role": "Zaxira 2 (Compound)", "state": "standby", "context": "128k", "tpm": "70k", "rpm": 250},
                 "Google Gemini": {"role": "Temir Zaxira (1M)", "state": "standby", "context": "1M", "tpm": "1M", "rpm": 15},
             },
         }
@@ -910,9 +910,9 @@ class AIService:
             cascade = self._metrics.setdefault("cascade_status", {})
             now_ts = time.time()
             priority_order = [
-                config.groq_model or "llama-3.3-70b-versatile",
-                "llama-3.1-8b-instant",
-                "gemma2-9b-it",
+                config.groq_model or "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b",
+                "groq/compound-mini",
                 "Google Gemini",
             ]
             # Muddati o'tgan limitlarni tozalash
@@ -1240,8 +1240,8 @@ class AIService:
         max_tokens: int,
     ) -> Any:
         """Groq API so'rovini bajaradi va avtomatik metrikalarni yig'adi."""
-        # Groq OTPM (Output Tokens Per Minute) chegarasi 1,000 bo'lgani uchun 800 xavfsiz chegara
-        safe_max_tokens = min(max_tokens, 800)
+        # Groq yangi modellarida reasoning va javob uchun 1000 token xavfsiz chegara
+        safe_max_tokens = min(max_tokens, 1000)
         t0 = time.time()
         k_idx = self._client_to_idx.get(id(client), self._last_active_key_idx)
         self._mark_key_used(k_idx)
@@ -1399,7 +1399,7 @@ class AIService:
             preferred = []
             if config.groq_model:
                 preferred.append(config.groq_model)
-            for m in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]:
+            for m in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini"]:
                 if m not in preferred:
                     preferred.append(m)
             candidate_models = preferred
@@ -1599,7 +1599,7 @@ class AIService:
             )
 
         async def _call_critic():
-            crit_model = "llama-3.1-8b-instant" if target_model != "llama-3.1-8b-instant" else "gemma2-9b-it"
+            crit_model = "openai/gpt-oss-20b" if target_model != "openai/gpt-oss-20b" else "groq/compound-mini"
             try:
                 return await asyncio.wait_for(
                     c_rev.chat.completions.create(
@@ -1789,14 +1789,15 @@ class AIService:
         )
 
         if image_bytes:
-            candidate_models = [config.groq_vision_model or "llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"]
+            candidate_models = [config.groq_vision_model or "qwen/qwen3.8-27b"]
         else:
             candidate_models = []
             # Faqat Groq klasterida 100% mavjud va ishlaydigan haqiqiy modellar
             preferred = [
-                config.groq_model or "llama-3.3-70b-versatile",
-                "llama-3.1-8b-instant",
-                "gemma2-9b-it",
+                config.groq_model or "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b",
+                "groq/compound-mini",
+                "groq/compound",
             ]
             for m in preferred:
                 if m and m not in candidate_models:
@@ -1896,7 +1897,7 @@ class AIService:
                         continue
 
             # 2. To'g'ridan-to'g'ri tezkor model chaqiruvi (Direct Fast Inference)
-            calc_max_tokens = 600
+            calc_max_tokens = 800
             max_attempts = min(5, len(pool))
             model_success = False
             for _ in range(max_attempts):
@@ -2084,8 +2085,8 @@ class AIService:
 
         return sys_prompt
 
-    def _generate_with_genai(self, prompt: str, history_context: str, is_admin_mode: bool = False) -> str:
-        """Google GenAI orqali javob generatsiya qilish (fallback)."""
+    def _generate_with_genai(self, prompt: str, history_context: str, is_admin_mode: bool = False, image_bytes: bytes | None = None) -> str:
+        """Google GenAI orqali javob generatsiya qilish (fallback va Vision)."""
         from google.genai import types
 
         full_content = prompt
@@ -2106,12 +2107,19 @@ class AIService:
             if m and m not in unique_candidates:
                 unique_candidates.append(m)
 
+        contents_payload = [full_content]
+        if image_bytes:
+            try:
+                contents_payload.append(types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
+            except Exception as img_err:
+                logger.warning("Gemini uchun rasm yuklashda ogohlantirish: %s", img_err)
+
         last_err = None
         for m in unique_candidates:
             try:
                 response = self._gemini_client.models.generate_content(
                     model=m,
-                    contents=full_content,
+                    contents=contents_payload,
                     config=types.GenerateContentConfig(
                         system_instruction=sys_prompt,
                         temperature=0.6,
@@ -2233,9 +2241,11 @@ class AIService:
 
             # 2-ustuvorlik: Google Gemini (Zaxira tizim - 1 million token limit, agar yoqilgan bo'lsa)
             gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
-            if not answer and self._gemini_client and gemini_backup_enabled:
+            # Agar rasm (vision) bo'lsa va Groq javob bera olmagan bo'lsa, Gemini Vision har doim zaxira sifatida ishlaydi
+            allow_gemini = gemini_backup_enabled or bool(image_bytes)
+            if not answer and self._gemini_client and allow_gemini:
                 try:
-                    logger.info("⚡ Google Gemini zaxira tizimi ishga tushirildi...")
+                    logger.info("⚡ Google Gemini zaxira tizimi ishga tushirildi (vision=%s)...", bool(image_bytes))
                     self._recalculate_cascade_states(active_override="Google Gemini")
                     history = memory_service.get_history(chat_id)
                     recent_history = history[-6:] if not is_admin_mode else history[-8:]
@@ -2249,9 +2259,9 @@ class AIService:
                     t_gem = time.time()
                     answer = await asyncio.wait_for(
                         loop.run_in_executor(
-                            None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode
+                            None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode, image_bytes
                         ),
-                        timeout=12.0,
+                        timeout=15.0,
                     )
                     d_ms = int((time.time() - t_gem) * 1000)
                     self._record_gemini_metrics(
@@ -2329,7 +2339,7 @@ class AIService:
             pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
         models_to_try = []
-        for m in [config.groq_model or "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]:
+        for m in [config.groq_model or "openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini"]:
             if m and m not in models_to_try:
                 models_to_try.append(m)
 
@@ -2385,7 +2395,7 @@ class AIService:
             pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
         models_to_try = []
-        for m in [config.groq_model or "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]:
+        for m in [config.groq_model or "openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini"]:
             if m and m not in models_to_try:
                 models_to_try.append(m)
 
