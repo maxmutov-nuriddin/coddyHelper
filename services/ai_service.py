@@ -1998,7 +1998,8 @@ class AIService:
             is_action_prompt = any(k in (effective_prompt or "").lower() for k in (
                 "kim yozdi", "kim yozgan", "oxirgi xabar", "eslat", "remind", "jadval",
                 "lokatsiya", "turgan joy", "joylashuv", "statistika", "o'chir", "delete",
-                "blokla", "ignore", "kontakt", "top", "qidir", "send", "yoz", "action", "sozlama"
+                "blokla", "ignore", "kontakt", "top", "qidir", "send", "yoz", "action", "sozlama",
+                "bot", "avtobus", "chat", "guruh", "bilib ber", "aniqla"
             ))
             if not is_action_prompt and "7. **TELEGRAM AMALLAR AGENTI" in sys_prompt:
                 # 1,500 tokenni tejash uchun qisqa cheatsheet qo'llash (8k TPM ga to'qnashmaslik uchun)
@@ -2008,6 +2009,8 @@ class AIService:
                     "Zarur bo'lganda quyidagi amallarni bering: <<<ACTION:get_recent_senders()>>>, "
                     "<<<ACTION:schedule_message(qabul_qiluvchi, matn, vaqt)>>>, <<<ACTION:send_message(qabul_qiluvchi, matn)>>>, "
                     "<<<ACTION:delete_message(chat, xabar_id)>>>, <<<ACTION:find_contact(ism)>>>, "
+                    "<<<ACTION:search_telegram(qidiruv)>>>, <<<ACTION:search_chat(chat, qidiruv)>>>, "
+                    "<<<ACTION:interact_with_bot(bot, buyruq, tugma)>>>, "
                     "<<<ACTION:learn_fact(mavzu, qoida)>>>, <<<ACTION:get_group_info(guruh)>>>.\n\n"
                 )
                 tail = ""

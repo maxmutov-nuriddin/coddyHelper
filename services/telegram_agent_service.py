@@ -8,6 +8,7 @@ hamda to'g'ridan-to'g'ri xabar yuborish amallarini bajaradi.
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Any
@@ -82,6 +83,197 @@ async def search_telegram_messages(client, query: str, limit: int = 5) -> list[d
         results.append({"error": str(e)})
 
     return results
+
+
+async def search_chat_messages(client, chat_target: str, query: str, limit: int = 5) -> list[dict[str, Any]]:
+    """
+    Muayyan guruh, kanal yoki shaxsiy chat ichidan xabarlarni maqsadli qidiradi.
+    """
+    if not client:
+        return [{"error": "Telegram mijoz ulanmagan"}]
+
+    c_query = (chat_target or "").strip()
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    try:
+        target_chat = None
+        if c_query.startswith("@") or re.match(r"^-?\d+$", c_query):
+            try:
+                target_chat = await client.get_entity(int(c_query) if re.match(r"^-?\d+$", c_query) else c_query)
+            except Exception:
+                pass
+
+        if not target_chat:
+            dialogs = await client.get_dialogs(limit=50)
+            for d in dialogs:
+                d_title = getattr(d, "title", "") or getattr(d, "name", "") or ""
+                if c_query.lower() in d_title.lower() or d_title.lower() in c_query.lower():
+                    target_chat = d.entity
+                    break
+
+        if not target_chat:
+            return [{"error": f"'{c_query}' nomli guruh yoki chat topilmadi."}]
+
+        chat_title = getattr(target_chat, "title", None) or getattr(target_chat, "first_name", "Chat")
+        chat_username = getattr(target_chat, "username", None)
+        chat_id = getattr(target_chat, "id", None)
+
+        results = []
+        messages = await client.get_messages(target_chat, search=q, limit=limit)
+        for msg in messages:
+            sender = msg.sender
+            sender_name = getattr(sender, "first_name", None) or getattr(sender, "title", "Noma'lum")
+            if getattr(sender, "last_name", None):
+                sender_name += f" {sender.last_name}"
+
+            date_str = _get_tashkent_time(msg.date)
+            text_snippet = (msg.message or msg.raw_text or "").strip().replace("\n", " ")
+            if len(text_snippet) > 200:
+                text_snippet = text_snippet[:197] + "..."
+
+            link = None
+            if chat_username:
+                link = f"https://t.me/{chat_username}/{msg.id}"
+            elif str(chat_id).startswith("-100"):
+                clean_id = str(chat_id)[4:]
+                link = f"https://t.me/c/{clean_id}/{msg.id}"
+
+            results.append({
+                "chat_name": chat_title,
+                "chat_username": f"@{chat_username}" if chat_username else None,
+                "chat_id": chat_id,
+                "sender_name": sender_name,
+                "date": date_str,
+                "snippet": text_snippet,
+                "link": link,
+                "msg_id": msg.id,
+            })
+        return results
+    except Exception as e:
+        logger.error("Chat ichidan qidirishda xatolik: %s", e)
+        return [{"error": str(e)}]
+
+
+async def interact_with_telegram_bot(
+    client,
+    bot_username: str,
+    query_or_command: str,
+    click_button: str | None = None,
+    wait_timeout: int = 15,
+) -> dict[str, Any]:
+    """
+    Boshqa Telegram botlari (@tash3tm_bot va h.k.) bilan avtonom muloqot qiladi:
+    - Botga buyruq yoki so'rov jo'natadi.
+    - Botdan javob xabarini kutib oladi.
+    - Agar kerak bo'lsa (click_button ko'rsatilgan bo'lsa), inline/reply tugmani avtomatik bosadi.
+    - Natijaviy ma'lumot va matnni qaytaradi.
+    """
+    if not client:
+        return {"ok": False, "error": "Telegram mijozi ulanmagan"}
+
+    raw_bot = (bot_username or "").strip().lstrip("@")
+    if not raw_bot:
+        return {"ok": False, "error": "Bot username kiritilmadi"}
+
+    bot_tag = f"@{raw_bot}"
+    cmd = (query_or_command or "").strip()
+    if not cmd:
+        cmd = "/start"
+
+    try:
+        bot_entity = await client.get_input_entity(bot_tag)
+    except Exception as e:
+        logger.warning("Bot entitysini olishda ogohlantirish (%s): %s", bot_tag, e)
+        try:
+            bot_entity = await client.get_entity(bot_tag)
+        except Exception as e2:
+            return {"ok": False, "error": f"'{bot_tag}' boti Telegramda topilmadi: {e2}"}
+
+    try:
+        last_msg_id = 0
+        try:
+            prev_msgs = await client.get_messages(bot_entity, limit=1)
+            if prev_msgs:
+                last_msg_id = prev_msgs[0].id
+        except Exception:
+            pass
+
+        sent_msg = await client.send_message(bot_entity, cmd)
+
+        response_msg = None
+        start_wait = time.time()
+        while time.time() - start_wait < wait_timeout:
+            await asyncio.sleep(1.2)
+            try:
+                cur_msgs = await client.get_messages(bot_entity, limit=3)
+                for cm in cur_msgs:
+                    if cm.id > (sent_msg.id if sent_msg else last_msg_id) and not cm.out:
+                        response_msg = cm
+                        break
+                if response_msg:
+                    break
+            except Exception:
+                pass
+
+        if not response_msg:
+            return {
+                "ok": False,
+                "error": f"'{bot_tag}' botidan {wait_timeout} soniya ichida javob kelmadi.",
+            }
+
+        reply_text = (response_msg.message or response_msg.raw_text or "").strip()
+        available_buttons = []
+
+        if response_msg.buttons:
+            for row in response_msg.buttons:
+                for btn in row:
+                    b_text = getattr(btn, "text", "") or ""
+                    if b_text:
+                        available_buttons.append(b_text)
+
+        clicked_info = None
+        if click_button and response_msg.buttons:
+            target_btn = str(click_button).strip().lower()
+            button_clicked = False
+            for r_idx, row in enumerate(response_msg.buttons):
+                for c_idx, btn in enumerate(row):
+                    b_txt = (getattr(btn, "text", "") or "").strip().lower()
+                    if target_btn in b_txt or b_txt in target_btn:
+                        try:
+                            await btn.click()
+                            button_clicked = True
+                            clicked_info = getattr(btn, "text", "")
+                            break
+                        except Exception as ce:
+                            logger.warning("Tugmani bosishda ogohlantirish: %s", ce)
+                if button_clicked:
+                    break
+
+            if button_clicked:
+                await asyncio.sleep(2.0)
+                try:
+                    after_click_msgs = await client.get_messages(bot_entity, limit=2)
+                    if after_click_msgs:
+                        for am in after_click_msgs:
+                            if not am.out:
+                                reply_text = (am.message or am.raw_text or "").strip()
+                                break
+                except Exception:
+                    pass
+
+        return {
+            "ok": True,
+            "bot": bot_tag,
+            "query": cmd,
+            "response": reply_text,
+            "buttons": available_buttons,
+            "clicked_button": clicked_info,
+        }
+    except Exception as e:
+        logger.error("'%s' boti bilan muloqotda xatolik: %s", bot_tag, e)
+        return {"ok": False, "error": f"Bot bilan muloqotda xatolik: {e}"}
 
 
 # Kengaytirilgan Unicode shrift va belgilarni standartlashtirish jadvallari
@@ -1391,6 +1583,14 @@ ACTION_DELETE_MSG = re.compile(
     r'<<<ACTION:delete_message\(["\']?(.*?)["\']?(?:,\s*["\']?(.*?)["\']?)?\)>>>',
     re.IGNORECASE,
 )
+ACTION_INTERACT_BOT = re.compile(
+    r'<<<ACTION:interact_with_bot\(["\'](.*?)["\'],\s*["\'](.*?)["\'](?:,\s*["\'](.*?)["\'])?\)>>>',
+    re.IGNORECASE | re.DOTALL,
+)
+ACTION_SEARCH_CHAT = re.compile(
+    r'<<<ACTION:search_chat\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>',
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 
@@ -1571,6 +1771,25 @@ async def execute_agent_action(
         if is_ru:
             return "⛔️ Планирование сообщений и системные действия доступны исключительно для учителя Нуриддина в Центре Управления (Vazifalar)."
         return "⛔️ Kechiktirilgan xabarlar (schedule), lokatsiya va tizim amallari faqat mentor uchun Vazifalar guruhida ruxsat etilgan!"
+
+    # ⛔️ XAVFSIZLIK QALQONI: Ulangan qurilmalarni (Active Sessions) o'chirish/chiqarish MUTLAQ TAQIQLANGAN!
+    session_kill_pattern = (
+        r"\b(?:ulangan\s+)?(?:qurilma\w*|ustroystv\w*|sessiy\w*|seans\w*)\s*(?:ni\s+)?(?:o['’`]?chir\w*|chiqar\w*|to['’`]?xtat\w*|uz\w*|reset\w*)\b|"
+        r"\b(?:terminate\s+sessions|reset\s+authorizations|logout|delete\s+devices)\b|"
+        r"\b(?:заверши|удали|отключи)\s+(?:все\s+)?(?:сесси[ий]|устройств[ао]|авторизаци[ии])\b"
+    )
+    if re.search(session_kill_pattern, orig_msg, re.I):
+        if is_ru:
+            return (
+                "🛡 **Абсолютный запрет безопасности:**\n"
+                "Завершение активных сессий или отключение подключённых устройств категорически запрещено политикой безопасности! "
+                "Все ваши подключённые устройства и сеансы остаются в полной безопасности и неприкосновенности."
+            )
+        return (
+            "🛡 **Mutlaq xavfsizlik taqiqi:**\n"
+            "Ulangan qurilmalarni (Active Sessions) chiqarib yuborish yoki seanslarni o'chirish qat'iyan man etilgan! "
+            "Sizning barcha ulangan qurilmalaringiz va sessiyalaringiz to'liq daxlsiz saqlanadi."
+        )
 
     # 0. Action: get_recent_senders (Oxirgi marta kim yozdi? Kelgan xabarlar / Кто написал?)
     m_senders = ACTION_RECENT_SENDERS.search(reply_text)
@@ -1756,6 +1975,102 @@ async def execute_agent_action(
             link_md = f" [🔗 {open_txt}]({link})" if link else ""
             lines.append(f"{i}. 📍 **{chat_name}** | 👤 *{sender}* ({date}):\n   «{snippet}»{link_md}\n")
         return "\n".join(lines)
+
+    # 3.1. Action: search_chat (Muayyan guruh yoki chat ichidan xabarlarni qidirish)
+    m_chat_search = ACTION_SEARCH_CHAT.search(reply_text)
+    chat_target = ""
+    chat_query_txt = ""
+    if m_chat_search:
+        chat_target = m_chat_search.group(1).strip()
+        chat_query_txt = m_chat_search.group(2).strip()
+    else:
+        c_search_m = (
+            re.search(r"([A-Za-z0-9_\u0400-\u04FF\s]+?)\s+(?:guruhidan|chatidan|kanalidan)\s+(?:['\"](?P<q1>.+?)['\"]|(?P<q2>.+?))\s+(?:(?:degan\s+)?(?:xabar|so['’`]?z)\w*\s*)?(?:ni\s+)?(?:qidir|top|izla)", orig_msg, re.I) or
+            re.search(r"['\"]?(.+?)['\"]?\s+(?:degan\s+)?xabar\s+qaysi\s+(?:guruhda|chatda)", orig_msg, re.I)
+        )
+        if c_search_m:
+            if "q1" in c_search_m.groupdict():
+                chat_target = c_search_m.group(1).strip()
+                chat_query_txt = (c_search_m.group("q1") or c_search_m.group("q2") or "").strip()
+            elif len(c_search_m.groups()) == 2:
+                chat_target = c_search_m.group(1).strip()
+                chat_query_txt = c_search_m.group(2).strip()
+
+    if chat_target and chat_query_txt:
+        results = await search_chat_messages(client, chat_target, chat_query_txt, limit=6)
+        if not results or (len(results) == 1 and "error" in results[0]):
+            err_msg = results[0].get("error") if results and "error" in results[0] else f"'{chat_target}' ichidan '{chat_query_txt}' bo'yicha xabar topilmadi."
+            if is_ru:
+                return f"🔍 **Результаты поиска в чате:**\n{err_msg}"
+            return f"🔍 **Guruhdan qidiruv natijasi:**\n{err_msg}"
+
+        if is_ru:
+            lines = [f"🔍 **Сообщения по запросу '{chat_query_txt}' в '{chat_target}':**\n"]
+        else:
+            lines = [f"🔍 **'{chat_target}' ichidan '{chat_query_txt}' bo'yicha topilgan xabarlar:**\n"]
+
+        for i, res in enumerate(results, 1):
+            chat_name = res.get("chat_name", "Chat")
+            sender = res.get("sender_name", "Noma'lum")
+            date = res.get("date", "")
+            snippet = res.get("snippet", "")
+            link = res.get("link")
+            link_md = f" [🔗 Ochish]({link})" if link else ""
+            lines.append(f"{i}. 📍 **{chat_name}** | 👤 *{sender}* ({date}):\n   «{snippet}»{link_md}\n")
+        return "\n".join(lines)
+
+    # 3.2. Action: interact_with_bot (Boshqa Telegram botlari bilan muloqot va javob olish)
+    m_bot_act = ACTION_INTERACT_BOT.search(reply_text)
+    target_bot = ""
+    bot_cmd = ""
+    bot_btn = None
+    if m_bot_act:
+        target_bot = m_bot_act.group(1).strip()
+        bot_cmd = m_bot_act.group(2).strip()
+        if len(m_bot_act.groups()) >= 3 and m_bot_act.group(3):
+            bot_btn = m_bot_act.group(3).strip()
+    else:
+        # Erkin til: "@tash3tm_bot ga kirib ... bilib ber / aniqla / topib ber"
+        bot_query_m = (
+            re.search(r"(@[A-Za-z0-9_]+(?:bot|_bot))\b\s*(?:botiga|boti|ga)?\s*(?:kirib|yozib|orqali|so['’`]?rab)?\s*(.+)", orig_msg, re.I) or
+            re.search(r"(?:kir\s+|yoz\s+)(@[A-Za-z0-9_]+(?:bot|_bot))\b\s*[:\-]?\s*(.+)", orig_msg, re.I)
+        )
+        if bot_query_m:
+            target_bot = bot_query_m.group(1).strip()
+            bot_cmd = bot_query_m.group(2).strip()
+            num_m = re.search(r"\b(\d{1,3})\s*(?:-?\s*avtobus)?\b", bot_cmd, re.I)
+            if num_m:
+                bot_btn = num_m.group(1)
+
+    if target_bot and bot_cmd:
+        res = await interact_with_telegram_bot(client, target_bot, bot_cmd, click_button=bot_btn)
+        if res.get("ok"):
+            b_name = res.get("bot", target_bot)
+            resp_txt = res.get("response", "").strip()
+            clicked = res.get("clicked_button")
+            buttons = res.get("buttons", [])
+
+            if is_ru:
+                lines = [f"🤖 **Результат взаимодействия с ботом {b_name}:**\n"]
+                if clicked:
+                    lines.append(f"🔘 *Нажатая кнопка:* `{clicked}`\n")
+                lines.append(f"📋 **Ответ бота:**\n{resp_txt}")
+                if buttons and not clicked:
+                    lines.append(f"\n💡 *Доступные кнопки:* {', '.join(f'`{b}`' for b in buttons[:8])}")
+            else:
+                lines = [f"🤖 **{b_name} boti bilan muloqot natijasi:**\n"]
+                if clicked:
+                    lines.append(f"🔘 *Tanlangan/bosilgan tugma:* `{clicked}`\n")
+                lines.append(f"📋 **Javob:**\n{resp_txt}")
+                if buttons and not clicked:
+                    lines.append(f"\n💡 *Mavjud menyu tugmalari:* {', '.join(f'`{b}`' for b in buttons[:8])}")
+
+            return "\n".join(lines).strip()
+        else:
+            err = res.get('error', 'Noma\'lum xatolik')
+            if is_ru:
+                return f"❌ **Ошибка при обращении к боту {target_bot}:**\n{err}"
+            return f"❌ **{target_bot} boti bilan muloqotda ogohlantirish:**\n{err}"
 
     # 3.5 Lokatsiyani saqlash so'rovi (masalan: "men turgan lokatsiyani saqlab qoy", "joyimni saqla")
     loc_save_pattern = (
