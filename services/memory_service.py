@@ -5,6 +5,8 @@ Suhbatlar kompyuter o'chsa yoki dastur qayta ishga tushsa ham saqlanib qoladi.
 
 import logging
 import sqlite3
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
