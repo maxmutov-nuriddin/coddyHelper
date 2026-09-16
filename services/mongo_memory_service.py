@@ -348,6 +348,7 @@ class MongoMemoryService:
         text: str,
         remind_at: str,
         recurrence: str = "once",
+        sqlite_id: int = 0,
     ) -> bool:
         if not self.is_connected():
             return False
@@ -359,6 +360,7 @@ class MongoMemoryService:
                 "remind_at": remind_at,
                 "recurrence": recurrence,
                 "is_sent": False,
+                "sqlite_id": sqlite_id,
                 "created_at": datetime.now(ZoneInfo("Asia/Tashkent")),
             }
             self._db["brain_mentor.smart_reminders"].insert_one(doc)
@@ -385,11 +387,21 @@ class MongoMemoryService:
             return False
         try:
             from bson import ObjectId
-            _id = ObjectId(reminder_id) if ObjectId.is_valid(reminder_id) else reminder_id
-            self._db["brain_mentor.smart_reminders"].update_one(
-                {"_id": _id},
-                {"$set": {"is_sent": True, "sent_at": datetime.now(ZoneInfo("Asia/Tashkent"))}},
-            )
+            target_str = str(reminder_id).strip()
+            query = None
+            if ObjectId.is_valid(target_str):
+                query = {"_id": ObjectId(target_str)}
+            elif target_str.isdigit():
+                # SQLite ID orqali MongoDB'da qidirish
+                query = {"sqlite_id": int(target_str)}
+            else:
+                query = {"_id": target_str}
+
+            if query:
+                self._db["brain_mentor.smart_reminders"].update_many(
+                    query,
+                    {"$set": {"is_sent": True, "sent_at": datetime.now(ZoneInfo("Asia/Tashkent"))}},
+                )
             return True
         except Exception as e:
             logger.error("MongoDB mark_reminder_sent xatolik: %s", e)
@@ -601,6 +613,15 @@ class MongoMemoryService:
         if not self.is_connected():
             return []
         try:
+            now_str = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
+            # Muddati o'tib ketgan eslatmalarni avtomatik is_sent=True deb belgilash
+            try:
+                self._db["brain_mentor.smart_reminders"].update_many(
+                    {"is_sent": False, "remind_at": {"$lt": now_str}},
+                    {"$set": {"is_sent": True, "sent_at": datetime.now(ZoneInfo("Asia/Tashkent"))}},
+                )
+            except Exception:
+                pass
             return list(
                 self._db["brain_mentor.smart_reminders"]
                 .find({"is_sent": False})
@@ -764,22 +785,48 @@ class MongoMemoryService:
 
             # 4. reminders (smart_reminders)
             try:
+                now_str = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
                 for doc in self._db["brain_mentor.smart_reminders"].find({"is_sent": False}):
                     cid = doc.get("chat_id")
                     txt = doc.get("text") or doc.get("reminder_text") or ""
                     rat = doc.get("remind_at") or ""
                     crid = doc.get("creator_id", 0)
                     if cid and txt and rat:
+                        # Muddati o'tib ketgan eski eslatmalarni qaytadan tiklamaymiz (takroriy spam bo'lmasligi uchun)
+                        if rat < now_str:
+                            try:
+                                self._db["brain_mentor.smart_reminders"].update_one(
+                                    {"_id": doc["_id"]},
+                                    {"$set": {"is_sent": True, "sent_at": datetime.now(ZoneInfo("Asia/Tashkent"))}},
+                                )
+                            except Exception:
+                                pass
+                            continue
+
                         cursor.execute(
                             "SELECT id FROM reminders WHERE chat_id = ? AND reminder_text = ? AND remind_at = ?",
                             (cid, txt, rat),
                         )
-                        if not cursor.fetchone():
+                        ex_row = cursor.fetchone()
+                        if not ex_row:
                             cursor.execute(
                                 "INSERT INTO reminders (chat_id, creator_id, reminder_text, remind_at, is_sent) VALUES (?, ?, ?, ?, 0)",
                                 (cid, crid, txt, rat),
                             )
+                            sqlite_id = cursor.lastrowid
                             stats["reminders"] += 1
+                        else:
+                            sqlite_id = ex_row[0]
+
+                        # MongoDB'da sqlite_id bo'lmasa, yangilab qo'yamiz (kelajakda o'chirish oson bo'lishi uchun)
+                        if sqlite_id and not doc.get("sqlite_id"):
+                            try:
+                                self._db["brain_mentor.smart_reminders"].update_one(
+                                    {"_id": doc["_id"]},
+                                    {"$set": {"sqlite_id": sqlite_id}},
+                                )
+                            except Exception:
+                                pass
             except Exception as e:
                 logger.debug("Restore reminders ogohlantirish: %s", e)
 

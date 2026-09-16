@@ -282,22 +282,32 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
 
     # -----------------------------------------------------------
     # 3. Tizim holati va statistika (Dashboard)
-    # -----------------------------------------------------------
+    # Cache telegram user info (60s TTL) to prevent freezing on every status poll
+    _telegram_me_cache = {
+        "me": "Teacher (@mentor_cc) ID:8105823872",
+        "authorized": False,
+        "last_check": 0.0,
+    }
+
     async def handle_api_status(request: web.Request):
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
 
+        now_ts = time.time()
         client = get_client_func()
-        telegram_me = "Teacher (@mentor_cc) ID:8105823872"
-        telegram_authorized = False
-        if client:
+        if client and (now_ts - _telegram_me_cache["last_check"] > 60.0):
             try:
                 telegram_authorized = await client.is_user_authorized()
+                _telegram_me_cache["authorized"] = telegram_authorized
                 if telegram_authorized:
                     me = await client.get_me()
-                    telegram_me = f"{getattr(me, 'first_name', '')} (@{getattr(me, 'username', '')}) ID:{getattr(me, 'id', '')}"
+                    _telegram_me_cache["me"] = f"{getattr(me, 'first_name', '')} (@{getattr(me, 'username', '')}) ID:{getattr(me, 'id', '')}"
+                _telegram_me_cache["last_check"] = now_ts
             except Exception as e:
-                telegram_me = f"Xatolik: {e}"
+                logger.debug("Telegram status olishda ogohlantirish: %s", e)
+
+        telegram_me = _telegram_me_cache["me"]
+        telegram_authorized = _telegram_me_cache["authorized"]
 
         active_ai = (
             f"Groq Multi-Key Cluster ({config.groq_model})"
@@ -319,14 +329,14 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "ai_persona": memory_service.get_setting("ai_persona", "socratic"),
                 "ai_code_mode": memory_service.get_setting("ai_code_mode", "full_code"),
                 "private_quiet_window": memory_service.get_private_quiet_window(),
-                "students_count": len(memory_service.get_students(limit=1000)),
+                "students_count": memory_service.get_students_count(),
                 "active_ai": active_ai,
                 "escalation_chat": str(config.escalation_chat),
                 "mentor_wait_seconds": config.mentor_wait_seconds,
                 "active_chats_count": memory_service.total_active_chats(),
-                "active_reminders_count": len(memory_service.get_active_reminders(100)),
-                "ignored_users_count": len(memory_service.get_ignored_users()),
-                "learned_facts_count": len(memory_service.get_all_learned_facts(limit=100)),
+                "active_reminders_count": memory_service.get_active_reminders_count(),
+                "ignored_users_count": memory_service.get_ignored_users_count(),
+                "learned_facts_count": memory_service.get_learned_facts_count(),
                 "trusted_websites": memory_service.get_trusted_websites(),
                 "curriculum_topics": memory_service.get_curriculum_topics(),
                 "recent_activity_logs": list(reversed(RECENT_ACTIVITY_LOGS[-15:])),
@@ -505,7 +515,11 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
         try:
             data = await request.json()
-            rem_id = int(data.get("id"))
+            raw_id = data.get("id")
+            if raw_id is None:
+                return web.json_response({"ok": False, "error": "ID talab qilinadi"}, status=400)
+            # int yoki string (MongoDB ObjectId) bo'lishi mumkin
+            rem_id = int(raw_id) if str(raw_id).isdigit() else str(raw_id)
             success = memory_service.delete_reminder(rem_id)
             return web.json_response({"ok": success})
         except Exception as e:

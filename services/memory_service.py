@@ -26,6 +26,7 @@ class SQLiteMemoryService:
     def __init__(self, db_path: Path = DB_PATH, limit: int = 15):
         self.db_path = db_path
         self.limit = config.memory_limit or limit
+        self._settings_cache: dict[str, str] = {}
         self._init_db()
         try:
             if mongo_memory_service.is_connected():
@@ -189,33 +190,53 @@ class SQLiteMemoryService:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
 
     def get_setting(self, key: str, default: str | None = None) -> str | None:
-        """Doimiy sozlamani o'qiydi (MongoDB Atlas -> SQLite fallback)."""
-        try:
-            if mongo_memory_service.is_connected():
-                val = mongo_memory_service.get_setting(key, None)
-                if val is not None:
-                    return val
-        except Exception:
-            pass
+        """Doimiy sozlamani chaqmoqdek tez o'qiydi (Xotira keshi -> SQLite -> MongoDB fallback)."""
+        # 1. Tezkor xotira keshi (0.0001 ms)
+        if hasattr(self, "_settings_cache") and key in self._settings_cache:
+            return self._settings_cache[key]
 
+        # 2. Lokal SQLite (<1 ms)
+        val = None
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
                 row = cursor.fetchone()
-                return row[0] if row else default
+                if row:
+                    val = row[0]
         except Exception as e:
-            logger.error("Sozlamani o'qishda xatolik: %s", e)
-            return default
+            logger.debug("Sozlamani SQLite'dan o'qishda ogohlantirish: %s", e)
+
+        # 3. Agar SQLite'da topilmasa, MongoDB Atlas'dan fallback qilib olib, keshlaymiz
+        if val is None:
+            try:
+                if mongo_memory_service.is_connected():
+                    val = mongo_memory_service.get_setting(key, None)
+                    if val is not None:
+                        # SQLite ga ham saqlab qo'yamiz
+                        try:
+                            with self._get_connection() as conn:
+                                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(val)))
+                                conn.commit()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        final_val = val if val is not None else default
+        if final_val is not None:
+            if not hasattr(self, "_settings_cache"):
+                self._settings_cache = {}
+            self._settings_cache[key] = final_val
+        return final_val
 
     def set_setting(self, key: str, value: str) -> None:
-        """Doimiy sozlamani saqlaydi (Dual-Persistence: MongoDB + SQLite)."""
-        try:
-            if mongo_memory_service.is_connected():
-                mongo_memory_service.set_setting(key, str(value))
-        except Exception:
-            pass
+        """Doimiy sozlamani saqlaydi (Kesh + SQLite darhol + MongoDB Atlas sync)."""
+        if not hasattr(self, "_settings_cache"):
+            self._settings_cache = {}
+        self._settings_cache[key] = str(value)
 
+        # 1. SQLite'ga darhol yozish (<1 ms)
         try:
             with self._get_connection() as conn:
                 conn.execute(
@@ -225,6 +246,13 @@ class SQLiteMemoryService:
                 conn.commit()
         except Exception as e:
             logger.error("Sozlamani saqlashda xatolik: %s", e)
+
+        # 2. MongoDB Atlas'ga orqa fonda / sinxron saqlash
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.set_setting(key, str(value))
+        except Exception:
+            pass
 
     def get_private_quiet_window(self) -> int:
         """
@@ -500,6 +528,51 @@ class SQLiteMemoryService:
             logger.error("Chatlar sonini olishda xatolik: %s", e)
             return 0
 
+    def get_students_count(self) -> int:
+        """Talabalar sonini SQLite'dan 0.1ms da hisoblaydi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM students")
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except Exception:
+            return 0
+
+    def get_active_reminders_count(self) -> int:
+        """Faol eslatmalar sonini SQLite'dan 0.1ms da hisoblaydi."""
+        now_str = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM reminders WHERE is_sent = 0 AND remind_at >= ?", (now_str,))
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except Exception:
+            return 0
+
+    def get_ignored_users_count(self) -> int:
+        """Bloklanganlar sonini SQLite'dan 0.1ms da hisoblaydi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM ignored_users")
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except Exception:
+            return 0
+
+    def get_learned_facts_count(self) -> int:
+        """Bilimlar (insights) sonini SQLite'dan 0.1ms da hisoblaydi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM learned_memory")
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except Exception:
+            return 0
+
     def ignore_user(self, user_id: int, username: str = "", reason: str = "") -> None:
         """Foydalanuvchini bloklanganlar (ignore) ro'yxatiga qo'shadi."""
         # 🛡 MENTOR DAXILSIZLIGI (IMMUNITY GUARD):
@@ -573,7 +646,22 @@ class SQLiteMemoryService:
             return False
 
     def get_ignored_users(self) -> list[dict]:
-        """Bloklangan barcha foydalanuvchilar ro'yxati."""
+        """Bloklangan barcha foydalanuvchilar ro'yxati (Lokal SQLite -> Mongo fallback)."""
+        try:
+            with self._get_connection() as conn:
+                try:
+                    conn.execute("ALTER TABLE ignored_users ADD COLUMN reason TEXT DEFAULT ''")
+                except Exception:
+                    pass
+                cursor = conn.cursor()
+                cursor.execute("SELECT user_id, username, created_at, COALESCE(reason, '') FROM ignored_users ORDER BY created_at DESC")
+                rows = cursor.fetchall()
+                if rows:
+                    return [{"user_id": r[0], "username": r[1], "created_at": r[2], "reason": r[3]} for r in rows]
+        except Exception as e:
+            logger.debug("Ignore ro'yxatini SQLite'dan olishda ogohlantirish: %s", e)
+
+        # Fallback to Mongo if SQLite is empty
         try:
             if mongo_memory_service.is_connected():
                 m_users = mongo_memory_service.get_all_blacklisted_users()
@@ -589,20 +677,7 @@ class SQLiteMemoryService:
                     ]
         except Exception:
             pass
-
-        try:
-            with self._get_connection() as conn:
-                try:
-                    conn.execute("ALTER TABLE ignored_users ADD COLUMN reason TEXT DEFAULT ''")
-                except Exception:
-                    pass
-                cursor = conn.cursor()
-                cursor.execute("SELECT user_id, username, created_at, COALESCE(reason, '') FROM ignored_users ORDER BY created_at DESC")
-                rows = cursor.fetchall()
-                return [{"user_id": r[0], "username": r[1], "created_at": r[2], "reason": r[3]} for r in rows]
-        except Exception as e:
-            logger.error("Ignore ro'yxatini olishda xatolik: %s", e)
-            return []
+        return []
 
     def set_user_message_quota(
         self,
@@ -798,7 +873,31 @@ class SQLiteMemoryService:
             return 0
 
     def get_all_learned_facts(self, limit: int = 50) -> list[dict]:
-        """Barcha o'rganilgan bilimlar va qoidalarni qaytaradi (MongoDB -> SQLite)."""
+        """Barcha o'rganilgan bilimlar va qoidalarni qaytaradi (Lokal SQLite -> Mongo fallback)."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, category, topic, content, created_at, updated_at FROM learned_memory ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    return [
+                        {
+                            "id": r[0],
+                            "category": r[1],
+                            "topic": r[2],
+                            "content": r[3],
+                            "created_at": r[4],
+                            "updated_at": r[5],
+                        }
+                        for r in rows
+                    ]
+        except Exception as e:
+            logger.debug("O'rganilgan bilimlarni SQLite'dan olishda ogohlantirish: %s", e)
+
+        # Fallback to Mongo if SQLite is empty
         try:
             if mongo_memory_service.is_connected():
                 docs = mongo_memory_service.get_all_learned_insights()
@@ -816,29 +915,7 @@ class SQLiteMemoryService:
                     ]
         except Exception as me:
             logger.debug("MongoDB dan saboqlarni olishda ogohlantirish: %s", me)
-
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT id, category, topic, content, created_at, updated_at FROM learned_memory ORDER BY id DESC LIMIT ?",
-                    (limit,),
-                )
-                rows = cursor.fetchall()
-                return [
-                    {
-                        "id": r[0],
-                        "category": r[1],
-                        "topic": r[2],
-                        "content": r[3],
-                        "created_at": r[4],
-                        "updated_at": r[5],
-                    }
-                    for r in rows
-                ]
-        except Exception as e:
-            logger.error("O'rganilgan bilimlarni olishda xatolik: %s", e)
-            return []
+        return []
 
     def delete_learned_fact(self, target: str | int, topic: str = None) -> bool:
         """Bilimni mavzusi yoki ID si bo'yicha o'chiradi (MongoDB + SQLite)."""
@@ -1170,17 +1247,9 @@ class SQLiteMemoryService:
     ) -> int:
         """Yangi eslatmani bazaga saqlaydi (Dual-Persistence)."""
         clean_text = reminder_text.strip()
-        try:
-            if mongo_memory_service.is_connected():
-                mongo_memory_service.add_smart_reminder(
-                    chat_id=chat_id,
-                    creator_id=creator_id,
-                    text=clean_text,
-                    remind_at=remind_at,
-                )
-        except Exception:
-            pass
+        sqlite_id = 0
 
+        # 1. Avval SQLite ga yozish (lastrowid olish uchun)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1192,20 +1261,65 @@ class SQLiteMemoryService:
                     (chat_id, creator_id, clean_text, remind_at),
                 )
                 conn.commit()
-                return cursor.lastrowid
+                sqlite_id = cursor.lastrowid
         except Exception as e:
             logger.error("Eslatmani saqlashda xatolik: %s", e)
-            return 0
+
+        # 2. MongoDB ga sqlite_id bilan yozish (mark_reminder_sent ishlashi uchun)
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.add_smart_reminder(
+                    chat_id=chat_id,
+                    creator_id=creator_id,
+                    text=clean_text,
+                    remind_at=remind_at,
+                    sqlite_id=sqlite_id,
+                )
+        except Exception:
+            pass
+
+        return sqlite_id
 
     def get_active_reminders(self, limit: int = 20) -> list[dict]:
-        """Kutilayotgan faol eslatmalar ro'yxatini qaytaradi (MongoDB Atlas + SQLite)."""
+        """Kutilayotgan faol eslatmalar ro'yxatini qaytaradi (Lokal SQLite -> Mongo fallback)."""
+        now_str = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, chat_id, creator_id, reminder_text, remind_at, created_at
+                    FROM reminders
+                    WHERE is_sent = 0 AND remind_at >= ?
+                    ORDER BY remind_at ASC
+                    LIMIT ?
+                    """,
+                    (now_str, limit),
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    return [
+                        {
+                            "id": r[0],
+                            "chat_id": r[1],
+                            "creator_id": r[2],
+                            "text": r[3],
+                            "remind_at": r[4],
+                            "created_at": r[5],
+                        }
+                        for r in rows
+                    ]
+        except Exception as e:
+            logger.debug("Faol eslatmalarni SQLite'dan olishda ogohlantirish: %s", e)
+
+        # Fallback to Mongo if SQLite is empty
         try:
             if mongo_memory_service.is_connected():
                 m_rems = mongo_memory_service.get_all_active_reminders(limit=limit)
                 if m_rems:
                     return [
                         {
-                            "id": str(r.get("_id", r.get("sqlite_id", ""))),
+                            "id": str(r.get("sqlite_id") or r.get("_id", "")),
                             "chat_id": r.get("chat_id"),
                             "creator_id": r.get("creator_id", 0),
                             "text": r.get("text") or r.get("reminder_text", ""),
@@ -1216,35 +1330,7 @@ class SQLiteMemoryService:
                     ]
         except Exception:
             pass
-
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT id, chat_id, creator_id, reminder_text, remind_at, created_at
-                    FROM reminders
-                    WHERE is_sent = 0
-                    ORDER BY remind_at ASC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                )
-                rows = cursor.fetchall()
-                return [
-                    {
-                        "id": r[0],
-                        "chat_id": r[1],
-                        "creator_id": r[2],
-                        "text": r[3],
-                        "remind_at": r[4],
-                        "created_at": r[5],
-                    }
-                    for r in rows
-                ]
-        except Exception as e:
-            logger.error("Faol eslatmalarni olishda xatolik: %s", e)
-            return []
+        return []
 
     def get_due_reminders(self, current_time_str: str) -> list[dict]:
         """Vaqti yetgan (muddati kelgan) eslatmalarni qaytaradi."""
@@ -1314,8 +1400,15 @@ class SQLiteMemoryService:
     def delete_reminder(self, reminder_id: int | str) -> bool:
         """Eslatmani bekor qiladi/o'chiradi (MongoDB + SQLite)."""
         ok = False
+        target_info = None
         try:
             if mongo_memory_service.is_connected():
+                from bson import ObjectId
+                t_str = str(reminder_id).strip()
+                if ObjectId.is_valid(t_str):
+                    target_info = mongo_memory_service._db["brain_mentor.smart_reminders"].find_one({"_id": ObjectId(t_str)})
+                elif t_str.isdigit():
+                    target_info = mongo_memory_service._db["brain_mentor.smart_reminders"].find_one({"sqlite_id": int(t_str)})
                 if mongo_memory_service.delete_smart_reminder(reminder_id):
                     ok = True
         except Exception:
@@ -1329,6 +1422,20 @@ class SQLiteMemoryService:
                     conn.commit()
                     if cursor.rowcount > 0:
                         ok = True
+                elif target_info:
+                    sql_id = target_info.get("sqlite_id")
+                    txt = target_info.get("text") or target_info.get("reminder_text", "")
+                    rat = target_info.get("remind_at", "")
+                    if sql_id:
+                        cursor.execute("DELETE FROM reminders WHERE id = ?", (int(sql_id),))
+                        conn.commit()
+                        if cursor.rowcount > 0:
+                            ok = True
+                    elif txt and rat:
+                        cursor.execute("DELETE FROM reminders WHERE reminder_text = ? AND remind_at = ?", (txt, rat))
+                        conn.commit()
+                        if cursor.rowcount > 0:
+                            ok = True
         except Exception as e:
             logger.error("Eslatmani o'chirishda xatolik: %s", e)
         return ok

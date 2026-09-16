@@ -1158,6 +1158,11 @@ class AIService:
                 rem_r_sec = max(0.0, reset_r_sec - elapsed)
                 rl["reset_requests"] = f"{rem_r_sec:.1f}s"
 
+        _fl_mt = self._get_brain_minute_tokens("frontline")
+        _vip_mt = self._get_brain_minute_tokens("vip")
+        _res_mt = self._get_brain_minute_tokens("reserve")
+        _aut_mt = self._get_brain_minute_tokens("autonomous")
+
         return {
             "ok": True,
             "active_model": self._metrics.get("active_model", config.groq_model),
@@ -1183,9 +1188,9 @@ class AIService:
                     "status": "active" if self._frontline_clients else "standby",
                     "role": "Barcha o'quvchilar va umumiy guruhlar so'rovlariga tezkor javob beradi (Jamoalar #1-#4)",
                     "requests": self._brain_stats.get("frontline", 0),
-                    "minute_tokens": self._get_brain_minute_tokens("frontline"),
+                    "minute_tokens": _fl_mt,
                     "limit_tpm": 8000,
-                    "minute_tokens_pct": round(min(100.0, self._get_brain_minute_tokens("frontline") / 8000 * 100), 1),
+                    "minute_tokens_pct": round(min(100.0, _fl_mt / 8000 * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("frontline", 0),
                 },
                 "miya_2_vip": {
@@ -1194,9 +1199,9 @@ class AIService:
                     "status": "active" if self._vip_clients else "standby",
                     "role": "Vazifalar guruhi va Mentor buyruqlari uchun 100% ajratilgan mustaqil limit (Jamoalar #5-#7)",
                     "requests": self._brain_stats.get("vip", 0),
-                    "minute_tokens": self._get_brain_minute_tokens("vip"),
+                    "minute_tokens": _vip_mt,
                     "limit_tpm": 8000,
-                    "minute_tokens_pct": round(min(100.0, self._get_brain_minute_tokens("vip") / 8000 * 100), 1),
+                    "minute_tokens_pct": round(min(100.0, _vip_mt / 8000 * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("vip", 0),
                 },
                 "miya_3_reserve": {
@@ -1204,9 +1209,9 @@ class AIService:
                     "status": "active" if self._gemini_client else "standby",
                     "role": "Favqulodda vaziyatlar va Groq limitlari uchun zaxira (1M context)",
                     "requests": self._brain_stats.get("reserve", 0),
-                    "minute_tokens": self._get_brain_minute_tokens("reserve"),
+                    "minute_tokens": _res_mt,
                     "limit_tpm": 1000000,
-                    "minute_tokens_pct": round(min(100.0, self._get_brain_minute_tokens("reserve") / 1000000 * 100), 1),
+                    "minute_tokens_pct": round(min(100.0, _res_mt / 1000000 * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("reserve", 0),
                 },
                 "miya_4_autonomous": {
@@ -1215,9 +1220,9 @@ class AIService:
                     "status": "active" if self._autonomous_clients else "standby",
                     "role": "Orqa fonda to'xtovsiz tafakkur qiladi, o'rganadi va yechimlarni oldindan tayyorlaydi (Jamoalar #8-#10)",
                     "requests": self._brain_stats.get("autonomous", 0),
-                    "minute_tokens": self._get_brain_minute_tokens("autonomous"),
+                    "minute_tokens": _aut_mt,
                     "limit_tpm": 8000,
-                    "minute_tokens_pct": round(min(100.0, self._get_brain_minute_tokens("autonomous") / 8000 * 100), 1),
+                    "minute_tokens_pct": round(min(100.0, _aut_mt / 8000 * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("autonomous", 0),
                 },
             },

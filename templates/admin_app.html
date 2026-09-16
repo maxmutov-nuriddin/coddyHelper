@@ -985,9 +985,47 @@
       font-size: 64px;
       margin-bottom: 16px;
     }
+
+    /* TOP SLIM PROGRESS BAR */
+    #top-progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      width: 0%;
+      background: linear-gradient(90deg, #2ea6ff, #a855f7, #22c55e);
+      z-index: 999999;
+      transition: width 0.25s ease, opacity 0.3s ease;
+      opacity: 0;
+      box-shadow: 0 0 12px rgba(46, 166, 255, 0.85);
+      pointer-events: none;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .tab-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 15px;
+      color: var(--hint-color);
+    }
+    .tab-loader .spinner {
+      width: 24px;
+      height: 24px;
+      border: 2.5px solid rgba(46, 166, 255, 0.18);
+      border-top-color: #2ea6ff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
+
+  <!-- TOP SLIM PROGRESS BAR -->
+  <div id="top-progress-bar"></div>
 
   <!-- ACCESS DENIED FULLSCREEN OVERLAY -->
   <div id="lock-screen">
@@ -2078,7 +2116,49 @@
       else switchTab(cat, el);
     }
 
+    let activeRequestsCount = 0;
+
+    function startProgressBar() {
+      activeRequestsCount++;
+      const bar = document.getElementById("top-progress-bar");
+      if (bar) {
+        bar.style.opacity = "1";
+        bar.style.width = activeRequestsCount === 1 ? "45%" : "70%";
+      }
+    }
+
+    function finishProgressBar() {
+      activeRequestsCount = Math.max(0, activeRequestsCount - 1);
+      const bar = document.getElementById("top-progress-bar");
+      if (bar) {
+        if (activeRequestsCount === 0) {
+          bar.style.width = "100%";
+          setTimeout(() => {
+            if (activeRequestsCount === 0) {
+              bar.style.opacity = "0";
+              setTimeout(() => {
+                if (activeRequestsCount === 0) bar.style.width = "0%";
+              }, 300);
+            }
+          }, 200);
+        } else {
+          bar.style.width = "75%";
+        }
+      }
+    }
+
+    function showTabLoader(containerId, message = "Yuklanmoqda...") {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      container.innerHTML = `
+        <div class="tab-loader">
+          <div class="spinner"></div>
+          <span style="font-size: 11.5px; font-weight: 500;">${escapeHtml(message)}</span>
+        </div>`;
+    }
+
     async function apiRequest(path, method = "GET", body = null) {
+      startProgressBar();
       const headers = {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + authToken
@@ -2101,6 +2181,8 @@
       } catch (err) {
         console.error("API Error:", err);
         return null;
+      } finally {
+        finishProgressBar();
       }
     }
 
@@ -2117,18 +2199,13 @@
     // 1. Initial Authentication & Unified Data Load
     async function loadAllData() {
       try {
+        // Dastlabki kirishda FAQAT asosiy dashboard va status chaqmoqdek tez (<100ms) yuklanadi.
+        // Qolgan tablar foydalanuvchi ularni bosganida (Lazy-load) yuklanadi!
         await Promise.allSettled([
           loadStatus(),
           refreshAiMetrics(),
           refreshAutonomousBrainStatus(),
-          loadPrecomputedAnswers(),
-          loadStudents(),
-          loadReminders(),
-          loadKnowledge(),
-          loadIgnored(),
-          loadTrustedSites(),
-          loadCurriculumTopics(),
-          loadAgentStats()
+          loadPrecomputedAnswers()
         ]);
       } catch (err) {
         console.error("loadAllData xatosi:", err);
@@ -3311,12 +3388,15 @@
     let studentsCache = [];
 
     async function loadStudents() {
+      const listEl = document.getElementById("students-list");
+      if (listEl && (!listEl.children || listEl.children.length === 0)) {
+        showTabLoader("students-list", "O'quvchilar ro'yxati yuklanmoqda...");
+      }
       const searchInput = document.getElementById("student-search-input");
       const search = searchInput ? searchInput.value.trim() : "";
       const query = new URLSearchParams({ search, status: currentStudentFilter });
       const data = await apiRequest("/api/students?" + query.toString());
 
-      const listEl = document.getElementById("students-list");
       if (!listEl) return;
 
       if (!data || !data.ok || !data.students || data.students.length === 0) {
@@ -3486,8 +3566,11 @@
 
     // 6. Reminders
     async function loadReminders() {
-      const data = await apiRequest("/api/reminders");
       const container = document.getElementById("reminders-list");
+      if (container && (!container.children || container.children.length === 0)) {
+        showTabLoader("reminders-list", "Faol eslatmalar yuklanmoqda...");
+      }
+      const data = await apiRequest("/api/reminders");
       if (!container) return;
       if (!data || !data.ok || !data.reminders || data.reminders.length === 0) {
         container.innerHTML = `
@@ -3505,7 +3588,7 @@
             <div class="reminder-text">📌 ${escapeHtml(r.text)}</div>
             <div class="reminder-time">⏰ ${r.remind_at} • ID: ${r.id}</div>
           </div>
-          <button class="btn btn-danger" style="width: auto; padding: 6px 12px; font-size: 12px;" onclick="deleteReminder(${r.id})">
+          <button class="btn btn-danger" style="width: auto; padding: 6px 12px; font-size: 12px;" onclick="deleteReminder('${r.id}')">
             🗑 Bekor qilish
           </button>
         </div>
@@ -3575,13 +3658,18 @@
       if (res && res.ok) {
         showToast("Eslatma bekor qilindi!");
         loadReminders();
+      } else {
+        showToast("Xatolik: " + (res?.error || "O'chirilmadi"));
       }
     }
 
     // 6. Ignored Users
     async function loadIgnored() {
-      const data = await apiRequest("/api/ignored");
       const container = document.getElementById("ignored-list");
+      if (container && (!container.children || container.children.length === 0)) {
+        showTabLoader("ignored-list", "Bloklanganlar ro'yxati yuklanmoqda...");
+      }
+      const data = await apiRequest("/api/ignored");
       if (!container) return;
       if (!data || !data.ok || !data.ignored_users || data.ignored_users.length === 0) {
         container.innerHTML = `
@@ -3618,6 +3706,10 @@
     let currentKnowledgeFilter = "all";
 
     async function loadKnowledge() {
+      const container = document.getElementById("knowledge-list");
+      if (container && (!container.children || container.children.length === 0)) {
+        showTabLoader("knowledge-list", "Bilimlar va qoidalar yuklanmoqda...");
+      }
       const res = await apiRequest("/api/learned-facts");
       if (res && res.ok && res.facts) {
         allKnowledgeFacts = res.facts;
