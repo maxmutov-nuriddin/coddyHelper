@@ -1163,6 +1163,10 @@ class AIService:
         _res_mt = self._get_brain_minute_tokens("reserve")
         _aut_mt = self._get_brain_minute_tokens("autonomous")
 
+        _fl_lim = max(8000, len(self._frontline_clients) * 8000)
+        _vip_lim = max(8000, len(self._vip_clients) * 8000)
+        _aut_lim = max(8000, len(self._autonomous_clients) * 8000)
+
         return {
             "ok": True,
             "active_model": self._metrics.get("active_model", config.groq_model),
@@ -1189,8 +1193,8 @@ class AIService:
                     "role": "Barcha o'quvchilar va umumiy guruhlar so'rovlariga tezkor javob beradi (Jamoalar #1-#4)",
                     "requests": self._brain_stats.get("frontline", 0),
                     "minute_tokens": _fl_mt,
-                    "limit_tpm": 8000,
-                    "minute_tokens_pct": round(min(100.0, _fl_mt / 8000 * 100), 1),
+                    "limit_tpm": _fl_lim,
+                    "minute_tokens_pct": round(min(100.0, _fl_mt / _fl_lim * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("frontline", 0),
                 },
                 "miya_2_vip": {
@@ -1200,8 +1204,8 @@ class AIService:
                     "role": "Vazifalar guruhi va Mentor buyruqlari uchun 100% ajratilgan mustaqil limit (Jamoalar #5-#7)",
                     "requests": self._brain_stats.get("vip", 0),
                     "minute_tokens": _vip_mt,
-                    "limit_tpm": 8000,
-                    "minute_tokens_pct": round(min(100.0, _vip_mt / 8000 * 100), 1),
+                    "limit_tpm": _vip_lim,
+                    "minute_tokens_pct": round(min(100.0, _vip_mt / _vip_lim * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("vip", 0),
                 },
                 "miya_3_reserve": {
@@ -1222,8 +1226,8 @@ class AIService:
                     "role": "Orqa fonda to'xtovsiz tafakkur qiladi, o'rganadi va yechimlarni oldindan tayyorlaydi (Jamoalar #8-#10)",
                     "requests": self._brain_stats.get("autonomous", 0),
                     "minute_tokens": _aut_mt,
-                    "limit_tpm": 8000,
-                    "minute_tokens_pct": round(min(100.0, _aut_mt / 8000 * 100), 1),
+                    "limit_tpm": _aut_lim,
+                    "minute_tokens_pct": round(min(100.0, _aut_mt / _aut_lim * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("autonomous", 0),
                 },
             },
