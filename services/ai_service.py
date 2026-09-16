@@ -771,30 +771,21 @@ class AIService:
 
     def _resolve_brain_tag(self, k_idx: int) -> str:
         """Kalit indeksiga qarab miyaning tagini aniqlaydi."""
-        total_keys = len(self._groq_keys)
-        if total_keys >= 30:
-            if k_idx < 12:
+        if 0 <= k_idx < len(self._groq_clients):
+            c = self._groq_clients[k_idx]
+            if c in self._frontline_clients:
                 return "frontline"
-            elif k_idx < 21:
+            elif c in self._vip_clients:
                 return "vip"
-            else:
+            elif c in self._autonomous_clients:
                 return "autonomous"
-        elif total_keys >= 20:
-            if k_idx < 12:
-                return "frontline"
-            elif k_idx < 18:
-                return "vip"
-            else:
-                return "autonomous"
-        else:
-            fl = len(self._frontline_clients)
-            vl = fl + len(self._vip_clients)
-            if k_idx < fl:
-                return "frontline"
-            elif k_idx < vl:
-                return "vip"
-            else:
-                return "autonomous"
+        fl = len(self._frontline_clients)
+        vl = fl + len(self._vip_clients)
+        if k_idx < fl:
+            return "frontline"
+        elif k_idx < vl:
+            return "vip"
+        return "autonomous"
 
     def _record_brain_tokens(self, brain: str, tokens: int) -> None:
         """Rolling 60s oynasiga tokenlarni yozadi va jami hisobni oshiradi."""
@@ -1040,7 +1031,7 @@ class AIService:
         except Exception:
             pass
 
-    def _record_gemini_metrics(self, prompt_len: int, completion_len: int, duration_ms: int = 0) -> None:
+    def _record_gemini_metrics(self, prompt_len: int, completion_len: int, duration_ms: int = 0, brain_tag: str = "reserve") -> None:
         """Google Gemini zaxira tizimi ishlaganda metrikalarni yangilaydi."""
         try:
             self._metrics["last_provider"] = "Google Gemini"
@@ -1050,13 +1041,15 @@ class AIService:
             self._metrics["last_updated"] = now_iso
             self._metrics["total_requests"] = self._metrics.get("total_requests", 0) + 1
             self._brain_stats["reserve"] = self._brain_stats.get("reserve", 0) + 1
+            if brain_tag and brain_tag != "reserve":
+                self._brain_stats[brain_tag] = self._brain_stats.get(brain_tag, 0) + 1
 
             p_tok = int(prompt_len / 3.5)
             c_tok = int(completion_len / 3.5)
             t_tok = p_tok + c_tok
             self._metrics["total_tokens"] = self._metrics.get("total_tokens", 0) + t_tok
             # Per-brain token tracking
-            self._record_brain_tokens("reserve", t_tok)
+            self._record_brain_tokens(brain_tag, t_tok)
             self._metrics["last_request"] = {
                 "prompt_tokens": p_tok,
                 "completion_tokens": c_tok,
@@ -1064,6 +1057,8 @@ class AIService:
                 "duration_ms": duration_ms,
                 "timestamp": now_iso,
             }
+            if brain_tag in self._brain_cascades:
+                self._recalculate_cascade_states(brain=brain_tag, active_override="Google Gemini")
             cascade = self._metrics.setdefault("cascade_status", {})
             if "Google Gemini" in cascade:
                 cascade["Google Gemini"]["state"] = "active"
@@ -1111,27 +1106,13 @@ class AIService:
         self._refresh_key_and_model_recovery()
         total_keys = len(self._groq_keys)
         def _resolve_brain_info(k_idx: int) -> tuple[str, str]:
-            if total_keys >= 30:
-                if k_idx < 12:
-                    return "Miya 1: Frontline", "frontline"
-                elif k_idx < 21:
-                    return "Miya 2: VIP Vazifalar", "vip"
-                else:
-                    return "Miya 4: Avtonom Ong", "autonomous"
-            elif total_keys >= 20:
-                if k_idx < 12:
-                    return "Miya 1: Frontline", "frontline"
-                elif k_idx < 18:
-                    return "Miya 2: VIP Vazifalar", "vip"
-                else:
-                    return "Miya 4: Avtonom Ong", "autonomous"
+            tag = self._resolve_brain_tag(k_idx)
+            if tag == "frontline":
+                return "Miya 1: Frontline", "frontline"
+            elif tag == "vip":
+                return "Miya 2: VIP Vazifalar", "vip"
             else:
-                if k_idx < len(self._frontline_clients):
-                    return "Miya 1: Frontline", "frontline"
-                elif k_idx < len(self._frontline_clients) + len(self._vip_clients):
-                    return "Miya 2: VIP Vazifalar", "vip"
-                else:
-                    return "Miya 4: Avtonom Ong", "autonomous"
+                return "Miya 4: Avtonom Ong", "autonomous"
 
         keys_pool = []
         for i, k in enumerate(self._groq_keys):
@@ -1276,6 +1257,7 @@ class AIService:
                 "miya_3_reserve": {
                     "title": "Miya 3: Temir Zaxira (Google Gemini)",
                     "enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
+                    "keys_count": 1 if self._gemini_client else 0,
                     "status": ("active" if self._gemini_client else "standby") if memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true" else "disabled",
                     "active_model": "Google Gemini",
                     "role": "Favqulodda vaziyatlar va Groq limitlari uchun zaxira (1M context)",
@@ -2338,6 +2320,7 @@ class AIService:
                         len(effective_prompt) + len(history_context),
                         len(answer) if answer else 0,
                         duration_ms=d_ms,
+                        brain_tag=brain_type,
                     )
                     logger.info("✅ Google Gemini zaxira tizimi orqali muvaffaqiyatli javob olindi.")
                 except Exception as gemini_err:
