@@ -1087,7 +1087,7 @@
               <div style="font-size: 11px; color: var(--hint-color); text-transform: uppercase; letter-spacing: 0.5px;">Ayni paytda faol model</div>
               <div id="ai-active-model-name" style="font-size: 15px; font-weight: 700; color: #2ea6ff; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
                 <span class="status-dot" style="background-color: #22c55e; box-shadow: 0 0 8px #22c55e;"></span>
-                <span id="ai-active-model-text">qwen/qwen3.8-27b</span>
+                <span id="ai-active-model-text">llama-3.3-70b-versatile</span>
               </div>
             </div>
             <div style="text-align: right;">
@@ -2476,9 +2476,9 @@
       const cCont = document.getElementById('ai-cascade-container');
       if (cCont) {
         const defaultCascade = {
-          "qwen/qwen3.8-27b": { role: "Asosiy (27B)", state: "active", context: "128k", tpm: "8k" },
-          "openai/gpt-oss-120b": { role: "Zaxira 1 (120B)", state: "standby", context: "128k", tpm: "8k" },
-          "openai/gpt-oss-20b": { role: "Zaxira 2 (20B)", state: "standby", context: "128k", tpm: "8k" },
+          "llama-3.3-70b-versatile": { role: "Asosiy (70B)", state: "active", context: "128k", tpm: "6k" },
+          "llama-3.1-8b-instant": { role: "Zaxira 1 (8B)", state: "standby", context: "128k", tpm: "20k" },
+          "gemma2-9b-it": { role: "Zaxira 2 (9B)", state: "standby", context: "8k", tpm: "15k" },
           "Google Gemini": { role: "Temir Zaxira (1M)", state: "standby", context: "1M", tpm: "1M" }
         };
         const merged = Object.assign({}, defaultCascade, cascade);

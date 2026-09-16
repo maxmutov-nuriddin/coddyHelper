@@ -37,8 +37,8 @@ class Config:
     groq_frontline_keys: list[str] = None
     groq_vip_keys: list[str] = None
     groq_autonomous_keys: list[str] = None
-    groq_model: str = "qwen/qwen3.8-27b"
-    groq_vision_model: str = "qwen/qwen3.8-27b"
+    groq_model: str = "llama-3.3-70b-versatile"
+    groq_vision_model: str = "llama-3.2-11b-vision-preview"
     auto_reply_enabled: bool = True
     group_reply_enabled: bool = True
     command_prefix: str = "."
@@ -89,12 +89,18 @@ class Config:
         groq_api_keys = combined_keys
         groq_api_key = groq_api_keys[0] if groq_api_keys else ""
 
-        raw_groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
-        if not raw_groq_model or "llama" in raw_groq_model.lower():
-            groq_model = "qwen/qwen3.8-27b"
+        raw_groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+        # Noto'g'ri/fiktiv modellarni filtrlash va rasmiy Groq modeliga yo'naltirish
+        if not raw_groq_model or "qwen" in raw_groq_model.lower() or "gpt-oss" in raw_groq_model.lower():
+            groq_model = "llama-3.3-70b-versatile"
         else:
             groq_model = raw_groq_model
-        groq_vision_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
+
+        raw_vision = os.getenv("GROQ_VISION_MODEL", "llama-3.2-11b-vision-preview").strip()
+        if not raw_vision or "qwen" in raw_vision.lower() or "gpt-oss" in raw_vision.lower():
+            groq_vision_model = "llama-3.2-11b-vision-preview"
+        else:
+            groq_vision_model = raw_vision
 
         auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
         group_reply_enabled = str_to_bool(os.getenv("GROUP_REPLY_ENABLED", "true"), default=True)

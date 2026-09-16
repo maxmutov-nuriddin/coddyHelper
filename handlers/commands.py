@@ -608,14 +608,32 @@ def register_command_handlers(client: TelegramClient) -> None:
             elif event.message.photo:
                 image_bytes = await event.message.download_media(bytes)
 
-            prompt = ai_prompt
-            if not prompt and not reply_text and not image_bytes:
-                await event.edit(f"ℹ️ **Foydalanish:** `ai <savolingiz>` yoki biror rasm/xabarga reply qilib `ai` deb yozing.")
+            prompt_clean = (ai_prompt or "").strip()
+            lower_p = prompt_clean.lower()
+            generic_triggers = {
+                "", "javob", "javob ber", "javobini ayt", "javob berchi", "javob yoz",
+                "yech", "yechib ber", "tushuntir", "tushuntirib ber", "reply", "answer", "help", "yordam"
+            }
+            if not prompt_clean and not reply_text and not image_bytes:
+                await event.edit("ℹ️ **Foydalanish:** `ai <savolingiz>` yoki biror rasm/xabarga reply qilib `ai` deb yozing.")
                 return
 
             await event.edit("⏳ **AI javob tayyorlamoqda...**")
 
-            user_input = prompt if prompt else "Ushbu rasm/skrinshotdagi vazifa yoki xatolikni tahlil qilib, to'liq va aniq yechim ber."
+            if not prompt_clean or lower_p in generic_triggers:
+                if reply_text or image_bytes:
+                    user_input = (
+                        "Ushbu o'quvchining yuborgan xabari, kodi, vazifasi yoki xatoligini to'liq tahlil qilib, "
+                        "unga to'g'ridan-to'g'ri tushunarli, aniq va professional pedagogik yechim/javob ber."
+                    )
+                else:
+                    user_input = "Savolga to'liq, aniq va professional yechim ber."
+            else:
+                user_input = prompt_clean
+
+            # Guruh yoki shaxsiy chat turiga ko'ra to'g'ri miyaga (Frontline yoki VIP) yo'naltirish
+            is_admin_chat = is_escalation_chat(event.chat_id)
+
             try:
                 answer = await asyncio.wait_for(
                     ai_service.generate_reply(
@@ -623,27 +641,42 @@ def register_command_handlers(client: TelegramClient) -> None:
                         user_message=user_input,
                         reply_to_context=reply_text,
                         image_bytes=image_bytes,
+                        is_admin_mode=is_admin_chat,
                     ),
                     timeout=35.0,
                 )
             except asyncio.TimeoutError:
-                await event.edit("⚠️ **Kechirasiz, AI javob berishda vaqt tugadi (timeout 35s). Iltimos, qaytadan urinib ko'ring.**")
+                logger.warning("AI buyrug'ida timeout (35s) yuz berdi [chat_id: %s]", event.chat_id)
+                try:
+                    await event.edit("⚠️ **Kechirasiz, AI javob berishda vaqt tugadi (35s). Iltimos, qaytadan urinib ko'ring.**")
+                except Exception:
+                    pass
                 return
             except Exception as e:
                 logger.error("AI buyrug'ida xatolik: %s", e)
-                await event.edit("⚠️ **AI javob berishda kutilmagan xatolik yuz berdi.**")
+                try:
+                    await event.edit("⚠️ **AI javob berishda kutilmagan xatolik yuz berdi.**")
+                except Exception:
+                    pass
                 return
+
+            ans_str = str(answer or "").strip()
+            if not ans_str:
+                ans_str = "⚠️ AI dan javob olinmadi. Iltimos, so'rovni qayta yuboring."
 
             # Telegram xabar uzunligi chegarasi (4096 belgi)
             try:
-                if len(answer) > 4000:
-                    await event.edit(answer[:4000])
-                    await client.send_message(event.chat_id, answer[4000:])
+                if len(ans_str) > 4000:
+                    await event.edit(ans_str[:4000])
+                    await client.send_message(event.chat_id, ans_str[4000:])
                 else:
-                    await event.edit(answer)
+                    await event.edit(ans_str)
             except Exception as e:
                 logger.error("Xabarni chiqarishda xatolik: %s", e)
-                await event.reply(answer)
+                try:
+                    await event.reply(ans_str)
+                except Exception as e2:
+                    logger.error("Xabarni reply qilishda ham xatolik: %s", e2)
             return
 
         if not raw_text.startswith(prefix):

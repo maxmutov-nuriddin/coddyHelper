@@ -733,9 +733,9 @@ class AIService:
                 "reset_requests": "0s",
             },
             "cascade_status": {
-                "qwen/qwen3.8-27b": {"role": "Asosiy (27B)", "state": "active", "context": "128k", "tpm": "8k", "rpm": 30},
-                "openai/gpt-oss-120b": {"role": "Zaxira 1 (120B)", "state": "standby", "context": "128k", "tpm": "8k", "rpm": 30},
-                "openai/gpt-oss-20b": {"role": "Zaxira 2 (20B)", "state": "standby", "context": "128k", "tpm": "8k", "rpm": 30},
+                "llama-3.3-70b-versatile": {"role": "Asosiy (70B)", "state": "active", "context": "128k", "tpm": "6k", "rpm": 30},
+                "llama-3.1-8b-instant": {"role": "Zaxira 1 (8B)", "state": "standby", "context": "128k", "tpm": "20k", "rpm": 30},
+                "gemma2-9b-it": {"role": "Zaxira 2 (9B)", "state": "standby", "context": "8k", "tpm": "15k", "rpm": 30},
                 "Google Gemini": {"role": "Temir Zaxira (1M)", "state": "standby", "context": "1M", "tpm": "1M", "rpm": 15},
             },
         }
@@ -910,9 +910,9 @@ class AIService:
             cascade = self._metrics.setdefault("cascade_status", {})
             now_ts = time.time()
             priority_order = [
-                config.groq_model or "qwen/qwen3.8-27b",
-                "openai/gpt-oss-120b",
-                "openai/gpt-oss-20b",
+                config.groq_model or "llama-3.3-70b-versatile",
+                "llama-3.1-8b-instant",
+                "gemma2-9b-it",
                 "Google Gemini",
             ]
             # Muddati o'tgan limitlarni tozalash
@@ -1598,7 +1598,7 @@ class AIService:
             )
 
         async def _call_critic():
-            crit_model = "openai/gpt-oss-120b" if "gpt-oss" not in target_model.lower() else target_model
+            crit_model = "llama-3.1-8b-instant" if target_model != "llama-3.1-8b-instant" else "gemma2-9b-it"
             try:
                 return await asyncio.wait_for(
                     c_rev.chat.completions.create(
@@ -1788,17 +1788,15 @@ class AIService:
         )
 
         if image_bytes:
-            candidate_models = [config.groq_vision_model]
+            candidate_models = [config.groq_vision_model or "llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"]
         else:
             candidate_models = []
             # Faqat Groq klasterida 100% mavjud va ishlaydigan haqiqiy modellar
             preferred = [
-                "qwen/qwen3.8-27b",
-                "openai/gpt-oss-120b",
-                "openai/gpt-oss-20b",
+                config.groq_model or "llama-3.3-70b-versatile",
+                "llama-3.1-8b-instant",
+                "gemma2-9b-it",
             ]
-            if config.groq_model and "llama" not in config.groq_model.lower() and config.groq_model not in preferred:
-                preferred.insert(0, config.groq_model)
             for m in preferred:
                 if m and m not in candidate_models:
                     candidate_models.append(m)
@@ -1840,10 +1838,9 @@ class AIService:
             if model_to_use in cascade and cascade[model_to_use].get("state") != "rate_limited":
                 cascade[model_to_use]["state"] = "active"
 
-            # Kichik 20b modelning 8k TPM limitiga urilmaslik uchun: agar so'rov 4,000 tokendan katta bo'lsa,
-            # uni darhol 128k lik katta modellarga yo'naltirish
-            if "20b" in model_to_use.lower() and est_tokens > 4000:
-                logger.info("Model [%s] 8k TPM limitiga to'qnashmasligi uchun o'tkazib yuborildi (%d token).", model_to_use, est_tokens)
+            # Kichik kontekstli yoki kichik modellar 8k TPM limitiga urilmaslik uchun:
+            if ("gemma" in model_to_use.lower() or "8b" in model_to_use.lower()) and est_tokens > 4000:
+                logger.info("Model [%s] kichik kontekst limiti sababli o'tkazib yuborildi (%d token).", model_to_use, est_tokens)
                 continue
 
             # 1. 3 talik komanda (Pod Klaster) - faqat maxsus konsilium so'ralganda va faqat 1-urinishda
@@ -1933,6 +1930,9 @@ class AIService:
                     if "429" in str(e) or "rate_limit_exceeded" in str(e):
                         self._record_model_rate_limited(model_to_use, str(e))
                         # Ushbu modelda boshqa kalitlarni qiynamasdan darhol keyingi zaxira modelga o'tish (break):
+                        break
+                    elif "model_not_found" in str(e) or "does not exist" in str(e) or "404" in str(e) or "400" in str(e):
+                        logger.warning("⚡ Model [%s] mavjud emas yoki noto'g'ri so'rov (%s). Keyingi zaxira modelga o'tilmoqda...", model_to_use, e)
                         break
                     elif "413" in str(e) and len(active_messages) > 2:
                         logger.warning("⚠️ 413 token limiti! Xotira 2 ga bo'linib qayta urinilmoqda...")
@@ -2351,7 +2351,7 @@ class AIService:
             pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
         models_to_try = []
-        for m in [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
+        for m in [config.groq_model or "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]:
             if m and m not in models_to_try:
                 models_to_try.append(m)
 
@@ -2407,7 +2407,7 @@ class AIService:
             pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
         models_to_try = []
-        for m in [config.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]:
+        for m in [config.groq_model or "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]:
             if m and m not in models_to_try:
                 models_to_try.append(m)
 
