@@ -1839,9 +1839,9 @@ class AIService:
             if model_to_use in cascade and cascade[model_to_use].get("state") != "rate_limited":
                 cascade[model_to_use]["state"] = "active"
 
-            # Kichik kontekstli yoki kichik modellar 8k TPM limitiga urilmaslik uchun:
-            if ("gemma" in model_to_use.lower() or "8b" in model_to_use.lower()) and est_tokens > 4000:
-                logger.info("Model [%s] kichik kontekst limiti sababli o'tkazib yuborildi (%d token).", model_to_use, est_tokens)
+            # Kichik 8k kontekstli modellar (Gemma) limitiga urilmaslik uchun:
+            if "gemma" in model_to_use.lower() and est_tokens > 7000:
+                logger.info("Model [%s] 8k kontekst limiti sababli o'tkazib yuborildi (%d token).", model_to_use, est_tokens)
                 continue
 
             # 1. 3 talik komanda (Pod Klaster) - faqat maxsus konsilium so'ralganda va faqat 1-urinishda
@@ -1897,7 +1897,8 @@ class AIService:
 
             # 2. To'g'ridan-to'g'ri tezkor model chaqiruvi (Direct Fast Inference)
             calc_max_tokens = 600
-            max_attempts = min(3, len(pool))
+            max_attempts = min(5, len(pool))
+            model_success = False
             for _ in range(max_attempts):
                 if brain_type == "vip":
                     curr_local_idx = self._vip_idx % len(pool)
@@ -1924,17 +1925,18 @@ class AIService:
                     if not content_str and hasattr(msg_obj, "reasoning") and msg_obj.reasoning:
                         content_str = msg_obj.reasoning.strip()
                     if content_str:
+                        model_success = True
                         return content_str
                 except Exception as e:
-                    logger.warning("Groq kalitida xatolik (model: %s): %s", model_to_use, e)
+                    logger.warning("Groq kalitida xatolik (model: %s, kalit #%d): %s", model_to_use, k_real_idx + 1, e)
                     last_error = e
-                    if "429" in str(e) or "rate_limit_exceeded" in str(e):
-                        self._record_model_rate_limited(model_to_use, str(e))
-                        # Ushbu modelda boshqa kalitlarni qiynamasdan darhol keyingi zaxira modelga o'tish (break):
-                        break
-                    elif "model_not_found" in str(e) or "does not exist" in str(e) or "404" in str(e) or "400" in str(e):
+                    if "model_not_found" in str(e) or "does not exist" in str(e) or "404" in str(e) or "400" in str(e):
                         logger.warning("⚡ Model [%s] mavjud emas yoki noto'g'ri so'rov (%s). Keyingi zaxira modelga o'tilmoqda...", model_to_use, e)
                         break
+                    elif "429" in str(e) or "rate_limit_exceeded" in str(e):
+                        # Har bir kalitning o'z mustaqil TPM/RPM limiti bor. Bitta kalit 429 bo'lsa, keyingi kalitni sinaymiz!
+                        logger.info("⚡ Kalit #%d da 429 limit. Hovuzdagi keyingi kalit tekshirilmoqda...", k_real_idx + 1)
+                        continue
                     elif "413" in str(e) and len(active_messages) > 2:
                         logger.warning("⚠️ 413 token limiti! Xotira 2 ga bo'linib qayta urinilmoqda...")
                         active_messages = [active_messages[0], active_messages[-1]]
@@ -1952,19 +1954,18 @@ class AIService:
                             if not content_str and hasattr(msg_obj, "reasoning") and msg_obj.reasoning:
                                 content_str = msg_obj.reasoning.strip()
                             if content_str:
+                                model_success = True
                                 return content_str
                         except Exception as r_err:
                             logger.warning("Qisqartirilgan xotira bilan qayta urinishda ham xatolik: %s", r_err)
                             last_error = r_err
 
-                    # Agar 429 (Rate limit) bo'lsa, xuddi shu modelda boshqa kalitlarni
-                    # behuda qiynab ularni ham 'Limit' ga tiqmaslik uchun darhol keyingi zaxira modelga o'tish (break):
-                    if "429" in str(e) or "rate_limit_exceeded" in str(e):
-                        logger.warning("⚡ Model [%s] da 429 limit bo'ldi. Boshqa kalitlarni qiynamasdan darhol keyingi zaxira modelga o'tilmoqda...", model_to_use)
-                        break
-
-            # Agar bu modelda barcha kalitlar muvaffaqiyatsiz bo'lsa (masalan limit to'lsa)
-            logger.warning("⚠️ Model [%s] bo'yicha limit yoki xatolik yuz berdi. Keyingi zaxira modelga o'tilmoqda...", model_to_use)
+            # Agar bu modelda barcha sinab ko'rilgan kalitlar 429 limit bo'lsa, modelni kaskadda cooldown ga qo'yish
+            if not model_success and last_error and ("429" in str(last_error) or "rate_limit_exceeded" in str(last_error)):
+                self._record_model_rate_limited(model_to_use, str(last_error))
+                logger.warning("⚡ Model [%s] bo'yicha barcha %d ta kalit sinovi limitga uchradi. Keyingi zaxira modelga o'tilmoqda...", model_to_use, max_attempts)
+            else:
+                logger.warning("⚠️ Model [%s] bo'yicha limit yoki xatolik yuz berdi. Keyingi zaxira modelga o'tilmoqda...", model_to_use)
 
         # Agar rasm hajmi tufayli 413 (rate_limit_exceeded) bo'lsa, yanada ixcham (640px) qilib qayta urinib ko'rish
         if image_bytes and last_error and ("rate_limit_exceeded" in str(last_error) or "413" in str(last_error)):
@@ -1995,32 +1996,7 @@ class AIService:
         """Tizim promptini bilimlar bazasi va tanlangan mentorlik uslubi (persona) bilan boyitadi."""
         sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
         
-        if is_admin_mode:
-            is_action_prompt = any(k in (effective_prompt or "").lower() for k in (
-                "kim yozdi", "kim yozgan", "oxirgi xabar", "eslat", "remind", "jadval",
-                "lokatsiya", "turgan joy", "joylashuv", "statistika", "o'chir", "delete",
-                "blokla", "ignore", "kontakt", "top", "qidir", "send", "yoz", "action", "sozlama",
-                "bot", "avtobus", "chat", "guruh", "bilib ber", "aniqla", "tugma", "menyu", "ekran"
-            ))
-            if not is_action_prompt and "7. **TELEGRAM AMALLAR AGENTI" in sys_prompt:
-                # 1,500 tokenni tejash uchun qisqa cheatsheet qo'llash (8k TPM ga to'qnashmaslik uchun)
-                parts = sys_prompt.split("7. **TELEGRAM AMALLAR AGENTI")
-                concise_actions = (
-                    "7. **TELEGRAM AMALLAR AGENTI (QISQA CHEATSHEET):**\n"
-                    "Zarur bo'lganda quyidagi amallarni bering: <<<ACTION:get_recent_senders()>>>, "
-                    "<<<ACTION:schedule_message(qabul_qiluvchi, matn, vaqt)>>>, <<<ACTION:send_message(qabul_qiluvchi, matn)>>>, "
-                    "<<<ACTION:delete_message(chat, xabar_id)>>>, <<<ACTION:find_contact(ism)>>>, "
-                    "<<<ACTION:search_telegram(qidiruv)>>>, <<<ACTION:search_chat(chat, qidiruv)>>>, "
-                    "<<<ACTION:inspect_bot(bot)>>>, <<<ACTION:click_button(bot, tugma)>>>, "
-                    "<<<ACTION:interact_with_bot(bot, buyruq, tugma)>>>, "
-                    "<<<ACTION:learn_fact(mavzu, qoida)>>>, <<<ACTION:get_group_info(guruh)>>>.\n\n"
-                )
-                tail = ""
-                if len(parts) > 1 and "8. **YECHIMGA YO'NALTIRILGAN" in parts[1]:
-                    tail = "8. **YECHIMGA YO'NALTIRILGAN" + parts[1].split("8. **YECHIMGA YO'NALTIRILGAN", 1)[1]
-                sys_prompt = parts[0] + concise_actions + tail
-
-        # Token Budgeting: 8k TPM limitiga sig'ish uchun butun bazani emas, eng dolzarb 3 ta saboqni ulaymiz
+        # Token Budgeting: 6k TPM limitiga sig'ish uchun butun bazani emas, eng dolzarb saboqlarni ulaymiz
         if effective_prompt and effective_prompt.strip():
             relevant = memory_service.get_relevant_learned_insights(effective_prompt, limit=3)
             if relevant:
