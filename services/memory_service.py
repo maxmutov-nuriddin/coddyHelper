@@ -877,7 +877,7 @@ class SQLiteMemoryService:
                     (*valid_chat_ids, limit),
                 )
                 rows = cursor.fetchall()
-                if not rows or len(rows) < 3:
+                if not rows or len(rows) < 2:
                     cursor.execute(
                         "SELECT content FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT ?",
                         (limit,),
@@ -905,7 +905,7 @@ class SQLiteMemoryService:
                     (*valid_chat_ids, limit * 2),
                 )
                 rows = cursor.fetchall()
-                if not rows:
+                if not rows or len(rows) < 2:
                     cursor.execute(
                         "SELECT role, content FROM messages ORDER BY id DESC LIMIT ?",
                         (limit * 2,),
@@ -915,14 +915,15 @@ class SQLiteMemoryService:
                 rows = list(reversed(rows))
                 dialogues = []
                 for i in range(len(rows) - 1):
-                    if rows[i][0] == "assistant" and rows[i + 1][0] == "user":
+                    # CoddyHelper ba'zan 'model', ba'zan 'assistant' deb saqlaydi - ikkalasini ham qabul qilish:
+                    if rows[i][0] in ("model", "assistant") and rows[i + 1][0] == "user":
                         dialogues.append({
                             "assistant": rows[i][1][:300],
                             "user_feedback": rows[i + 1][1][:300],
                         })
                 return dialogues
         except Exception as e:
-            logger.error("Dialoglarni olishda xatolik: %s", e)
+            logger.error("Suhbatlarni tahlil uchun olishda xatolik: %s", e)
             return []
 
 

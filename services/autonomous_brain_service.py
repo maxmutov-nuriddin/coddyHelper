@@ -141,6 +141,31 @@ class AutonomousBrainService:
         """Web App paneli va telemetriya uchun Miya 4 holati."""
         priorities = self._assess_priorities()
         interval_sec = self.get_interval_seconds()
+
+        # Haqiqiy bazadagi jamg'arilgan bilimlar sonini hisoblash (restartdan keyin ham 0 bo'lib qolmasligi uchun):
+        total_lexicon = len(memory_service.get_all_mentor_lexicon())
+        total_mistakes = len(memory_service.get_recent_self_mistakes(limit=100))
+        total_insights = len(memory_service.get_all_learned_facts(limit=100))
+        total_answers = len(memory_service.get_all_precomputed_answers(limit=100))
+
+        # Agar sessiya ro'yxatlari bo'sh bo'lsa (masalan restartdan keyin), bazadagi so'nggi ma'lumotlarni ko'rsatish:
+        recent_ins = self._recent_insights[-6:] if self._recent_insights else [
+            {"time": "baza", "topic": item.get("topic", "Dastur"), "content": item.get("content", "")[:180]}
+            for item in memory_service.get_all_learned_facts(limit=6)
+        ]
+        recent_pre = self._recent_precomputations[-6:] if self._recent_precomputations else [
+            {"time": "baza", "topic": item.get("topic", "Dastur"), "question": item.get("question_pattern", "")[:100], "answer": item.get("answer_text", "")[:180]}
+            for item in memory_service.get_all_precomputed_answers(limit=6)
+        ]
+        recent_lex = self._recent_lexicon[-6:] if self._recent_lexicon else [
+            {"time": "baza", "phrase": item.get("phrase", ""), "meaning": item.get("meaning", "")[:100]}
+            for item in memory_service.get_all_mentor_lexicon()[-6:]
+        ]
+        recent_mist = self._recent_mistakes[-6:] if self._recent_mistakes else [
+            {"time": "baza", "mistake": item.get("mistake_pattern", "")[:100], "rule": item.get("correction_rule", "")[:150]}
+            for item in memory_service.get_recent_self_mistakes(limit=6)
+        ]
+
         return {
             "is_running": self._is_running,
             "is_busy": self._is_busy,
@@ -150,20 +175,24 @@ class AutonomousBrainService:
             "interval_seconds": interval_sec,
             "interval_minutes": interval_sec // 60,
             "cycle_count": self._cycle_count,
-            "insights_generated": self._insights_generated,
-            "answers_precomputed": self._answers_precomputed,
-            "lexicon_learned": self._lexicon_learned,
-            "mistakes_reflected": self._mistakes_reflected,
+            "insights_generated": total_insights,
+            "answers_precomputed": total_answers,
+            "lexicon_learned": total_lexicon,
+            "mistakes_reflected": total_mistakes,
+            "session_insights": self._insights_generated,
+            "session_answers": self._answers_precomputed,
+            "session_lexicon": self._lexicon_learned,
+            "session_mistakes": self._mistakes_reflected,
             "curriculum_saturated": priorities.get("curriculum_saturated", False),
             "priority_topic": priorities.get("priority_topic", "General"),
             "last_run_time": self._last_run_time,
             "next_run_estimated": self._next_run_estimated,
             "current_activity": self._current_activity,
             "last_error": self._last_error,
-            "recent_insights": self._recent_insights[-6:],
-            "recent_precomputations": self._recent_precomputations[-6:],
-            "recent_lexicon": self._recent_lexicon[-6:],
-            "recent_mistakes": self._recent_mistakes[-6:],
+            "recent_insights": recent_ins,
+            "recent_precomputations": recent_pre,
+            "recent_lexicon": recent_lex,
+            "recent_mistakes": recent_mist,
             "activity_logs": list(reversed(self._activity_logs[-15:])),
         }
 
@@ -256,10 +285,14 @@ class AutonomousBrainService:
             self._cycle_count += 1
             self._last_run_time = _get_tashkent_now_str()
             self._current_activity = f"Sikl muvaffaqiyatli yakunlandi ({self._last_run_time})."
-            self._log_activity(f"✅ Sikl #{self._cycle_count} muvaffaqiyatli bajarildi.", "success")
+            total_lex = len(memory_service.get_all_mentor_lexicon())
+            total_mist = len(memory_service.get_recent_self_mistakes(limit=100))
+            total_ins = len(memory_service.get_all_learned_facts(limit=100))
+            total_ans = len(memory_service.get_all_precomputed_answers(limit=100))
+            self._log_activity(f"✅ Sikl #{self._cycle_count} muvaffaqiyatli bajarildi [{focus.upper()}].", "success")
             return {
                 "ok": True,
-                "message": f"Miya 4 muvaffaqiyatli fikrlab chiqdi! Saboqlar: {self._insights_generated}, Leksikon: {self._lexicon_learned}, Xato qoidalari: {self._mistakes_reflected}, Kesh yechimlar: {self._answers_precomputed}",
+                "message": f"Miya 4 muvaffaqiyatli fikrlab chiqdi! Jamg'arma: {total_ins} saboq, {total_lex} leksikon, {total_mist} xato qoidalari, {total_ans} kesh yechim.",
                 "status": self.get_status(),
             }
         except Exception as e:
@@ -359,9 +392,13 @@ class AutonomousBrainService:
                 except Exception:
                     self._next_run_estimated = f"{interval_min} daqiqadan so'ng"
 
+                total_lex = len(memory_service.get_all_mentor_lexicon())
+                total_mist = len(memory_service.get_recent_self_mistakes(limit=100))
+                total_ins = len(memory_service.get_all_learned_facts(limit=100))
+                total_ans = len(memory_service.get_all_precomputed_answers(limit=100))
                 self._current_activity = f"Sokin rejimda [{mode.upper()}]. Keyingi tafakkur sikli: {self._next_run_estimated}"
                 self._log_activity(
-                    f"Sikl #{self._cycle_count} yakunlandi [{mode.upper()}]. Jami: {self._insights_generated} saboq, {self._lexicon_learned} leksikon, {self._mistakes_reflected} xato qoidasi, {self._answers_precomputed} kesh.",
+                    f"Sikl #{self._cycle_count} yakunlandi [{mode.upper()} / {focus.upper()}]. Baza: {total_ins} saboq, {total_lex} leksikon, {total_mist} qoida, {total_ans} kesh.",
                     "info",
                 )
 
@@ -443,37 +480,54 @@ class AutonomousBrainService:
         from services.ai_service import ai_service
         self._current_activity = "Mentor leksikoni, slangi va qisqartmalari tahlil qilinmoqda..."
 
-        mentor_messages = memory_service.get_recent_mentor_messages(limit=25)
-        if not mentor_messages or len(mentor_messages) < 2:
-            return
-
         existing_lexicon = memory_service.get_all_mentor_lexicon()
         existing_phrases = [item["phrase"].lower() for item in existing_lexicon]
-        existing_str = ", ".join(existing_phrases[:20]) if existing_phrases else "mavjud emas"
+        existing_str = ", ".join(existing_phrases[:25]) if existing_phrases else "mavjud emas"
 
-        msgs_text = "\n".join(f"- {m}" for m in mentor_messages[:15])
+        mentor_messages = memory_service.get_recent_mentor_messages(limit=25)
+        reply = None
 
-        prompt = (
-            "Siz CoddyCamp IT akademiyasining Leksikon va Til O'rganish Miyasisiz (Miya 4).\n"
-            "Vazifangiz — mentor (Nuriddin aka) ning xabarlaridagi o'zbekcha internet slangi, qisqartmalar, "
-            "sheva yoki norasmiy so'zlarni tahlil qilish va ma'nosini anglash.\n"
-            "Masalan: 'db' -> 'deb', 'tel qil' -> 'telefon qilish / qo'ng'iroq qilish', 'qiber' -> 'qilib ber', 'nma' -> 'nima', 'kordim' -> 'ko'rdim'.\n\n"
-            f"Allaqachon o'rganilgan iboralar: [{existing_str}]. Bularni qayta takrorlamang!\n\n"
-            "Mentorning so'nggi xabarlari:\n"
-            f"{msgs_text}\n\n"
-            "Talab: Ushbu xabarlardan hali o'rganilmagan eng muhim 1 ta qisqartma, so'zlashuv iborasi yoki slanging ma'nosini aniqlang.\n"
-            "Javobni FAQAT quyidagi formatda bering:\n"
-            "IBORA: [qisqartma yoki so'z]\n"
-            "MANO: [to'liq ma'nosi va tushuntirishi]\n"
-            "Agar yangi slang yoki qisqartma topilmasa, shunchaki 'HECH_QANDAY' deb yozing."
-        )
+        if mentor_messages and len(mentor_messages) >= 2:
+            msgs_text = "\n".join(f"- {m}" for m in mentor_messages[:15])
+            prompt = (
+                "Siz CoddyCamp IT akademiyasining Leksikon va Til O'rganish Miyasisiz (Miya 4).\n"
+                "Vazifangiz — mentor (Nuriddin aka) ning xabarlaridagi o'zbekcha internet slangi, qisqartmalar, "
+                "sheva yoki norasmiy so'zlarni tahlil qilish va ma'nosini anglash.\n"
+                "Masalan: 'db' -> 'deb', 'tel qil' -> 'telefon qilish', 'qiber' -> 'qilib ber', 'nma' -> 'nima', 'kordim' -> 'ko'rdim', 'kere' -> 'kerak'.\n\n"
+                f"Allaqachon o'rganilgan iboralar: [{existing_str}]. Bularni qayta takrorlamang!\n\n"
+                "Mentorning so'nggi xabarlari:\n"
+                f"{msgs_text}\n\n"
+                "Talab: Ushbu xabarlardan hali o'rganilmagan eng muhim 1 ta qisqartma yoki slanging ma'nosini aniqlang.\n"
+                "Javobni FAQAT quyidagi formatda bering:\n"
+                "IBORA: [qisqartma yoki so'z]\n"
+                "MANO: [to'liq ma'nosi va tushuntirishi]\n"
+                "Agar yangi slang topilmasa, shunchaki 'HECH_QANDAY' deb yozing."
+            )
+            reply = await ai_service.generate_autonomous_reflection(prompt)
 
-        reply = await ai_service.generate_autonomous_reflection(prompt)
+        # Agar mentor xabarlarida yangi slang chiqmasa, umumiy O'zbek IT / Telegram muloqot slangi va qisqartmalaridan o'rganish:
         if not reply or "HECH_QANDAY" in reply.upper():
+            prompt_general = (
+                "Siz CoddyCamp IT akademiyasining Leksikon va Muloqot Uslubi Miyasisiz (Miya 4).\n"
+                "Vazifangiz — O'zbekiston IT muhiti va Telegram guruhlarida mentorlar va dasturchilar faol ishlatadigan, "
+                "ammo adabiy o'zbek tilida boshqacha yoziladigan 1 ta yangi texnik slang, internet qisqartmasi yoki so'zlashuv iborasini aniqlash.\n"
+                "Masalan: 'zapros' -> 'so'rov / HTTP request', 'pull qilib ol' -> 'git pull qilish', 'otkazvordingmi' -> 'pul o'tkazildimi / jo'natildimi', "
+                "'ovozli tashla' -> 'audio xabar yubor', 'lichkaga yoz' -> 'shaxsiy chatga yozish', 'kodni tashavor' -> 'kod snippetini yuborish'.\n\n"
+                f"Allaqachon o'rganilgan iboralar ro'yxati: [{existing_str}]. Bularni aslo takrorlamang!\n\n"
+                "Talab: Hali ro'yxatda bo'lmagan yangi 1 ta ibora va uning aniq izohini bering:\n"
+                "IBORA: [qisqartma yoki so'zlashuv iborasi]\n"
+                "MANO: [to'liq ma'nosi va amaliy tushuntirishi]"
+            )
+            reply = await ai_service.generate_autonomous_reflection(prompt_general)
+
+        if not reply or "HECH_QANDAY" in reply.upper():
+            self._log_activity("📖 Leksikon tahlili: Barcha asosiy iboralar allaqachon o'zlashtirilgan.", "lexicon")
             return
 
+        phrase = None
+        meaning = None
         m_ibora = re.search(r"(?:\*{1,3}|#{1,3})?\s*IBORA\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
-        m_mano = re.search(r"(?:\*{1,3}|#{1,3})?\s*MANO\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+        m_mano = re.search(r"(?:\*{1,3}|#{1,3})?\s*(?:MA['’`]?NO(?:SI)?|MANO(?:SI)?|TUSHUNTIRIS?H)\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
 
         if m_ibora and m_mano:
             try:
@@ -481,21 +535,32 @@ class AutonomousBrainService:
                 mano_part = reply[m_mano.end():]
                 phrase = _clean_field(ibora_part).strip("\"'").lower()
                 meaning = _clean_field(mano_part).strip("\"'")
-                if phrase and meaning and 2 <= len(phrase) <= 40:
-                    if phrase not in existing_phrases:
-                        memory_service.add_mentor_lexicon(phrase, meaning, category="slang")
-                        self._lexicon_learned += 1
-                        self._recent_lexicon.append({
-                            "time": _get_tashkent_time_only(),
-                            "phrase": phrase,
-                            "meaning": meaning[:100],
-                        })
-                        if len(self._recent_lexicon) > 15:
-                            self._recent_lexicon = self._recent_lexicon[-15:]
-                        self._log_activity(f"📖 Yangi leksikon: '{phrase}' -> {meaning[:50]}", "lexicon")
-                        logger.info("✅ Miya 4 yangi slang o'rgandi: [%s] = %s", phrase, meaning)
-            except Exception as e:
-                logger.debug("Leksikon ajratishda xatolik: %s", e)
+            except Exception:
+                pass
+
+        if not (phrase and meaning):
+            for line in reply.strip().splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    k_clean = k.strip().lower().replace("*", "").replace("#", "")
+                    if "ibora" in k_clean and not phrase:
+                        phrase = _clean_field(v).strip("\"'").lower()
+                    elif any(m in k_clean for m in ("mano", "ma'no", "tushuntirish")) and not meaning:
+                        meaning = _clean_field(v).strip("\"'")
+
+        if phrase and meaning and 2 <= len(phrase) <= 50:
+            if phrase not in existing_phrases:
+                memory_service.add_mentor_lexicon(phrase, meaning, category="slang")
+                self._lexicon_learned += 1
+                self._recent_lexicon.append({
+                    "time": _get_tashkent_time_only(),
+                    "phrase": phrase,
+                    "meaning": meaning[:100],
+                })
+                if len(self._recent_lexicon) > 15:
+                    self._recent_lexicon = self._recent_lexicon[-15:]
+                self._log_activity(f"📖 Yangi leksikon: '{phrase}' -> {meaning[:50]}", "lexicon")
+                logger.info("✅ Miya 4 yangi slang o'rgandi: [%s] = %s", phrase, meaning)
 
     async def _reflect_on_mistakes(self) -> None:
         """O'z xatolarini, mentor tuzatishlarini tahlil qilish va qat'iy qoidalar chiqarish."""
@@ -503,31 +568,53 @@ class AutonomousBrainService:
         self._current_activity = "O'z xatolari va mentor ko'rsatmalari tahlil qilinmoqda..."
 
         dialogues = memory_service.get_recent_dialogues_for_reflection(limit=15)
-        if not dialogues or len(dialogues) < 1:
-            return
+        existing_mistakes = memory_service.get_recent_self_mistakes(limit=25)
+        existing_rules = [m.get("correction_rule", "").lower() for m in existing_mistakes]
+        existing_str = "; ".join(existing_rules[:10]) if existing_rules else "mavjud emas"
 
-        dial_text = ""
-        for i, d in enumerate(dialogues[-8:], 1):
-            dial_text += f"Holat #{i}:\nAI javobi: {d['assistant']}\nMentor replikasi: {d['user_feedback']}\n\n"
+        reply = None
+        if dialogues and len(dialogues) >= 1:
+            dial_text = ""
+            for i, d in enumerate(dialogues[-8:], 1):
+                dial_text += f"Holat #{i}:\nAI javobi: {d['assistant']}\nMentor replikasi: {d['user_feedback']}\n\n"
 
-        prompt = (
-            "Siz CoddyCamp IT akademiyasining O'z-O'zini Tahlil Qiluvchi va Xatolardan Saboq Oluvchi Miyasisiz (Miya 4).\n"
-            "Vazifangiz — quyidagi suhbatlarda AI qanday xatoga yo'l qo'ygani, tushunmovchilik qilgani yoki mentorning tanqidi/tuzatishini tahlil qilish.\n\n"
-            "Suhbatlar:\n"
-            f"{dial_text}\n"
-            "Talab: Agar suhbatda AI xato qilgan bo'lsa (yoki mentor norozi bo'lib to'g'irlagan bo'lsa), kelgusida bu takrorlanmasligi uchun 1 ta qat'iy qoida (golden rule) chiqaring.\n"
-            "Javobni FAQAT quyidagi formatda bering:\n"
-            "XATO: [Qanday xatolik yoki noaniqlik bo'lgani]\n"
-            "QOIDA: [Kelgusida AI qat'iy amal qilishi shart bo'lgan oltin qoida]\n"
-            "Agar xatolik yoki tuzatish bo'lmasa, shunchaki 'HECH_QANDAY' deb yozing."
-        )
+            prompt = (
+                "Siz CoddyCamp IT akademiyasining O'z-O'zini Tahlil Qiluvchi va Xatolardan Saboq Oluvchi Miyasisiz (Miya 4).\n"
+                "Vazifangiz — quyidagi suhbatlarda AI qanday xatoga yo'l qo'ygani, tushunmovchilik qilgani yoki foydalanuvchi/mentorning noroziligini tahlil qilish.\n\n"
+                f"Allaqachon mavjud qoidalar: [{existing_str}]. Bularni takrorlamang!\n\n"
+                "Suhbatlar:\n"
+                f"{dial_text}\n"
+                "Talab: Agar suhbatda AI xato qilgan bo'lsa (yoki foydalanuvchi norozi bo'lgan bo'lsa), kelgusida bu takrorlanmasligi uchun 1 ta qat'iy qoida (golden rule) chiqaring.\n"
+                "Javobni FAQAT quyidagi formatda bering:\n"
+                "XATO: [Qanday xatolik yoki noaniqlik bo'lgani]\n"
+                "QOIDA: [Kelgusida AI qat'iy amal qilishi shart bo'lgan oltin qoida]\n"
+                "Agar xatolik yoki tuzatish bo'lmasa, shunchaki 'HECH_QANDAY' deb yozing."
+            )
+            reply = await ai_service.generate_autonomous_reflection(prompt)
 
-        reply = await ai_service.generate_autonomous_reflection(prompt)
+        # Agar real suhbatlarda yangi xato topilmasa, profilaktik pedagogik oltin qoidalar ishlab chiqish:
         if not reply or "HECH_QANDAY" in reply.upper():
+            prompt_preventive = (
+                "Siz CoddyCamp IT akademiyasining O'z-O'zini Takomillashtiruvchi Miyasisiz (Miya 4).\n"
+                "Vazifangiz — dasturlash o'qitishda (HTML, CSS, JavaScript, React, Python) o'quvchilarga yordam berish jarayonida "
+                "AI assistentlar yo'l qo'yishi mumkin bo'lgan nozik pedagogik yoki texnik xatolikni aniqlash va "
+                "buning oldini oluvchi 1 ta amaliy oltin qoida ishlab chiqish.\n"
+                "Masalan: 'Talaba sintaksis xatosi bo'yicha so'rasa, butun kodni qaytadan yozib bermasdan, aynan qaysi qatorda xato ketganini ko'rsatish kerak'.\n\n"
+                f"Allaqachon mavjud qoidalar: [{existing_str}]. Bularni takrorlamang!\n\n"
+                "Talab: 1 ta yangi profilaktik xato va oltin qoidani quyidagi formatda bering:\n"
+                "XATO: [Ehtimoliy pedagogik yoki texnik xatolik]\n"
+                "QOIDA: [Kelgusida doim amal qilinishi shart bo'lgan oltin qoida]"
+            )
+            reply = await ai_service.generate_autonomous_reflection(prompt_preventive)
+
+        if not reply or "HECH_QANDAY" in reply.upper():
+            self._log_activity("🛡 O'z-o'zini tahlil: Barcha asosiy xavfsizlik va pedagogik qoidalar to'liq.", "mistake")
             return
 
-        m_xato = re.search(r"(?:\*{1,3}|#{1,3})?\s*XATO\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
-        m_qoida = re.search(r"(?:\*{1,3}|#{1,3})?\s*QOIDA\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+        mistake_desc = None
+        correction_rule = None
+        m_xato = re.search(r"(?:\*{1,3}|#{1,3})?\s*(?:XATO(?:LIK)?|MISTAKE)\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+        m_qoida = re.search(r"(?:\*{1,3}|#{1,3})?\s*(?:OLTIN\s+)?(?:QOIDA(?:SI)?|RULE|TAVSIYA)\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
 
         if m_xato and m_qoida:
             try:
@@ -535,20 +622,31 @@ class AutonomousBrainService:
                 qoida_part = reply[m_qoida.end():]
                 mistake_desc = _clean_field(xato_part)
                 correction_rule = _clean_field(qoida_part)
-                if mistake_desc and correction_rule and len(correction_rule) >= 10:
-                    memory_service.add_self_mistake(mistake_desc[:200], correction_rule[:300], context="reflection")
-                    self._mistakes_reflected += 1
-                    self._recent_mistakes.append({
-                        "time": _get_tashkent_time_only(),
-                        "mistake": mistake_desc[:100],
-                        "rule": correction_rule[:150],
-                    })
-                    if len(self._recent_mistakes) > 15:
-                        self._recent_mistakes = self._recent_mistakes[-15:]
-                    self._log_activity(f"🛡 Xatodan saboq: {correction_rule[:60]}...", "mistake")
-                    logger.info("✅ Miya 4 xatodan yangi qoida chiqardi: %s", correction_rule[:60])
-            except Exception as e:
-                logger.debug("Xatolik tahlilini ajratishda ogohlantirish: %s", e)
+            except Exception:
+                pass
+
+        if not (mistake_desc and correction_rule):
+            for line in reply.strip().splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    k_clean = k.strip().lower().replace("*", "").replace("#", "")
+                    if any(x in k_clean for x in ("xato", "mistake")) and not mistake_desc:
+                        mistake_desc = _clean_field(v)
+                    elif any(q in k_clean for q in ("qoida", "rule", "tavsiya")) and not correction_rule:
+                        correction_rule = _clean_field(v)
+
+        if mistake_desc and correction_rule and len(correction_rule) >= 10:
+            memory_service.add_self_mistake(mistake_desc[:200], correction_rule[:300], context="reflection")
+            self._mistakes_reflected += 1
+            self._recent_mistakes.append({
+                "time": _get_tashkent_time_only(),
+                "mistake": mistake_desc[:100],
+                "rule": correction_rule[:150],
+            })
+            if len(self._recent_mistakes) > 15:
+                self._recent_mistakes = self._recent_mistakes[-15:]
+            self._log_activity(f"🛡 Xatodan saboq: {correction_rule[:60]}...", "mistake")
+            logger.info("✅ Miya 4 yangi oltin qoida chiqardi: %s", correction_rule[:60])
 
     async def _synthesize_insights(self, topic: str | None = None) -> None:
         """So'nggi savollardan umumiy saboq va tavsiyalar sintezi (Faqat rasmiy o'quv dasturi bo'yicha)."""
@@ -570,7 +668,7 @@ class AutonomousBrainService:
                 f"Markazimizning rasmiy o'quv dasturi va texnologiyalari: [{topics_str}].\n\n"
                 "QAT'IY TALAB VA CHEKLOV:\n"
                 "Siz FAQAT yuqoridagi CoddyCamp o'quv dasturi mavzulari doirasida saboq va xulosa chiqarishingiz shart! "
-                "Dasturdan tashqari boshqa begona tillarga, freymvorklarga yoki mavzularga (masalan: C++, Java, PHP, Docker, Go va h.k.) aslo chiqmang!\n\n"
+                "Dasturdan tashqari boshqa begona mavzularga aslo chiqmang!\n\n"
                 "Quyida o'quvchilar va guruhlardan kelgan so'nggi savollar berilgan:\n"
                 f"{q_list_str}\n\n"
                 "Vazifa: Ushbu savollar orasidan markazimiz o'quv dasturiga mos keladigan qismini tahlil qiling va "
@@ -585,8 +683,7 @@ class AutonomousBrainService:
                 "Siz CoddyCamp IT akademiyasining Avtonom Tafakkur Miyasisiz (Miya 4).\n"
                 f"O'quv dasturi mavzusi: '{chosen_topic}'\n\n"
                 "QAT'IY TALAB VA CHEKLOV:\n"
-                f"Siz FAQAT CoddyCamp o'quv dasturidagi ushbu belgilangan mavzu ('{chosen_topic}') doirasida fikrlashingiz shart. "
-                "Belgilangan mavzular chegarasidan aslo chetga chiqmang!\n\n"
+                f"Siz FAQAT CoddyCamp o'quv dasturidagi ushbu belgilangan mavzu ('{chosen_topic}') doirasida fikrlashingiz shart.\n\n"
                 f"Vazifa: Dasturchilar va o'quvchilar '{chosen_topic}' mavzusida eng ko'p yo'l qo'yadigan jiddiy xatoni aniqlang "
                 "va uning oldini olish bo'yicha 1 ta oltin qoida (insight) bering.\n"
                 "Javobingizni quyidagi aniq formatda bering:\n"
@@ -599,9 +696,9 @@ class AutonomousBrainService:
             return
 
         final_topic = chosen_topic
-        content = _clean_field(reply)
-        m_xulosa = re.search(r"(?:\*{1,3}|#{1,3})?\s*XULOSA\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
-        m_mavzu = re.search(r"(?:\*{1,3}|#{1,3})?\s*MAVZU\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+        content = None
+        m_xulosa = re.search(r"(?:\*{1,3}|#{1,3})?\s*(?:XULOSA(?:SI)?|SABOQ|INSIGHT|QOIDA)\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+        m_mavzu = re.search(r"(?:\*{1,3}|#{1,3})?\s*(?:MAVZU|TOPIC)\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
 
         if m_xulosa:
             try:
@@ -612,15 +709,23 @@ class AutonomousBrainService:
                 parsed_topic = _clean_field(topic_part)
                 matched = next((t for t in curriculum_topics if t.lower() in parsed_topic.lower() or parsed_topic.lower() in t.lower()), None)
                 if matched:
-                    if matched.lower() in parsed_topic.lower():
-                        final_topic = parsed_topic
-                    else:
-                        final_topic = f"{matched}: {parsed_topic}"
-                else:
-                    final_topic = f"{chosen_topic}: {parsed_topic}" if parsed_topic else chosen_topic
+                    final_topic = parsed_topic if matched.lower() in parsed_topic.lower() else f"{matched}: {parsed_topic}"
+                elif parsed_topic:
+                    final_topic = f"{chosen_topic}: {parsed_topic}"
                 content = _clean_field(reply[m_xulosa.end():])
             except Exception:
                 pass
+
+        if not content:
+            for line in reply.strip().splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    k_clean = k.strip().lower().replace("*", "").replace("#", "")
+                    if any(x in k_clean for x in ("xulosa", "saboq", "insight")) and not content:
+                        content = _clean_field(v)
+
+        if not content:
+            content = _clean_field(reply)
 
         if content and len(content) >= 15:
             memory_service.add_autonomous_insight(final_topic[:50], content)
@@ -650,8 +755,7 @@ class AutonomousBrainService:
             f"Siz CoddyCamp IT akademiyasining Avtonom Tafakkur Miyasisiz (Miya 4).\n"
             f"O'quv dasturi mavzusi: '{target_topic}'\n\n"
             f"QAT'IY TALAB VA CHEKLOV:\n"
-            f"Siz FAQAT CoddyCamp o'quv dasturidagi belgilangan mavzu ('{target_topic}') doirasida fikrlashingiz shart. "
-            f"Ushbu mavzudan boshqa begona tillarga yoki mavzularga aslo chiqmang!\n\n"
+            f"Siz FAQAT CoddyCamp o'quv dasturidagi belgilangan mavzu ('{target_topic}') doirasida fikrlashingiz shart.\n\n"
             f"Vazifa: O'quvchilar '{target_topic}' mavzusida eng ko'p so'raydigan yoki kelgusida so'rashi mumkin bo'lgan 1 ta qiyin savolni/xatoni aniqlang "
             "va unga ideal, to'liq kodli, tushunarli yechim tayyorlang.\n"
             "Javobni quyidagi aniq formatda bering:\n"
@@ -663,8 +767,11 @@ class AutonomousBrainService:
         if not reply:
             return
 
-        m_yechim = re.search(r"(?:\*{1,3}|#{1,3})?\s*YECHIM\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
-        m_savol = re.search(r"(?:\*{1,3}|#{1,3})?\s*SAVOL\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+        m_yechim = re.search(r"(?:\*{1,3}|#{1,3})?\s*(?:YECHIM(?:I)?|JAVOB(?:I)?|SOLUTION|ANSWER)\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+        m_savol = re.search(r"(?:\*{1,3}|#{1,3})?\s*(?:SAVOL(?:I)?|QUESTION)\s*(?:\*{1,3}|#{1,3})?:?", reply, re.IGNORECASE)
+
+        q_pattern = None
+        answer_code = None
 
         if m_yechim:
             try:
@@ -678,22 +785,32 @@ class AutonomousBrainService:
                 answer_code = textwrap.dedent(a_part).strip()
                 answer_code = re.sub(r"^\*{1,3}\s*", "", answer_code).strip()
                 answer_code = re.sub(r"\*{1,3}$", "", answer_code).strip()
+            except Exception:
+                pass
 
-                if q_pattern and answer_code:
-                    memory_service.add_precomputed_answer(target_topic, q_pattern, answer_code)
-                    self._answers_precomputed += 1
-                    self._recent_precomputations.append({
-                        "time": _get_tashkent_time_only(),
-                        "topic": target_topic,
-                        "question": q_pattern[:100],
-                        "answer": answer_code[:180],
-                    })
-                    if len(self._recent_precomputations) > 15:
-                        self._recent_precomputations = self._recent_precomputations[-15:]
-                    self._log_activity(f"⚡ Yechim keshlandi: [{target_topic}] {q_pattern[:40]}...", "precompute")
-                    logger.info("✅ Miya 4 oldindan yechim tayyorlab qo'ydi: [%s] -> %s", target_topic, q_pattern[:35])
-            except Exception as e:
-                logger.debug("Pre-compute javobini ajratishda ogohlantirish: %s", e)
+        if not (q_pattern and answer_code):
+            for line in reply.strip().splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    k_clean = k.strip().lower().replace("*", "").replace("#", "")
+                    if any(s in k_clean for s in ("savol", "question")) and not q_pattern:
+                        q_pattern = _clean_field(v)
+                    elif any(a in k_clean for a in ("yechim", "javob", "solution", "answer")) and not answer_code:
+                        answer_code = _clean_field(v)
+
+        if q_pattern and answer_code:
+            memory_service.add_precomputed_answer(target_topic, q_pattern, answer_code)
+            self._answers_precomputed += 1
+            self._recent_precomputations.append({
+                "time": _get_tashkent_time_only(),
+                "topic": target_topic,
+                "question": q_pattern[:100],
+                "answer": answer_code[:180],
+            })
+            if len(self._recent_precomputations) > 15:
+                self._recent_precomputations = self._recent_precomputations[-15:]
+            self._log_activity(f"⚡ Yechim keshlandi: [{target_topic}] {q_pattern[:40]}...", "precompute")
+            logger.info("✅ Miya 4 oldindan yechim tayyorlab qo'ydi: [%s] -> %s", target_topic, q_pattern[:35])
 
 
 autonomous_brain_service = AutonomousBrainService()
