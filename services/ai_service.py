@@ -679,7 +679,7 @@ def _create_default_cascade() -> dict[str, dict[str, Any]]:
     return {
         "openai/gpt-oss-120b": {"role": "Asosiy (120B)", "state": "active", "context": "128k", "tpm": "8k", "rpm": 1000},
         "openai/gpt-oss-20b": {"role": "Zaxira 1 (20B)", "state": "standby", "context": "128k", "tpm": "8k", "rpm": 1000},
-        "groq/compound-mini": {"role": "Zaxira 2 (Compound)", "state": "standby", "context": "128k", "tpm": "70k", "rpm": 250},
+        "qwen/qwen3.8-27b": {"role": "Zaxira 2 (Qwen 27B)", "state": "standby", "context": "128k", "tpm": "8k", "rpm": 1000},
         "Google Gemini": {"role": "Temir Zaxira (1M)", "state": "standby", "context": "1M", "tpm": "1M", "rpm": 15},
     }
 
@@ -929,7 +929,7 @@ class AIService:
             priority_order = [
                 "openai/gpt-oss-120b",
                 "openai/gpt-oss-20b",
-                "groq/compound-mini",
+                "qwen/qwen3.8-27b",
                 "Google Gemini",
             ]
             if config.groq_model and config.groq_model not in priority_order:
@@ -1020,12 +1020,22 @@ class AIService:
                     secs = float(match.group(2)) if match.group(2) else 0.0
                     if mins > 0 or secs > 0:
                         parsed_cooldown = mins * 60.0 + secs
+                cooldown = 60.0
                 if parsed_cooldown > 0:
-                    cascade[model_name]["rate_limited_until"] = time.time() + parsed_cooldown
+                    cooldown = parsed_cooldown
                 elif "tpd" in err_str or "tokens per day" in err_str or "per day" in err_str:
-                    cascade[model_name]["rate_limited_until"] = time.time() + 900.0
+                    cooldown = 900.0
+
+                now_curr = time.time()
+                new_until = now_curr + cooldown
+                existing_until = cascade[model_name].get("rate_limited_until", 0.0)
+
+                # Agar model allaqachon limitda bo'lsa va uning taymeri hali tugamagan bo'lsa,
+                # mavjud ochilish vaqtini aslo orqaga surib yubormaymiz!
+                if existing_until > now_curr:
+                    cascade[model_name]["rate_limited_until"] = min(existing_until, new_until)
                 else:
-                    cascade[model_name]["rate_limited_until"] = time.time() + 60.0
+                    cascade[model_name]["rate_limited_until"] = new_until
             self._recalculate_cascade_states(brain=brain)
         except Exception:
             pass
@@ -1462,7 +1472,7 @@ class AIService:
                 preferred = []
                 if config.groq_model:
                     preferred.append(config.groq_model)
-                for m in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini"]:
+                for m in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]:
                     if m not in preferred:
                         preferred.append(m)
                 candidate_models = preferred
@@ -1473,8 +1483,10 @@ class AIService:
                     m for m in candidate_models
                     if cascade.get(m, {}).get("state") != "rate_limited" or now_ts >= cascade.get(m, {}).get("rate_limited_until", 0)
                 ]
-                rate_limited_candidates = [m for m in candidate_models if m not in healthy_candidates]
-                candidate_models = healthy_candidates + rate_limited_candidates
+                candidate_models = healthy_candidates
+                if not candidate_models:
+                    logger.info("Miya 4 da barcha Groq modellari cooldown limitida.")
+                    break
 
                 for model_name in candidate_models:
                     self._recalculate_cascade_states(brain="autonomous", active_override=model_name)
@@ -1676,7 +1688,7 @@ class AIService:
             )
 
         async def _call_critic():
-            crit_model = "openai/gpt-oss-20b" if target_model != "openai/gpt-oss-20b" else "groq/compound-mini"
+            crit_model = "openai/gpt-oss-20b" if target_model != "openai/gpt-oss-20b" else "qwen/qwen3.8-27b"
             try:
                 return await asyncio.wait_for(
                     c_rev.chat.completions.create(
@@ -1873,8 +1885,7 @@ class AIService:
             preferred = [
                 config.groq_model or "openai/gpt-oss-120b",
                 "openai/gpt-oss-20b",
-                "groq/compound-mini",
-                "groq/compound",
+                "qwen/qwen3.8-27b",
             ]
             for m in preferred:
                 if m and m not in candidate_models:
@@ -1898,19 +1909,21 @@ class AIService:
         # Cooldown o'tgan kalitlar va modellarni avtomatik tiklash:
         self._refresh_key_and_model_recovery()
 
-        # AGAR model hozirda 'rate_limited' holatida bo'lsa, uni oxiriga surish!
-        # Sog'lom (active yoki standby) modellar BIRINCHI bo'lib ishlatiladi
+        # Cooldown muddati o'tmagan limitdagi modellarni o'tkazib yuborish (taymer uzayib ketmasligi uchun):
         cascade = self._brain_cascades.get(brain_type, self._brain_cascades.get("frontline", {}))
         now_ts = time.time()
         healthy_models = [
             m for m in candidate_models
             if cascade.get(m, {}).get("state") != "rate_limited" or now_ts >= cascade.get(m, {}).get("rate_limited_until", 0)
         ]
-        rate_limited_models = [m for m in candidate_models if m not in healthy_models]
-        candidate_models = healthy_models + rate_limited_models
+        candidate_models = healthy_models
+        if not candidate_models:
+            logger.info("⚠️ Ushbu miyada barcha Groq modellari hozirda cooldown limitida. Zaxira tizimiga o'tilmoqda...")
+            raise RuntimeError("Barcha Groq modellari limitda.")
 
         # Kaskadli zaxira modellar bo'yicha ketma-ket urinish:
         for model_to_use in candidate_models:
+            last_error = None
             # Ushbu modelni aktiv deb kaskadda qayd etish
             self._recalculate_cascade_states(brain=brain_type, active_override=model_to_use)
 
@@ -2413,7 +2426,7 @@ class AIService:
             pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
         models_to_try = []
-        for m in [config.groq_model or "openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini"]:
+        for m in [config.groq_model or "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]:
             if m and m not in models_to_try:
                 models_to_try.append(m)
 
@@ -2469,7 +2482,7 @@ class AIService:
             pool = self._frontline_clients if self._frontline_clients else self._groq_clients
 
         models_to_try = []
-        for m in [config.groq_model or "openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini"]:
+        for m in [config.groq_model or "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]:
             if m and m not in models_to_try:
                 models_to_try.append(m)
 
