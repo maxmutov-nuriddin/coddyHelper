@@ -1109,10 +1109,36 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             USER_REQUEST_TIMESTAMPS[sender_id] = user_times
             if len(user_times) >= MAX_USER_REQUESTS_PER_MINUTE:
                 logger.info("Foydalanuvchi %s uchun so'rovlar limiti oshdi (Rate Limit).", sender_id)
-                await event.reply(
-                    "⏳ **Iltimos, biroz kuting!**\n"
-                    "Siz 1 daqiqa ichida juda ko'p savol yubordingiz. Tizim me'yorida ishlashi uchun 1 daqiqadan so'ng qayta yozing."
+                is_ru_req = is_russian_text(input_text or message_text)
+                wait_text = (
+                    "⏳ **Ваш вопрос принят и также направлен лично учителю Нуриддину!**\n\n"
+                    "Из-за текущей нагрузки ответ будет подготовлен примерно за 1 минуту (или ответит сам учитель). Пожалуйста, подождите немного 😊"
+                    if is_ru_req else
+                    "⏳ **Savolingizni qabul qildim va uni shaxsan Nuriddin Ustozga ham yo'naltirib qo'ydim!**\n\n"
+                    "Hozir tizimda qisqa yuklama bo'lgani sababli, taxminan 1 daqiqa ichida javobni yetkazaman (yoki Ustozning o'zlari javob beradilar) 😊"
                 )
+                sent_wait = await event.reply(wait_text)
+                if sent_wait:
+                    BOT_SENT_MESSAGE_IDS.add(sent_wait.id)
+
+                # Vazifalar (Boshqaruv markazi) guruhiga reja/vazifa kartochkasini yuborish
+                try:
+                    vazifalar_target = await get_vazifalar_chat_target(client)
+                    user_entity = await event.get_sender()
+                    u_name = getattr(user_entity, "first_name", "") or "Foydalanuvchi"
+                    u_user = f"@{user_entity.username}" if getattr(user_entity, "username", None) else f"ID: {sender_id}"
+                    c_title = getattr(event.chat, "title", "Shaxsiy chat") if event.is_group else "Shaxsiy chat"
+                    task_card = (
+                        f"📋 #KutilayotganVazifa #Reja\n\n"
+                        f"👤 **Foydalanuvchi:** {u_name} ({u_user})\n"
+                        f"💬 **Chat:** {c_title}\n"
+                        f"❓ **Savol:** \"{(input_text or message_text)[:350]}\"\n\n"
+                        f"⏳ **Holat:** AI javob berishga tayyorlanmoqda (~1 daqiqa). Agar AI ulgurmasa, Ustoz nazorati zarur."
+                    )
+                    await client.send_message(vazifalar_target, task_card)
+                    logger.info("Vazifalar guruhiga kutilayotgan reja kartochkasi yuborildi [%s]", sender_id)
+                except Exception as task_err:
+                    logger.warning("Vazifalar guruhiga reja yuborishda ogohlantirish: %s", task_err)
                 return
             user_times.append(now_ts)
 
@@ -1738,8 +1764,36 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             timeout=40.0,
                         )
                 except asyncio.TimeoutError:
-                    logger.warning("AI javob kutish vaqti (timeout 40s) oshdi [%s]. Javob bekor qilindi.", chat_id)
+                    logger.warning("AI javob kutish vaqti (timeout 40s) oshdi [%s].", chat_id)
                     log_activity(f"⚠️ AI timeout (40s) bo'ldi [{chat_id}]")
+                    if not is_admin_chat and not is_vazifalar:
+                        is_ru_req = is_russian_text(input_text or message_text)
+                        timeout_text = (
+                            "⏳ **Ваш вопрос направлен лично учителю Нуриддину!**\n\n"
+                            "Ответ готовится немного дольше обычного. Учитель лично ознакомится и ответит вам в ближайшее время 😊"
+                            if is_ru_req else
+                            "⏳ **Savolingizni shaxsan Nuriddin Ustozga yo'naltirdim!**\n\n"
+                            "Javob tayyorlanishi kutilganidan ko'proq vaqt olmoqda. Tez orada Ustozning o'zlari sizga javob beradilar 😊"
+                        )
+                        sent_to = await event.reply(timeout_text)
+                        if sent_to:
+                            BOT_SENT_MESSAGE_IDS.add(sent_to.id)
+                        try:
+                            vazifalar_target = await get_vazifalar_chat_target(client)
+                            user_entity = await event.get_sender()
+                            u_name = getattr(user_entity, "first_name", "") or "Foydalanuvchi"
+                            u_user = f"@{user_entity.username}" if getattr(user_entity, "username", None) else f"ID: {sender_id}"
+                            c_title = getattr(event.chat, "title", "Shaxsiy chat") if event.is_group else "Shaxsiy chat"
+                            await client.send_message(
+                                vazifalar_target,
+                                f"🚨 #KutilayotganVazifa #UstozgaYo'naltirildi\n\n"
+                                f"👤 **Foydalanuvchi:** {u_name} ({u_user})\n"
+                                f"💬 **Chat:** {c_title}\n"
+                                f"❓ **Savol:** \"{(input_text or message_text)[:350]}\"\n\n"
+                                f"⚠️ **Holat:** AI javob berishda kechikdi. O'quvchiga 'Ustozga yo'naltirildi' deb xabar berildi."
+                            )
+                        except Exception as esc_err:
+                            logger.warning("Timeout eskalatsiyasida ogohlantirish: %s", esc_err)
                     return
                 except Exception as gen_err:
                     logger.error("AI javobini olishda xatolik [%s]: %s", chat_id, gen_err)

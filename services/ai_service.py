@@ -2084,30 +2084,30 @@ class AIService:
         """Tizim promptini bilimlar bazasi va tanlangan mentorlik uslubi (persona) bilan boyitadi."""
         sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
         
-        # Token Budgeting: 6k TPM limitiga sig'ish uchun butun bazani emas, eng dolzarb saboqlarni ulaymiz
+        # Token Budgeting: 8k TPM limitiga sig'ish uchun faqat eng muhim dolzarb saboq va bilimlarni ulaymiz
         if effective_prompt and effective_prompt.strip():
-            relevant = memory_service.get_relevant_learned_insights(effective_prompt, limit=3)
+            relevant = memory_service.get_relevant_learned_insights(effective_prompt, limit=2)
             if relevant:
-                lines = ["# DOIMIY O'RGANILGAN BILIMLAR VA MENTOR QOIDALARI:"]
+                lines = ["# MENTORNING O'RGANILGAN QOIDALARI:"]
                 for f in relevant:
                     lines.append(f"• [{f['topic'].upper()}]: {f['content']}")
                 sys_prompt = f"{sys_prompt}\n\n" + "\n".join(lines)
             else:
-                knowledge_context = memory_service.get_knowledge_context(limit=3)
+                knowledge_context = memory_service.get_knowledge_context(limit=2)
                 if knowledge_context:
                     sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
         else:
-            knowledge_context = memory_service.get_knowledge_context(limit=3)
+            knowledge_context = memory_service.get_knowledge_context(limit=2)
             if knowledge_context:
                 sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
 
-        # O'rganilgan leksikon (slang va qisqartmalar) ni ulaymiz:
-        lexicon_snippet = memory_service.get_lexicon_prompt_snippet(max_entries=15)
+        # O'rganilgan eng muhim leksikon (maksimal 6 ta):
+        lexicon_snippet = memory_service.get_lexicon_prompt_snippet(max_entries=6)
         if lexicon_snippet:
             sys_prompt = f"{sys_prompt}\n\n{lexicon_snippet}"
 
-        # O'z xatolaridan chiqarilgan qat'iy qoidalarni ulaymiz:
-        mistakes_snippet = memory_service.get_mistakes_prompt_snippet(max_rules=6)
+        # Eng muhim xatoliklar qoidalari (maksimal 3 ta):
+        mistakes_snippet = memory_service.get_mistakes_prompt_snippet(max_rules=3)
         if mistakes_snippet:
             sys_prompt = f"{sys_prompt}\n\n{mistakes_snippet}"
 
@@ -2115,40 +2115,23 @@ class AIService:
             try:
                 now_tashkent = datetime.now(ZoneInfo("Asia/Tashkent"))
                 h = now_tashkent.hour
-                if 5 <= h < 11:
-                    period_uz = "Erta tong (Xayrli tong)"
-                elif 11 <= h < 17:
-                    period_uz = "Kunduzi / Peshin (Assalomu alaykum)"
-                elif 17 <= h < 22:
-                    period_uz = "Oqshom / Kechqurun (Xayrli kech)"
-                else:
-                    period_uz = "Tun (Tungi sokinlik)"
+                period_uz = "Erta tong" if 5 <= h < 11 else ("Kunduzi" if 11 <= h < 17 else ("Oqshom" if 17 <= h < 22 else "Tun"))
                 time_block = (
-                    f"\n\n# JORIY VAQT VA SHAROIT (Asia/Tashkent):\n"
-                    f"Hozirgi sana va vaqt: {now_tashkent.strftime('%d.%m.%Y %H:%M')}\n"
-                    f"Kunning joriy davri: {period_uz}\n"
-                    f"Eslatma: Mentor bilan salomlashganda joriy vaqtga ({period_uz}) to'la mos ohangda javob bering!"
+                    f"\n\n# JORIY VAQT (Asia/Tashkent): {now_tashkent.strftime('%d.%m.%Y %H:%M')} ({period_uz})\n"
+                    f"Eslatma: Mentor bilan salomlashganda joriy vaqtga mos ohangda javob bering!"
                 )
                 sys_prompt = f"{sys_prompt}{time_block}"
             except Exception:
                 pass
 
         if not is_admin_mode:
-            # 1. O'quv markazining rasmiy o'quv dasturi va mavzular chegarasi (Curriculum Boundary)
+            # O'quv markazining rasmiy steki (ixcham)
             curriculum_topics = memory_service.get_curriculum_topics()
             if curriculum_topics:
-                topics_str = ", ".join(curriculum_topics)
+                topics_str = ", ".join(curriculum_topics[:12])
                 curriculum_block = (
-                    f"# CODDYCAMP RASMIY O'QUV DASTURI VA TEXNOLOGIYALAR STEKI (CURRICULUM BOUNDARY):\n"
-                    f"Bizning o'quv markazimizda FAQAT quyidagi tasdiqlangan texnologiyalar va yo'nalishlar o'qitiladi:\n"
-                    f"[{topics_str}]\n\n"
-                    f"QAT'IY QOIDALAR (O'QUVCHILAR UCHUN):\n"
-                    f"1. O'quvchi umumiy dasturlash mavzusi yoki tushunchasi haqida so'rasa (masalan: 'for sikli', 'while', 'massiv/array', 'funksiya', 'backend', 'ma\\'lumotlar bazasi'), "
-                    f"uni DOIMO va so'zsiz markazimizning rasmiy steki — JavaScript / React / Node.js / Express / MongoDB bo'yicha tushuntiring!\n"
-                    f"2. Boshqa markazda o'qitilmaydigan tillarga (masalan: Python, C++, C#, PHP, Java, Ruby, Go) o'zingizdan o'zingiz aslo chalg'imang va misollarni ularda keltirmang.\n"
-                    f"3. Agar o'quvchi markazda o'tilmaydigan boshqa til haqida ataylab so'rasa (masalan: 'C++ da qanday bo'ladi?'), "
-                    f"xushmuomalalik bilan markazimizda zamonaviy Web dasturlash (Frontend: React/Next.js, Backend: Node.js/Express, Dizayn: Figma) hamda yoshlar uchun Scratch/Pictoblox o'qitilishini eslatib, "
-                    f"asosiy e'tiborni markazimiz o'quv dasturidagi texnologiyalarga qaratishni tavsiya qiling."
+                    f"# CODDYCAMP RASMIY STEKI: [{topics_str}]. "
+                    f"Dasturlash tushunchalarini markazimizning rasmiy steki (JavaScript/React/Node.js/MongoDB) bo'yicha tushuntiring."
                 )
                 sys_prompt = f"{sys_prompt}\n\n{curriculum_block}"
 
