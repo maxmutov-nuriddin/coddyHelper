@@ -1665,7 +1665,7 @@ class AIService:
                 c_gen,
                 model_name=target_model,
                 messages=messages,
-                temperature=0.5 if is_admin_mode else 0.4,
+                temperature=0.2 if is_admin_mode else 0.4,
                 max_tokens=calc_max_tokens,
             )
 
@@ -1756,7 +1756,7 @@ class AIService:
                 c_syn,
                 model_name=target_model,
                 messages=syn_messages,
-                temperature=0.4 if is_admin_mode else 0.3,
+                temperature=0.2 if is_admin_mode else 0.3,
                 max_tokens=800,
             )
             final_reply = res_syn.choices[0].message.content.strip()
@@ -1987,7 +1987,7 @@ class AIService:
                         client,
                         model_name=model_to_use,
                         messages=active_messages,
-                        temperature=0.6 if is_admin_mode else 0.4,
+                        temperature=0.2 if is_admin_mode else 0.4,
                         max_tokens=calc_max_tokens,
                     )
                     msg_obj = response.choices[0].message
@@ -2016,7 +2016,7 @@ class AIService:
                                 client,
                                 model_name=model_to_use,
                                 messages=active_messages,
-                                temperature=0.6 if is_admin_mode else 0.4,
+                                temperature=0.2 if is_admin_mode else 0.4,
                                 max_tokens=calc_max_tokens,
                             )
                             msg_obj = retry_resp.choices[0].message
@@ -2174,7 +2174,7 @@ class AIService:
                     contents=contents_payload,
                     config=types.GenerateContentConfig(
                         system_instruction=sys_prompt,
-                        temperature=0.6,
+                        temperature=0.2 if is_admin_mode else 0.5,
                     ),
                 )
                 if response and response.text:

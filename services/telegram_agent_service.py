@@ -2215,6 +2215,28 @@ async def execute_agent_action(
             "Sizning barcha ulangan qurilmalaringiz va sessiyalaringiz to'liq daxlsiz saqlanadi."
         )
 
+    # 🌟 SAVOL VA BUYRUQNI QAT'IY AJRATISH (INQUIRY PROTECTION):
+    # Agar mentor imkoniyatlar yoki vazifalar haqida so'ragan bo'lsa (masalan: "Nmala qilolasan?"),
+    # hech qanday ACTION amali bajarilmaydi, faqat toza tushuntirish matni qaytariladi.
+    inquiry_pattern = (
+        r"\b(?:n[ie]?ma(?:lar|la)?|qanaqa|qanday)\s*(?:ish\s*)?(?:qila\s*olasan|qilolasan|qilaolasan|qilasan|bilasan|vazifang|foydang|imkoniyat(?:ing|laring)?)\b|"
+        r"\b(?:qobiliyatlaring|qodirsan|kimsen|kim\s*siz|nimalarga\s*qodirsan|nimalar\s*bor|vazifalaring)\b|"
+        r"\b(?:что\s*(?:ты\s*)?(?:умеешь|можешь)|твои\s*(?:функции|возможности))\b"
+    )
+    if re.search(inquiry_pattern, orig_msg, re.I):
+        clean_text = re.sub(r"<<<ACTION:.*?>>>", "", reply_text).strip()
+        if clean_text:
+            return clean_text
+        return (
+            "Assalomu alaykum, Ustoz! Men sizning shaxsiy Senior AI yordamchingizman. "
+            "Quyidagi yo'nalishlarda sizga to'liq yordam bera olaman:\n\n"
+            "• 📋 **Vazifalar va Rejalar**: Eslatmalar qo'yish, rejalashtirish, topshiriqlar kartasini tuzish.\n"
+            "• ⚡ **Telegram Amallari**: Yangi kelgan xabarlarni ko'rish, guruhlarni tahlil qilish, botlar bilan muloqot.\n"
+            "• 💻 **Dasturlash va IT**: Kod tahlili, arxitektura, xatolarni tuzatish, testlar tuzish.\n"
+            "• 🎓 **CoddyCamp Ta'limi**: O'quvchilar profili, dars rejalari, metodik yordam.\n\n"
+            "Biror aniq topshiriq yoki vazifa bo'lsa, bemalol buyurishingiz mumkin!"
+        )
+
     # 0. Action: get_recent_senders (Oxirgi marta kim yozdi? Kelgan xabarlar / Кто написал?)
     m_senders = ACTION_RECENT_SENDERS.search(reply_text)
     if not m_senders:
