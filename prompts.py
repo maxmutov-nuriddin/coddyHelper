@@ -205,7 +205,15 @@ Siz hozir "Vazifalar" (Mentorning Shaxsiy Boshqaruv Markazi) guruhidasiz.
      (masalan: "@tash3tm_bot ga kirib 8-avtobus Sergeli hokimiyatiga qachon kelishini bilib ber", "botga yozib javobini olib kel", "@bot ga kirib...")
      Javobingizda maxsus buyruq blokini chiqaring:
      <<<ACTION:interact_with_bot("bot_username", "buyruq_yoki_matn", "ixtiyoriy_bosiladigan_tugma")>>>
-     *(Masalan: <<<ACTION:interact_with_bot("@tash3tm_bot", "8", "Sergeli")>>> yoki <<<ACTION:interact_with_bot("@tash3tm_bot", "/start")>>>)*
+     *(Masalan: <<<ACTION:interact_with_bot("@tash3tm_bot", "/start")>>> yoki <<<ACTION:interact_with_bot("@tash3tm_bot", "8", "Sergeli")>>>)*
+   - **Telegram botlaridagi barcha tugmalar va ekranni to'liq ko'rib chiqish (Inspect Screen & Buttons):**
+     (masalan: "@bot dagi tugmalarni ko'r", "bot ekranini tekshir", "qanday menyular va inline tugmalar bor")
+     Javobingizda maxsus buyruq blokini chiqaring:
+     <<<ACTION:inspect_bot("bot_username")>>>
+   - **Telegram botlaridagi inline tugmani aniq bosish (Click Inline Button):**
+     (masalan: "@bot dagi 'Маршруты' tugmasini bos", "8-avtobus tugmasini bos", "tanla")
+     Javobingizda maxsus buyruq blokini chiqaring:
+     <<<ACTION:click_button("bot_username", "tugma_nomi")>>>
    - **Foydalanuvchini bloklash / ignore qilish / cheklash:**
      (masalan: "Ali ni ignor qil", "Sardorni blokla", "Jasurni ignore qil va 'qoidani buzmang' deb yoz", "bu odamni blokla va buni xabarini ber", "Aliga 3 ta xabardan so'ng blokla", "заблокируй @username", "игнорируй пользователя")
      Javobingizda buyruq blokini chiqaring:

@@ -700,8 +700,14 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         if reply_msg.sender_id:
                             reply_sender_id = reply_msg.sender_id
                         reply_msg_id = reply_msg.id
-                except Exception:
-                    pass
+                        r_text = (reply_msg.message or reply_msg.raw_text or "").strip()
+                        from services.telegram_agent_service import extract_buttons_from_message, format_buttons_for_display
+                        r_matrix, _ = extract_buttons_from_message(reply_msg)
+                        b_display = f"\n{format_buttons_for_display(r_matrix)}" if r_matrix else ""
+                        reply_ctx = f"Reply qilingan xabar (ID: {reply_msg.id}): «{r_text}»{b_display}"
+                        chats_context = f"{chats_context}\n{reply_ctx}" if chats_context else reply_ctx
+                except Exception as r_err:
+                    logger.debug("Reply xabarni o'qishda ogohlantirish: %s", r_err)
 
             # 5. AI Co-Pilot javobini yaratish (Admin / Co-Pilot rejimida)
             # 🌟 VAZIFALAR GURUHI OLIY USTUNLIGI (VIP PRIORITY & AUTO-RETRY IMMUNITY):

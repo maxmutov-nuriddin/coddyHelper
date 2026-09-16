@@ -1999,7 +1999,7 @@ class AIService:
                 "kim yozdi", "kim yozgan", "oxirgi xabar", "eslat", "remind", "jadval",
                 "lokatsiya", "turgan joy", "joylashuv", "statistika", "o'chir", "delete",
                 "blokla", "ignore", "kontakt", "top", "qidir", "send", "yoz", "action", "sozlama",
-                "bot", "avtobus", "chat", "guruh", "bilib ber", "aniqla"
+                "bot", "avtobus", "chat", "guruh", "bilib ber", "aniqla", "tugma", "menyu", "ekran"
             ))
             if not is_action_prompt and "7. **TELEGRAM AMALLAR AGENTI" in sys_prompt:
                 # 1,500 tokenni tejash uchun qisqa cheatsheet qo'llash (8k TPM ga to'qnashmaslik uchun)
@@ -2010,6 +2010,7 @@ class AIService:
                     "<<<ACTION:schedule_message(qabul_qiluvchi, matn, vaqt)>>>, <<<ACTION:send_message(qabul_qiluvchi, matn)>>>, "
                     "<<<ACTION:delete_message(chat, xabar_id)>>>, <<<ACTION:find_contact(ism)>>>, "
                     "<<<ACTION:search_telegram(qidiruv)>>>, <<<ACTION:search_chat(chat, qidiruv)>>>, "
+                    "<<<ACTION:inspect_bot(bot)>>>, <<<ACTION:click_button(bot, tugma)>>>, "
                     "<<<ACTION:interact_with_bot(bot, buyruq, tugma)>>>, "
                     "<<<ACTION:learn_fact(mavzu, qoida)>>>, <<<ACTION:get_group_info(guruh)>>>.\n\n"
                 )
