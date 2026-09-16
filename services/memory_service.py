@@ -1185,7 +1185,7 @@ class SQLiteMemoryService:
             logger.error("SQLite saboqni tasdiqlashda xatolik: %s", e)
         return ok
 
-    def add_autonomous_insight(self, topic: str, content: str, source: str = "agent") -> int:
+    def add_autonomous_insight(self, topic: str, content: str, source: str = "agent", **kwargs) -> int:
         """Avtonom miya tomonidan o'rganilgan yangi saboqni bazaga saqlaydi (Har bir yangi saboq mustaqil saqlanadi)."""
         t = topic.strip()
         c = content.strip()
@@ -1215,7 +1215,7 @@ class SQLiteMemoryService:
             logger.error("Avtonom saboqni saqlashda xatolik: %s", e)
             return 0
 
-    def add_precomputed_answer(self, topic: str, question_pattern: str, answer_text: str) -> int | None:
+    def add_precomputed_answer(self, topic: str, question_pattern: str, answer_text: str, **kwargs) -> int | None:
         """Kelgusida so'ralishi mumkin bo'lgan savollarga oldindan tayyorlangan mukammal javobni saqlaydi."""
         try:
             with self._get_connection() as conn:
@@ -1340,11 +1340,17 @@ class SQLiteMemoryService:
     # Mentor Lexicon (Mentor tili, qisqartmalari va slengi)
     # -----------------------------------------------------------
     def add_mentor_lexicon(
-        self, term: str, meaning: str, example: str = "", confidence: float = 1.0
+        self,
+        term: str = "",
+        meaning: str = "",
+        example: str = "",
+        confidence: float = 1.0,
+        category: str = "slang",
+        **kwargs,
     ) -> bool:
         """Mentorning o'ziga xos so'zi yoki qisqartmasini xotiraga yozadi (Dual-Persistence)."""
-        clean_term = term.strip().lower()
-        clean_meaning = meaning.strip()
+        clean_term = (term or kwargs.get("phrase", "")).strip().lower()
+        clean_meaning = (meaning or kwargs.get("definition", "")).strip()
         if not clean_term or not clean_meaning:
             return False
 
@@ -1454,14 +1460,16 @@ class SQLiteMemoryService:
     # -----------------------------------------------------------
     def add_self_mistake(
         self,
-        mistake: str,
-        rule: str,
+        mistake: str = "",
+        rule: str = "",
         situation: str = "Tizim tahlili",
         correction: str = "",
         context: str = "",
+        **kwargs,
     ) -> bool:
         """AI o'z xatosini tahlil qilib, kelgusi uchun oltin qoida saqlaydi (Dual-Persistence)."""
-        clean_rule = rule.strip()
+        clean_rule = (rule or kwargs.get("correction_rule", "")).strip()
+        clean_mistake = (mistake or kwargs.get("mistake_pattern", "")).strip()
         if not clean_rule:
             return False
 
