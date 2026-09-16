@@ -767,14 +767,16 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     await asyncio.sleep(retry_delay)
 
             if not raw_reply:
-                # Agar Groq klasteri uzoq band bo'lsa, zaxira Google Gemini ga murojaat:
-                try:
-                    loop = asyncio.get_running_loop()
-                    raw_reply = await loop.run_in_executor(
-                        None, ai_service._generate_with_genai, input_text, chats_context or "", True
-                    )
-                except Exception as final_gem_err:
-                    logger.error("Vazifalar VIP zaxira Gemini ham xato berdi: %s", final_gem_err)
+                # Agar Groq klasteri uzoq band bo'lsa, zaxira Google Gemini ga murojaat (agar yoqilgan bo'lsa):
+                gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
+                if gemini_backup_enabled:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        raw_reply = await loop.run_in_executor(
+                            None, ai_service._generate_with_genai, input_text, chats_context or "", True
+                        )
+                    except Exception as final_gem_err:
+                        logger.error("Vazifalar VIP zaxira Gemini ham xato berdi: %s", final_gem_err)
 
             if not raw_reply:
                 raw_reply = "⚠️ Ustoz, barcha klaster modellarida qisqa uzilish kuzatildi. So'rovingiz yodda saqlandi va tizim qayta ishga tushmoqda."

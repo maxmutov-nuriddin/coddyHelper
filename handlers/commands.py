@@ -723,6 +723,30 @@ def register_command_handlers(client: TelegramClient) -> None:
             return
 
         # -----------------------------------------------------------
+        # 3.1 .miya3 / .gemini / .zaxira - Miya 3 (Temir Zaxira Gemini) ni yoqish / o'chirish
+        # -----------------------------------------------------------
+        if cmd in ("miya3", "gemini", "zaxira"):
+            clean_arg = (arg or "").lower().strip()
+            if clean_arg in ("off", "0", "stop", "ochir", "o'chir", "disable", "no"):
+                memory_service.set_setting("gemini_backup_enabled", "false")
+                await event.edit("🔴 **Miya 3: Temir Zaxira (Google Gemini) o'chirildi!**\nEndi tizim faqat Groq klasteridan foydalanadi, Gemini zaxiraga umuman ulanmaydi.")
+                return
+            elif clean_arg in ("on", "1", "start", "yoq", "faol", "enable", "yes"):
+                memory_service.set_setting("gemini_backup_enabled", "true")
+                await event.edit("🟢 **Miya 3: Temir Zaxira (Google Gemini) yoqildi!**\nGroq limitga uchraganda Gemini favqulodda zaxira sifatida xizmat ko'rsatadi.")
+                return
+            else:
+                curr_status = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
+                status_str = "🟢 Yoqilgan (Faol)" if curr_status else "🔴 O'chirilgan (Nofaol)"
+                await event.edit(
+                    f"ℹ️ **Miya 3 (Temir Zaxira - Google Gemini) holati:** {status_str}\n\n"
+                    f"O'zgartirish uchun:\n"
+                    f"• `{prefix}miya3 off` — Gemini zaxirasini o'chirish\n"
+                    f"• `{prefix}miya3 on` — Gemini zaxirasini yoqish"
+                )
+                return
+
+        # -----------------------------------------------------------
         # 4. .help - Yordam menyusi
         # -----------------------------------------------------------
         if cmd == "help":

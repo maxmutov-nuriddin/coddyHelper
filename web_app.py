@@ -324,6 +324,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
+                "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
                 "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",
                 "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "5")),
                 "ai_persona": memory_service.get_setting("ai_persona", "socratic"),
@@ -416,6 +417,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         elif feature == "vazifalar_status":
             memory_service.set_setting("vazifalar_status_enabled", "true" if enabled else "false")
             logger.info("Admin Panel orqali vazifalar_status_enabled o'zgartirildi: %s", enabled)
+        elif feature in ("gemini_backup", "miya3", "miya_3", "gemini"):
+            memory_service.set_setting("gemini_backup_enabled", "true" if enabled else "false")
+            logger.info("Admin Panel orqali gemini_backup_enabled o'zgartirildi: %s", enabled)
         elif feature == "silent_mode":
             memory_service.set_setting("silent_mode_enabled", "true" if enabled else "false")
             logger.info("Admin Panel orqali silent_mode_enabled o'zgartirildi: %s", enabled)
@@ -459,6 +463,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
                 "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
+                "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
                 "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",
             }
         )

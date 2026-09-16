@@ -1206,7 +1206,8 @@ class AIService:
                 },
                 "miya_3_reserve": {
                     "title": "Miya 3: Temir Zaxira (Google Gemini)",
-                    "status": "active" if self._gemini_client else "standby",
+                    "enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
+                    "status": ("active" if self._gemini_client else "standby") if memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true" else "disabled",
                     "role": "Favqulodda vaziyatlar va Groq limitlari uchun zaxira (1M context)",
                     "requests": self._brain_stats.get("reserve", 0),
                     "minute_tokens": _res_mt,
@@ -2254,8 +2255,9 @@ class AIService:
                     )
                     answer = None
 
-            # 2-ustuvorlik: Google Gemini (Zaxira tizim - 1 million token limit)
-            if not answer and self._gemini_client:
+            # 2-ustuvorlik: Google Gemini (Zaxira tizim - 1 million token limit, agar yoqilgan bo'lsa)
+            gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
+            if not answer and self._gemini_client and gemini_backup_enabled:
                 try:
                     logger.info("⚡ Google Gemini zaxira tizimi ishga tushirildi...")
                     self._recalculate_cascade_states(active_override="Google Gemini")
