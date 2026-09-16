@@ -436,6 +436,16 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         DIQQAT: Faqat va faqat mentorning o'zi uchun ishlaydi!
         """
         chat_id = event.chat_id
+
+        # ⏹ Stop buyrug'i: har qanday osilib qolgan vazifa yoki qulfni darhol tozalaydi
+        raw_txt_check = (event.raw_text or event.message.message or "").strip().lower()
+        if raw_txt_check in ("stop", "/stop", "to'xtat", "toxtat"):
+            CURRENT_SENDING_CHATS.discard(chat_id)
+            sent_stop = await event.reply("⏹ Jarayon to'xtatildi va tizim holati yangilandi. Yangi vazifangizni yozishingiz mumkin.")
+            if sent_stop:
+                BOT_SENT_MESSAGE_IDS.add(sent_stop.id)
+            return
+
         if event.message.id in BOT_SENT_MESSAGE_IDS or chat_id in CURRENT_SENDING_CHATS:
             BOT_SENT_MESSAGE_IDS.discard(event.message.id)
             return
@@ -770,9 +780,19 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 raw_reply = "⚠️ Ustoz, barcha klaster modellarida qisqa uzilish kuzatildi. So'rovingiz yodda saqlandi va tizim qayta ishga tushmoqda."
 
             # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, ignore/bloklash, xabar yuborish, lokatsiya)
-            final_reply = await execute_agent_action(
-                str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id, reply_user_id=reply_sender_id, reply_msg_id=reply_msg_id
-            )
+            try:
+                final_reply = await asyncio.wait_for(
+                    execute_agent_action(
+                        str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id, reply_user_id=reply_sender_id, reply_msg_id=reply_msg_id
+                    ),
+                    timeout=35.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Vazifalar execute_agent_action 35s da timeout bo'ldi")
+                final_reply = "⚠️ Vazifani bajarish kutilganidan ko'proq vaqt oldi. Qaytadan urinib ko'ring."
+            except Exception as act_err:
+                logger.error("Vazifalar execute_agent_action xatoligi: %s", act_err)
+                final_reply = f"⚠️ Amaliyotni bajarishda xatolik yuz berdi: {act_err}"
 
             if final_reply != str(raw_reply):
                 # Web App'dagi kabi xotiradagi oxirgi xabarni amaliy natija bilan yangilash:
@@ -808,12 +828,15 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             logger.error("Vazifalar xabarini qayta ishlashda xatolik: %s", e)
             if status_msg:
                 try:
-                    await status_msg.edit("⚠️ Kechirasiz, xatolik yuz berdi. Qaytadan urinib ko'ring.")
+                    await status_msg.delete()
                 except Exception:
-                    try:
-                        await status_msg.delete()
-                    except Exception:
-                        pass
+                    pass
+            try:
+                err_msg = await event.reply("⚠️ Kechirasiz, xatolik yuz berdi. Qaytadan urinib ko'ring.")
+                if err_msg:
+                    BOT_SENT_MESSAGE_IDS.add(err_msg.id)
+            except Exception:
+                pass
         finally:
             CURRENT_SENDING_CHATS.discard(chat_id)
 

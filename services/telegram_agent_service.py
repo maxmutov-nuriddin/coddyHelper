@@ -446,103 +446,135 @@ async def navigate_tash3tm_bot(client, query: str) -> dict[str, Any]:
     bus_num_m = re.search(r"\b(\d{1,3})\s*(?:-?\s*avtobus)?\b", q)
     bus_num = bus_num_m.group(1) if bus_num_m else None
     prefer_direction = "massiv" if any(w in q for w in ("massiv", "sergeli", "sergili", "hokim")) else None
+    is_stop_search = any(w in q for w in ("astanovka", "ostanovka", "bekat", "stop"))
 
     try:
-        bot_entity = await client.get_input_entity(bot_tag)
-    except Exception:
-        bot_entity = await client.get_entity(bot_tag)
+        try:
+            bot_entity = await client.get_input_entity(bot_tag)
+        except Exception:
+            bot_entity = await client.get_entity(bot_tag)
 
-    recent = await client.get_messages(bot_entity, limit=5)
-    has_menu = False
-    menu_msg = None
-    for m in recent:
-        if m and not m.out and getattr(m, "buttons", None):
-            for row in m.buttons:
-                for btn in row:
-                    if "маршрут" in (getattr(btn, "text", "") or "").lower():
-                        has_menu = True
-                        menu_msg = m
-                        break
-            if has_menu:
-                break
-
-    if not has_menu:
-        await client.send_message(bot_entity, "/start")
-        await asyncio.sleep(1.5)
-        recent = await client.get_messages(bot_entity, limit=3)
+        recent = await client.get_messages(bot_entity, limit=5)
+        has_menu = False
+        menu_msg = None
         for m in recent:
             if m and not m.out and getattr(m, "buttons", None):
-                menu_msg = m
-                has_menu = True
-                break
-
-    history_steps = []
-    if bus_num and has_menu:
-        # 1-qadam: "Маршруты" tugmasini bosish
-        c_res = await click_chat_button(client, bot_tag, "Маршруты", wait_timeout=8)
-        if c_res.get("ok"):
-            history_steps.append("🔘 '🔍 Маршруты' tanlandi")
-            await asyncio.sleep(1.2)
-
-            # 2-qadam: Avtobus raqamini yuborish
-            await client.send_message(bot_entity, bus_num)
-            history_steps.append(f"✍️ '{bus_num}' raqami yuborildi")
-            await asyncio.sleep(2.0)
-
-            # 3-qadam: Yo'nalish tugmalarini tanlash
-            after_bus = await client.get_messages(bot_entity, limit=3)
-            dir_msg = None
-            for m in after_bus:
-                if m and not m.out:
-                    dir_msg = m
+                for row in m.buttons:
+                    for btn in row:
+                        b_txt_low = (getattr(btn, "text", "") or "").lower()
+                        if "маршрут" in b_txt_low or "поиск" in b_txt_low:
+                            has_menu = True
+                            menu_msg = m
+                            break
+                if has_menu:
                     break
 
-            final_msg = dir_msg or menu_msg
-            if dir_msg and getattr(dir_msg, "buttons", None):
-                dir_clicked = False
-                for row in dir_msg.buttons:
-                    for btn in row:
-                        b_text = getattr(btn, "text", "") or ""
-                        if prefer_direction and prefer_direction in b_text.lower():
-                            try:
-                                await btn.click()
-                                history_steps.append(f"🔘 Yo'nalish: '{b_text}' tanlandi")
-                                dir_clicked = True
-                                break
-                            except Exception:
-                                pass
-                    if dir_clicked:
+        if not has_menu:
+            await client.send_message(bot_entity, "/start")
+            await asyncio.sleep(1.5)
+            recent = await client.get_messages(bot_entity, limit=3)
+            for m in recent:
+                if m and not m.out and getattr(m, "buttons", None):
+                    menu_msg = m
+                    has_menu = True
+                    break
+
+        history_steps = []
+
+        # 1-variant: Agar bekat bo'yicha qidiruv so'ralgan bo'lsa ("astanovkasini topib")
+        if is_stop_search and has_menu:
+            c_res = await click_chat_button(client, bot_tag, "Поиск", wait_timeout=8)
+            if c_res.get("ok"):
+                history_steps.append("🔘 '🚏 Поиск остановки' tanlandi")
+                await asyncio.sleep(1.2)
+                # Bekat nomini yuborish
+                stop_name = "Сергели хокимияти" if any(w in q for w in ("sergeli", "hokim")) else "Сергели"
+                await client.send_message(bot_entity, stop_name)
+                history_steps.append(f"✍️ Bekat nomi '{stop_name}' yuborildi")
+                await asyncio.sleep(2.0)
+
+                stop_msgs = await client.get_messages(bot_entity, limit=2)
+                final_msg = stop_msgs[0] if stop_msgs else menu_msg
+                upd_matrix, upd_flat = extract_buttons_from_message(final_msg)
+                upd_text = (final_msg.message or final_msg.raw_text or "").strip()
+                btn_str = format_buttons_for_display(upd_matrix) if upd_matrix else ""
+
+                return {
+                    "ok": True,
+                    "bot": bot_tag,
+                    "steps": history_steps,
+                    "response": upd_text,
+                    "buttons_matrix": upd_matrix,
+                    "buttons_str": btn_str,
+                    "buttons": upd_flat,
+                }
+
+        # 2-variant: Avtobus raqami bo'yicha marshrut qidirish
+        if bus_num and has_menu:
+            c_res = await click_chat_button(client, bot_tag, "Маршруты", wait_timeout=8)
+            if c_res.get("ok"):
+                history_steps.append("🔘 '🔍 Маршруты' tanlandi")
+                await asyncio.sleep(1.2)
+
+                await client.send_message(bot_entity, bus_num)
+                history_steps.append(f"✍️ '{bus_num}' raqami yuborildi")
+                await asyncio.sleep(2.0)
+
+                after_bus = await client.get_messages(bot_entity, limit=3)
+                dir_msg = None
+                for m in after_bus:
+                    if m and not m.out:
+                        dir_msg = m
                         break
 
-                if not dir_clicked and dir_msg.buttons:
-                    first_btn = dir_msg.buttons[0][0]
-                    try:
-                        await first_btn.click()
-                        history_steps.append(f"🔘 Yo'nalish: '{getattr(first_btn, 'text', '')}' tanlandi")
-                    except Exception:
-                        pass
+                final_msg = dir_msg or menu_msg
+                if dir_msg and getattr(dir_msg, "buttons", None):
+                    dir_clicked = False
+                    for row in dir_msg.buttons:
+                        for btn in row:
+                            b_text = getattr(btn, "text", "") or ""
+                            if prefer_direction and prefer_direction in b_text.lower():
+                                try:
+                                    await btn.click()
+                                    history_steps.append(f"🔘 Yo'nalish: '{b_text}' tanlandi")
+                                    dir_clicked = True
+                                    break
+                                except Exception:
+                                    pass
+                        if dir_clicked:
+                            break
 
-                await asyncio.sleep(2.0)
-                final_msgs = await client.get_messages(bot_entity, limit=2)
-                if final_msgs:
-                    final_msg = final_msgs[0]
+                    if not dir_clicked and dir_msg.buttons:
+                        first_btn = dir_msg.buttons[0][0]
+                        try:
+                            await first_btn.click()
+                            history_steps.append(f"🔘 Yo'nalish: '{getattr(first_btn, 'text', '')}' tanlandi")
+                        except Exception:
+                            pass
 
-            upd_matrix, upd_flat = extract_buttons_from_message(final_msg)
-            upd_text = (final_msg.message or final_msg.raw_text or "").strip()
-            btn_str = format_buttons_for_display(upd_matrix) if upd_matrix else ""
+                    await asyncio.sleep(2.0)
+                    final_msgs = await client.get_messages(bot_entity, limit=2)
+                    if final_msgs:
+                        final_msg = final_msgs[0]
 
-            return {
-                "ok": True,
-                "bot": bot_tag,
-                "steps": history_steps,
-                "response": upd_text,
-                "buttons_matrix": upd_matrix,
-                "buttons_str": btn_str,
-                "buttons": upd_flat,
-            }
+                upd_matrix, upd_flat = extract_buttons_from_message(final_msg)
+                upd_text = (final_msg.message or final_msg.raw_text or "").strip()
+                btn_str = format_buttons_for_display(upd_matrix) if upd_matrix else ""
 
-    # Standart zaxira: oddiy muloqot
-    return await interact_with_telegram_bot(client, bot_tag, query)
+                return {
+                    "ok": True,
+                    "bot": bot_tag,
+                    "steps": history_steps,
+                    "response": upd_text,
+                    "buttons_matrix": upd_matrix,
+                    "buttons_str": btn_str,
+                    "buttons": upd_flat,
+                }
+    except Exception as e:
+        logger.error("navigate_tash3tm_bot da xatolik: %s", e)
+
+    # Standart zaxira: rekursiyasiz to'g'ridan-to'g'ri muloqot (_is_direct=True)
+    return await interact_with_telegram_bot(client, bot_tag, query, _is_direct=True)
 
 
 async def interact_with_telegram_bot(
@@ -551,6 +583,7 @@ async def interact_with_telegram_bot(
     query_or_command: str = "",
     click_button: str | None = None,
     wait_timeout: int = 15,
+    _is_direct: bool = False,
 ) -> dict[str, Any]:
     """
     Boshqa Telegram botlari (@tash3tm_bot va h.k.) bilan avtonom muloqot qiladi:
@@ -568,8 +601,8 @@ async def interact_with_telegram_bot(
     bot_tag = f"@{raw_bot}"
     cmd = (query_or_command or "").strip()
 
-    # Agar @tash3tm_bot bo'lsa va avtobus/yo'nalish so'ralsa, maxsus ko'p bosqichli navigator
-    if raw_bot.lower() in ("tash3tm_bot", "3tmbot") and any(w in cmd.lower() for w in ("avtobus", "sergeli", "massiv", "marshrut", "hokim")):
+    # Agar @tash3tm_bot bo'lsa va avtobus/yo'nalish so'ralsa, maxsus ko'p bosqichli navigator (rekursiya bo'lmasligi uchun _is_direct tekshiriladi)
+    if not _is_direct and raw_bot.lower() in ("tash3tm_bot", "3tmbot") and any(w in cmd.lower() for w in ("avtobus", "sergeli", "massiv", "marshrut", "hokim", "astanovka", "bekat")):
         return await navigate_tash3tm_bot(client, cmd)
 
     # Agar faqat tugmani bosish so'ralgan bo'lsa
