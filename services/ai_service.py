@@ -997,8 +997,8 @@ class AIService:
         for b in ("frontline", "vip", "autonomous"):
             self._recalculate_cascade_states(brain=b)
 
-    def _record_model_rate_limited(self, model_name: str, error_msg: str = "", brain: str = "vip") -> None:
-        """Tanlangan miyada model limitga uchraganida uning holatini yangilaydi (TTL: 60s, TPD bo'lsa 900s)."""
+    def _record_model_rate_limited(self, model_name: str, error_msg: str = "", brain: str = "frontline") -> None:
+        """Tanlangan miyada model limitga uchraganida uning holatini yangilaydi."""
         try:
             if not hasattr(self, "_brain_cascades") or not self._brain_cascades:
                 self._brain_cascades = {
@@ -1013,7 +1013,16 @@ class AIService:
                 cascade[model_name]["state"] = "rate_limited"
                 cascade[model_name]["last_error"] = str(error_msg)[:120]
                 err_str = str(error_msg).lower()
-                if "tpd" in err_str or "tokens per day" in err_str or "per day" in err_str:
+                parsed_cooldown = 0.0
+                match = re.search(r"try again in (?:(\d+)m)?(?:([\d\.]+)s)?", err_str)
+                if match:
+                    mins = float(match.group(1)) if match.group(1) else 0.0
+                    secs = float(match.group(2)) if match.group(2) else 0.0
+                    if mins > 0 or secs > 0:
+                        parsed_cooldown = mins * 60.0 + secs
+                if parsed_cooldown > 0:
+                    cascade[model_name]["rate_limited_until"] = time.time() + parsed_cooldown
+                elif "tpd" in err_str or "tokens per day" in err_str or "per day" in err_str:
                     cascade[model_name]["rate_limited_until"] = time.time() + 900.0
                 else:
                     cascade[model_name]["rate_limited_until"] = time.time() + 60.0
@@ -1957,7 +1966,7 @@ class AIService:
                     logger.warning("Pod klasterida xatolik (%s): %s", model_to_use, pod_err)
                     last_error = pod_err
                     if "429" in str(pod_err) or "rate_limit_exceeded" in str(pod_err):
-                        self._record_model_rate_limited(model_to_use, str(pod_err))
+                        self._record_model_rate_limited(model_to_use, str(pod_err), brain=brain_type)
                         logger.warning("⚡ Model [%s] da Pod 429 limit bo'ldi. Darhol keyingi zaxira modelga o'tilmoqda...", model_to_use)
                         continue
 
