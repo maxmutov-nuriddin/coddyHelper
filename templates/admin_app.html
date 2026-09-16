@@ -1159,7 +1159,7 @@
             </div>
             <span id="ai-brains-count-badge" class="badge badge-success" style="font-size: 10px; padding: 2px 8px; white-space: nowrap !important; flex-shrink: 0;">4 ta mustaqil miya</span>
           </div>
-          <div id="ai-brains-container" style="display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin;">
+          <div id="ai-brains-container" style="display: flex; flex-direction: column; gap: 8px;">
             <!-- JS to'ldiradi -->
           </div>
         </div>
@@ -2599,55 +2599,92 @@
         bCont.innerHTML = brainCards.map(b => {
           const pct = Math.min(100, Math.max(0, b.minutePct));
           const barColor = pct > 80 ? '#ef4444' : (pct > 50 ? '#f59e0b' : '#22c55e');
-          const cascadeKeys = Object.keys(b.cascade || {});
+          const cascadeEntries = Object.entries(b.cascade || {});
+
+          // Check for rate-limited models in this brain's cascade
+          const limitedModels = cascadeEntries.filter(([_, inf]) => inf.state === 'rate_limited');
+          const pad = n => String(n).padStart(2, '0');
+          let limitAlertsHtml = '';
+          if (limitedModels.length > 0) {
+            limitAlertsHtml = limitedModels.map(([mName, inf]) => {
+              const shortName = mName.replace('openai/', '').replace('groq/', '').replace('Google ', '');
+              const untilTs = inf.rate_limited_until || 0;
+              const remSec = Math.max(0, Math.round(untilTs - (Date.now() / 1000)));
+              let openTimeStr = '--:--:--';
+              if (untilTs > 0) {
+                const d = new Date(untilTs * 1000);
+                openTimeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+              }
+              const remMin = Math.floor(remSec / 60);
+              const remSecMod = remSec % 60;
+              const remHuman = remMin > 0 ? `${remMin} daqiqa ${remSecMod}s` : `${remSec} soniya`;
+              return `
+                <div style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4); border-radius: 6px; padding: 6px 10px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 13px;">⏳</span>
+                    <span style="color: #fca5a5;"><b>${escapeHtml(shortName)}</b> limiti to'ldi (Kutilmoqda: <b>${remHuman}</b>)</span>
+                  </div>
+                  <div style="background: rgba(239,68,68,0.3); color: #fff; border: 1px solid rgba(239,68,68,0.6); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10.5px; white-space: nowrap;">
+                    🔓 Ochilish vaqti: <span style="color: #fef08a;">${openTimeStr}</span>
+                  </div>
+                </div>
+              `;
+            }).join('');
+          }
+
           return `
-          <div style="border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; display: flex; flex-direction: column; gap: 5px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px;">
-              <span style="font-weight: 700; color: #fff;">${b.icon} ${escapeHtml(b.title)}</span>
-              <div style="display: flex; align-items: center; gap: 4px;">
-                ${b.isMiya3 ? `<button onclick="toggleFeature('gemini_backup', ${!b.enabled}); event.stopPropagation();" style="background: ${b.enabled ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)'}; color: ${b.enabled ? '#ef4444' : '#22c55e'}; border: 1px solid ${b.enabled ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.4)'}; border-radius: 4px; padding: 1px 6px; font-size: 9px; font-weight: 700; cursor: pointer;">${b.enabled ? "O'chirish ✕" : "Yoqish ✓"}</button>` : ''}
-                <span style="background: ${b.badgeColor}22; color: ${b.badgeColor}; border: 1px solid ${b.badgeColor}55; font-size: 9px; padding: 1px 6px; border-radius: 4px; font-weight: 700;">${b.badge}</span>
+          <div style="border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); border-radius: 10px; padding: 10px 12px; font-size: 11.5px; display: flex; flex-direction: column; gap: 6px;">
+            <!-- Header: Title, Status, and Keys badge -->
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-weight: 700; font-size: 12.5px; color: #fff;">${b.icon} ${escapeHtml(b.title)}</span>
+                <span style="font-size: 10px; font-weight: 600;">${b.status}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 5px;">
+                ${b.isMiya3 ? `<button onclick="toggleFeature('gemini_backup', ${!b.enabled}); event.stopPropagation();" style="background: ${b.enabled ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)'}; color: ${b.enabled ? '#ef4444' : '#22c55e'}; border: 1px solid ${b.enabled ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.4)'}; border-radius: 4px; padding: 2px 8px; font-size: 9.5px; font-weight: 700; cursor: pointer;">${b.enabled ? "O'chirish ✕" : "Yoqish ✓"}</button>` : ''}
+                <span style="background: ${b.badgeColor}22; color: ${b.badgeColor}; border: 1px solid ${b.badgeColor}55; font-size: 9.5px; padding: 2px 7px; border-radius: 4px; font-weight: 700;">${b.badge}</span>
               </div>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; background: rgba(0,0,0,0.25); padding: 3px 6px; border-radius: 4px;">
-              <span style="color: var(--hint-color);">So'rovlar: <b style="color: #fff;">${b.reqCount} ta</b></span>
-              <span style="font-weight: 600; font-size: 10px;">${b.status}</span>
+
+            <!-- Active Model & Stats strip -->
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; background: rgba(0,0,0,0.22); padding: 4px 8px; border-radius: 6px;">
+              <div style="display: flex; align-items: center; gap: 5px;">
+                <span style="color: var(--hint-color); font-size: 10.5px;">⚡ Faol Model:</span>
+                <span style="font-weight: 700; color: #2ea6ff; font-size: 11px;">${escapeHtml(b.activeModel)}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--hint-color);">
+                <span>📨 So'rovlar: <b style="color: #fff;">${b.reqCount} ta</b></span>
+                <span>📊 Jami: <b style="color: #fff;">${b.totalTokens.toLocaleString()}</b> token</span>
+              </div>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; background: rgba(46,166,255,0.06); border: 1px solid rgba(46,166,255,0.18); padding: 2px 6px; border-radius: 4px;">
-              <span style="color: var(--hint-color);">⚡ Faol Model:</span>
-              <span style="font-weight: 700; color: #2ea6ff;">${escapeHtml(b.activeModel)}</span>
-            </div>
-            ${cascadeKeys.length ? `
-            <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 1px;">
-              ${Object.entries(b.cascade).map(([mName, inf]) => {
+
+            <!-- Cascade fallback chain -->
+            ${cascadeEntries.length ? `
+            <div style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center; background: rgba(255,255,255,0.02); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+              <span style="font-size: 10px; color: var(--hint-color); font-weight: 600;">⛓️ Zanjir:</span>
+              ${cascadeEntries.map(([mName, inf]) => {
                 const isAct = inf.state === 'active';
                 const isLim = inf.state === 'rate_limited';
                 const shortName = mName.replace('openai/', '').replace('groq/', '').replace('Google ', '');
-                let remSecText = '';
-                if (isLim && inf.rate_limited_until) {
-                  const remSec = Math.max(1, Math.round(inf.rate_limited_until - (Date.now() / 1000)));
-                  remSecText = ` (${remSec}s)`;
-                }
                 let color = isAct ? '#22c55e' : (isLim ? '#ef4444' : 'var(--hint-color)');
                 let bg = isAct ? 'rgba(34,197,94,0.15)' : (isLim ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.04)');
                 let icon = isAct ? '🟢' : (isLim ? '🔴' : '🟡');
-                return `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${bg}; color: ${color}; border: 1px solid ${color}44; white-space: nowrap; font-weight: ${isAct ? '700' : '500'};">${icon} ${shortName}${remSecText}</span>`;
-              }).join('')}
+                let tag = isAct ? ' (Faol)' : (isLim ? ' (Limit)' : '');
+                return `<span style="font-size: 9px; padding: 2px 6px; border-radius: 4px; background: ${bg}; color: ${color}; border: 1px solid ${color}44; white-space: nowrap; font-weight: ${isAct ? '700' : '500'};">${icon} ${shortName}${tag}</span>`;
+              }).join('<span style="color: var(--hint-color); font-size: 9px;">→</span>')}
             </div>` : ''}
-            <div style="font-size: 10px; color: var(--hint-color); line-height: 1.3;">
-              ${escapeHtml(b.desc)}
-            </div>
-            <div style="background: rgba(0,0,0,0.3); border-radius: 4px; padding: 4px 6px; font-size: 10px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
-                <span style="color: var(--hint-color);">⏱ Daqiqalik sarf (TPM)</span>
-                <span style="color: ${barColor}; font-weight: 700;">${b.minuteTokens.toLocaleString()} / ${b.limitTpm.toLocaleString()} (${pct}%)</span>
+
+            <!-- Rate Limit Banner (Ochilish vaqti) -->
+            ${limitAlertsHtml}
+
+            <!-- Description & TPM bar -->
+            <div style="background: rgba(0,0,0,0.3); border-radius: 6px; padding: 5px 8px; font-size: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; flex-wrap: wrap; gap: 4px;">
+                <span style="color: var(--hint-color);">${escapeHtml(b.desc)}</span>
+                <span style="color: ${barColor}; font-weight: 700; white-space: nowrap;">⏱ ${b.minuteTokens.toLocaleString()} / ${b.limitTpm.toLocaleString()} TPM (${pct}%)</span>
               </div>
               <div style="height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;">
                 <div style="height: 100%; width: ${pct}%; background: ${barColor}; border-radius: 2px; transition: width 0.3s;"></div>
-              </div>
-              <div style="display: flex; justify-content: space-between; margin-top: 3px; color: var(--hint-color);">
-                <span>📊 Jami: <b style="color: #fff;">${b.totalTokens.toLocaleString()}</b> token</span>
-                <span>📨 <b style="color: #fff;">${b.reqCount}</b> ta so'rov</span>
               </div>
             </div>
           </div>`;
