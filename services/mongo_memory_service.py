@@ -92,6 +92,12 @@ class MongoMemoryService:
             self._db["brain_mentor.daily_plans"].create_index([("date", 1)])
             # 7. system_core.security_blacklist
             self._db["system_core.security_blacklist"].create_index([("user_id", 1)], unique=True)
+            # 8. brain_cognitive.mentor_lexicon
+            self._db["brain_cognitive.mentor_lexicon"].create_index([("term", 1)], unique=True)
+            # 9. brain_cognitive.self_mistakes
+            self._db["brain_cognitive.self_mistakes"].create_index([("created_at", -1)])
+            # 10. brain_cognitive.daily_debriefs
+            self._db["brain_cognitive.daily_debriefs"].create_index([("date", 1)], unique=True)
             logger.info("🧠 MongoDB Kognitiv Miya indekslari to'liq tasdiqlandi.")
         except Exception as e:
             logger.warning("MongoDB indekslarini sozlashda ogohlantirish: %s", e)
@@ -295,6 +301,123 @@ class MongoMemoryService:
             }
         except Exception:
             return {"iq": 140, "xp": 500, "level": 3}
+
+    # -----------------------------------------------------------
+    # Mentor Lexicon (Mentor tili, qisqartmalari va slengi)
+    # -----------------------------------------------------------
+    def save_mentor_lexicon(
+        self, term: str, meaning: str, example: str = "", confidence: float = 1.0
+    ) -> bool:
+        if not self.is_connected() or not term or not meaning:
+            return False
+        try:
+            doc = {
+                "term": term.strip().lower(),
+                "meaning": meaning.strip(),
+                "example": example.strip(),
+                "confidence": confidence,
+                "updated_at": datetime.now(ZoneInfo("Asia/Tashkent")),
+            }
+            self._db["brain_cognitive.mentor_lexicon"].update_one(
+                {"term": doc["term"]},
+                {"$set": doc, "$setOnInsert": {"created_at": datetime.now(ZoneInfo("Asia/Tashkent"))}},
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_mentor_lexicon xatolik: %s", e)
+            return False
+
+    def get_all_mentor_lexicon(self, limit: int = 100) -> list[dict]:
+        if not self.is_connected():
+            return []
+        try:
+            return list(
+                self._db["brain_cognitive.mentor_lexicon"]
+                .find()
+                .sort("updated_at", -1)
+                .limit(limit)
+            )
+        except Exception as e:
+            logger.error("MongoDB get_all_mentor_lexicon xatolik: %s", e)
+            return []
+
+    def delete_mentor_lexicon(self, term: str) -> bool:
+        if not self.is_connected() or not term:
+            return False
+        try:
+            self._db["brain_cognitive.mentor_lexicon"].delete_one({"term": term.strip().lower()})
+            return True
+        except Exception as e:
+            logger.error("MongoDB delete_mentor_lexicon xatolik: %s", e)
+            return False
+
+    # -----------------------------------------------------------
+    # Self-Mistakes & Reflection (O'z xatolaridan saboq chiqarish)
+    # -----------------------------------------------------------
+    def save_self_mistake(
+        self, situation: str, mistake: str, correction: str, rule: str
+    ) -> bool:
+        if not self.is_connected() or not rule:
+            return False
+        try:
+            doc = {
+                "situation": situation.strip(),
+                "mistake": mistake.strip(),
+                "correction": correction.strip(),
+                "rule": rule.strip(),
+                "created_at": datetime.now(ZoneInfo("Asia/Tashkent")),
+            }
+            self._db["brain_cognitive.self_mistakes"].insert_one(doc)
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_self_mistake xatolik: %s", e)
+            return False
+
+    def get_recent_self_mistakes(self, limit: int = 50) -> list[dict]:
+        if not self.is_connected():
+            return []
+        try:
+            return list(
+                self._db["brain_cognitive.self_mistakes"]
+                .find()
+                .sort("created_at", -1)
+                .limit(limit)
+            )
+        except Exception as e:
+            logger.error("MongoDB get_recent_self_mistakes xatolik: %s", e)
+            return []
+
+    # -----------------------------------------------------------
+    # Daily Debriefs (Soat 20:00 dagi hisobotlar tarixi)
+    # -----------------------------------------------------------
+    def save_daily_debrief(self, date_str: str, report_text: str, stats: dict = None) -> bool:
+        if not self.is_connected() or not date_str:
+            return False
+        try:
+            doc = {
+                "date": date_str,
+                "report_text": report_text,
+                "stats": stats or {},
+                "sent_at": datetime.now(ZoneInfo("Asia/Tashkent")),
+            }
+            self._db["brain_cognitive.daily_debriefs"].update_one(
+                {"date": date_str},
+                {"$set": doc},
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_daily_debrief xatolik: %s", e)
+            return False
+
+    def is_daily_debrief_sent(self, date_str: str) -> bool:
+        if not self.is_connected():
+            return False
+        try:
+            return bool(self._db["brain_cognitive.daily_debriefs"].find_one({"date": date_str}))
+        except Exception:
+            return False
 
     # ==========================================
     # 3. brain_mentor (Vazifalar, Rejalar & Manzillar)
@@ -920,6 +1043,40 @@ class MongoMemoryService:
                             stats["messages"] += 1
             except Exception as e:
                 logger.debug("Restore messages ogohlantirish: %s", e)
+
+            # 10. mentor_lexicon
+            try:
+                for doc in self._db["brain_cognitive.mentor_lexicon"].find():
+                    term = doc.get("term") or ""
+                    meaning = doc.get("meaning") or ""
+                    example = doc.get("example") or ""
+                    confidence = float(doc.get("confidence", 1.0))
+                    if term and meaning:
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO mentor_lexicon (term, meaning, example, confidence) VALUES (?, ?, ?, ?)",
+                            (term, meaning, example, confidence),
+                        )
+                        stats["mentor_lexicon"] = stats.get("mentor_lexicon", 0) + 1
+            except Exception as e:
+                logger.debug("Restore mentor_lexicon ogohlantirish: %s", e)
+
+            # 11. self_mistakes
+            try:
+                for doc in self._db["brain_cognitive.self_mistakes"].find().sort("created_at", -1).limit(100):
+                    sit = doc.get("situation") or ""
+                    mis = doc.get("mistake") or ""
+                    cor = doc.get("correction") or ""
+                    rul = doc.get("rule") or ""
+                    if rul:
+                        cursor.execute("SELECT id FROM self_mistakes WHERE rule = ?", (rul,))
+                        if not cursor.fetchone():
+                            cursor.execute(
+                                "INSERT INTO self_mistakes (situation, mistake, correction, rule) VALUES (?, ?, ?, ?)",
+                                (sit, mis, cor, rul),
+                            )
+                            stats["self_mistakes"] = stats.get("self_mistakes", 0) + 1
+            except Exception as e:
+                logger.debug("Restore self_mistakes ogohlantirish: %s", e)
 
             conn.commit()
             conn.close()

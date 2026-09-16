@@ -1977,9 +1977,12 @@ class AIService:
                     "Zarur bo'lganda quyidagi amallarni bering: <<<ACTION:get_recent_senders()>>>, "
                     "<<<ACTION:schedule_message(qabul_qiluvchi, matn, vaqt)>>>, <<<ACTION:send_message(qabul_qiluvchi, matn)>>>, "
                     "<<<ACTION:delete_message(chat, xabar_id)>>>, <<<ACTION:find_contact(ism)>>>, "
-                    "<<<ACTION:learn_fact(mavzu, qoida)>>>, <<<ACTION:get_group_info(guruh)>>>."
+                    "<<<ACTION:learn_fact(mavzu, qoida)>>>, <<<ACTION:get_group_info(guruh)>>>.\n\n"
                 )
-                sys_prompt = parts[0] + concise_actions
+                tail = ""
+                if len(parts) > 1 and "8. **YECHIMGA YO'NALTIRILGAN" in parts[1]:
+                    tail = "8. **YECHIMGA YO'NALTIRILGAN" + parts[1].split("8. **YECHIMGA YO'NALTIRILGAN", 1)[1]
+                sys_prompt = parts[0] + concise_actions + tail
 
         # Token Budgeting: 8k TPM limitiga sig'ish uchun butun bazani emas, eng dolzarb 3 ta saboqni ulaymiz
         if effective_prompt and effective_prompt.strip():
@@ -1997,6 +2000,16 @@ class AIService:
             knowledge_context = memory_service.get_knowledge_context(limit=3)
             if knowledge_context:
                 sys_prompt = f"{sys_prompt}\n\n{knowledge_context}"
+
+        # O'rganilgan leksikon (slang va qisqartmalar) ni ulaymiz:
+        lexicon_snippet = memory_service.get_lexicon_prompt_snippet(max_entries=15)
+        if lexicon_snippet:
+            sys_prompt = f"{sys_prompt}\n\n{lexicon_snippet}"
+
+        # O'z xatolaridan chiqarilgan qat'iy qoidalarni ulaymiz:
+        mistakes_snippet = memory_service.get_mistakes_prompt_snippet(max_rules=6)
+        if mistakes_snippet:
+            sys_prompt = f"{sys_prompt}\n\n{mistakes_snippet}"
 
         if is_admin_mode:
             try:

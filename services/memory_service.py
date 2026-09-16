@@ -187,6 +187,34 @@ class SQLiteMemoryService:
                     )
                     """
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS mentor_lexicon (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        term TEXT UNIQUE NOT NULL,
+                        meaning TEXT NOT NULL,
+                        example TEXT DEFAULT '',
+                        confidence REAL DEFAULT 1.0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_mentor_lexicon_term ON mentor_lexicon (term)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS self_mistakes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        situation TEXT NOT NULL,
+                        mistake TEXT NOT NULL,
+                        correction TEXT NOT NULL,
+                        rule TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -832,6 +860,72 @@ class SQLiteMemoryService:
             logger.error("O'quvchilar savollarini olishda xatolik: %s", e)
             return []
 
+    def get_recent_mentor_messages(self, limit: int = 30) -> list[str]:
+        """Mentor tomonidan yozilgan so'nggi xabarlarni oladi (slang/leksikon tahlili uchun)."""
+        try:
+            from config import config
+            vazifalar_group = self.get_setting("vazifalar_group_id")
+            valid_chat_ids = [config.mentor_user_id, 8105823872]
+            if vazifalar_group and vazifalar_group.lstrip("-").isdigit():
+                valid_chat_ids.append(int(vazifalar_group))
+
+            placeholders = ",".join("?" for _ in valid_chat_ids)
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"SELECT content FROM messages WHERE chat_id IN ({placeholders}) AND role = 'user' ORDER BY id DESC LIMIT ?",
+                    (*valid_chat_ids, limit),
+                )
+                rows = cursor.fetchall()
+                if not rows or len(rows) < 3:
+                    cursor.execute(
+                        "SELECT content FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT ?",
+                        (limit,),
+                    )
+                    rows = cursor.fetchall()
+                return [r[0] for r in rows if r[0] and len(r[0].strip()) > 1]
+        except Exception as e:
+            logger.error("Mentor xabarlarini olishda xatolik: %s", e)
+            return []
+
+    def get_recent_dialogues_for_reflection(self, limit: int = 15) -> list[dict[str, str]]:
+        """Miya 4 o'z xatolarini tahlil qilishi uchun so'nggi suhbat juftliklarini oladi."""
+        try:
+            from config import config
+            vazifalar_group = self.get_setting("vazifalar_group_id")
+            valid_chat_ids = [config.mentor_user_id, 8105823872]
+            if vazifalar_group and vazifalar_group.lstrip("-").isdigit():
+                valid_chat_ids.append(int(vazifalar_group))
+
+            placeholders = ",".join("?" for _ in valid_chat_ids)
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"SELECT role, content FROM messages WHERE chat_id IN ({placeholders}) ORDER BY id DESC LIMIT ?",
+                    (*valid_chat_ids, limit * 2),
+                )
+                rows = cursor.fetchall()
+                if not rows:
+                    cursor.execute(
+                        "SELECT role, content FROM messages ORDER BY id DESC LIMIT ?",
+                        (limit * 2,),
+                    )
+                    rows = cursor.fetchall()
+
+                rows = list(reversed(rows))
+                dialogues = []
+                for i in range(len(rows) - 1):
+                    if rows[i][0] == "assistant" and rows[i + 1][0] == "user":
+                        dialogues.append({
+                            "assistant": rows[i][1][:300],
+                            "user_feedback": rows[i + 1][1][:300],
+                        })
+                return dialogues
+        except Exception as e:
+            logger.error("Dialoglarni olishda xatolik: %s", e)
+            return []
+
+
     # -----------------------------------------------------------
     # O'z ustida ishlash va Bilimlar Bazasi (Continuous Learning)
     # -----------------------------------------------------------
@@ -1240,6 +1334,230 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Precomputed answer o'chirishda xatolik: %s", e)
         return ok
+
+    # -----------------------------------------------------------
+    # Mentor Lexicon (Mentor tili, qisqartmalari va slengi)
+    # -----------------------------------------------------------
+    def add_mentor_lexicon(
+        self, term: str, meaning: str, example: str = "", confidence: float = 1.0
+    ) -> bool:
+        """Mentorning o'ziga xos so'zi yoki qisqartmasini xotiraga yozadi (Dual-Persistence)."""
+        clean_term = term.strip().lower()
+        clean_meaning = meaning.strip()
+        if not clean_term or not clean_meaning:
+            return False
+
+        # 1. MongoDB ga saqlash
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_mentor_lexicon(
+                    clean_term, clean_meaning, example, confidence
+                )
+        except Exception:
+            pass
+
+        # 2. SQLite ga saqlash
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO mentor_lexicon (term, meaning, example, confidence, updated_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (clean_term, clean_meaning, example.strip(), confidence),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error("Mentor lug'atini saqlashda xatolik: %s", e)
+            return False
+
+    def get_all_mentor_lexicon(self, limit: int = 100) -> list[dict]:
+        """Mentorning barcha o'rganilgan so'zlari va qisqartmalari ro'yxati."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, term, meaning, example, confidence, updated_at FROM mentor_lexicon ORDER BY updated_at DESC LIMIT ?",
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    return [
+                        {
+                            "id": r[0],
+                            "term": r[1],
+                            "phrase": r[1],
+                            "meaning": r[2],
+                            "example": r[3] or "",
+                            "confidence": r[4] or 1.0,
+                            "updated_at": str(r[5]),
+                        }
+                        for r in rows
+                    ]
+        except Exception as e:
+            logger.debug("Mentor lug'atini SQLite'dan olishda ogohlantirish: %s", e)
+
+        # Fallback to Mongo
+        try:
+            if mongo_memory_service.is_connected():
+                docs = mongo_memory_service.get_all_mentor_lexicon(limit=limit)
+                if docs:
+                    return [
+                        {
+                            "id": str(d.get("_id", "")),
+                            "term": d.get("term", ""),
+                            "phrase": d.get("term", ""),
+                            "meaning": d.get("meaning", ""),
+                            "example": d.get("example", ""),
+                            "confidence": d.get("confidence", 1.0),
+                            "updated_at": str(d.get("updated_at", "")),
+                        }
+                        for d in docs
+                    ]
+        except Exception:
+            pass
+        return []
+
+    def delete_mentor_lexicon(self, term: str) -> bool:
+        """Mentor lug'atidagi so'zni o'chiradi."""
+        clean_term = term.strip().lower()
+        if not clean_term:
+            return False
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.delete_mentor_lexicon(clean_term)
+        except Exception:
+            pass
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM mentor_lexicon WHERE LOWER(term) = LOWER(?)", (clean_term,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Mentor lug'atidan o'chirishda xatolik: %s", e)
+            return False
+
+    def get_lexicon_prompt_snippet(self, max_terms: int = 30, max_entries: int | None = None) -> str:
+        """AI Service prompti uchun mentorning so'zlari lug'ati matni."""
+        limit = max_entries if max_entries is not None else max_terms
+        terms = self.get_all_mentor_lexicon(limit=limit)
+        if not terms:
+            return ""
+        lines = [f"- '{t['term']}' => {t['meaning']}" for t in terms]
+        return "🧠 MENTORNING SHAXSIY LUG'ATI VA QISQARTMALARI (DOIMO INOBATGA OLING):\n" + "\n".join(lines)
+
+    # -----------------------------------------------------------
+    # Self-Mistakes & Reflection (O'z xatolaridan saboqlar)
+    # -----------------------------------------------------------
+    def add_self_mistake(
+        self,
+        mistake: str,
+        rule: str,
+        situation: str = "Tizim tahlili",
+        correction: str = "",
+        context: str = "",
+    ) -> bool:
+        """AI o'z xatosini tahlil qilib, kelgusi uchun oltin qoida saqlaydi (Dual-Persistence)."""
+        clean_rule = rule.strip()
+        if not clean_rule:
+            return False
+
+        sit = situation or context or "Tizim tahlili"
+        try:
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_self_mistake(
+                    sit, mistake, correction, clean_rule
+                )
+        except Exception:
+            pass
+
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO self_mistakes (situation, mistake, correction, rule)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (sit.strip(), mistake.strip(), correction.strip(), clean_rule),
+                )
+                conn.commit()
+                logger.info("🧠 AI o'z xatosidan saboq qayd qildi: %s", clean_rule[:60])
+                return True
+        except Exception as e:
+            logger.error("Self-mistake saqlashda xatolik: %s", e)
+            return False
+
+    def get_recent_self_mistakes(self, limit: int = 20) -> list[dict]:
+        """AI o'z xatolaridan chiqargan so'nggi xulosalari."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, situation, mistake, correction, rule, created_at FROM self_mistakes ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    return [
+                        {
+                            "id": r[0],
+                            "situation": r[1],
+                            "mistake": r[2],
+                            "mistake_pattern": r[2],
+                            "correction": r[3],
+                            "rule": r[4],
+                            "correction_rule": r[4],
+                            "created_at": str(r[5]),
+                        }
+                        for r in rows
+                    ]
+        except Exception as e:
+            logger.debug("Self-mistakes SQLite'dan olishda ogohlantirish: %s", e)
+
+        # Fallback to Mongo
+        try:
+            if mongo_memory_service.is_connected():
+                docs = mongo_memory_service.get_recent_self_mistakes(limit=limit)
+                if docs:
+                    return [
+                        {
+                            "id": str(d.get("_id", "")),
+                            "situation": d.get("situation", ""),
+                            "mistake": d.get("mistake", ""),
+                            "mistake_pattern": d.get("mistake", ""),
+                            "correction": d.get("correction", ""),
+                            "rule": d.get("rule", ""),
+                            "correction_rule": d.get("rule", ""),
+                            "created_at": str(d.get("created_at", "")),
+                        }
+                        for d in docs
+                    ]
+        except Exception:
+            pass
+        return []
+
+    def get_mistakes_prompt_snippet(self, max_rules: int = 5) -> str:
+        """AI Service prompti uchun avvalgi xatolardan olingan oltin qoidalar."""
+        mistakes = self.get_recent_self_mistakes(limit=max_rules)
+        if not mistakes:
+            return ""
+        lines = [f"- {m['rule']}" for m in mistakes]
+        return "⚠️ O'TMISHDAGI XATOLARDAN OLINGAN SABOQLAR (QAYTA TAKRORLAMANG):\n" + "\n".join(lines)
+
+    def get_curriculum_insights_count_by_topic(self) -> dict[str, int]:
+        """Har bir o'quv mavzusi bo'yicha bazada nechta saboq (insight) borligini hisoblaydi (Dynamic Budgeting uchun)."""
+        counts = {}
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT topic, COUNT(*) FROM learned_memory GROUP BY topic")
+                for row in cursor.fetchall():
+                    counts[row[0].strip().lower()] = row[1]
+        except Exception:
+            pass
+        return counts
 
     # -----------------------------------------------------------
     # Eslatmalar (Reminders) Boshqaruvi

@@ -1131,6 +1131,29 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_api_get_mentor_lexicon(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        items = memory_service.get_all_mentor_lexicon()
+        return web.json_response({"ok": True, "items": items})
+
+    async def handle_api_delete_mentor_lexicon(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+            phrase = str(data.get("phrase", "")).strip()
+            ok = memory_service.delete_mentor_lexicon(phrase)
+            return web.json_response({"ok": ok})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_get_self_mistakes(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        items = memory_service.get_recent_self_mistakes(limit=50)
+        return web.json_response({"ok": True, "items": items})
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_post("/api/auth", handle_api_auth)
@@ -1170,6 +1193,9 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     app.router.add_post("/api/autonomous-brain/trigger", handle_api_autonomous_brain_trigger)
     app.router.add_get("/api/precomputed-answers", handle_api_get_precomputed_answers)
     app.router.add_post("/api/precomputed-answers/delete", handle_api_delete_precomputed_answer)
+    app.router.add_get("/api/mentor-lexicon", handle_api_get_mentor_lexicon)
+    app.router.add_post("/api/mentor-lexicon/delete", handle_api_delete_mentor_lexicon)
+    app.router.add_get("/api/self-mistakes", handle_api_get_self_mistakes)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 
