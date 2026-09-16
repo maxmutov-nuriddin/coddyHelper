@@ -674,6 +674,16 @@ class AIResult(str):
         return obj
 
 
+def _create_default_cascade() -> dict[str, dict[str, Any]]:
+    """Har bir miya uchun toza, mustaqil 4 talik modellar zanjirini yaratadi."""
+    return {
+        "openai/gpt-oss-120b": {"role": "Asosiy (120B)", "state": "active", "context": "128k", "tpm": "8k", "rpm": 1000},
+        "openai/gpt-oss-20b": {"role": "Zaxira 1 (20B)", "state": "standby", "context": "128k", "tpm": "8k", "rpm": 1000},
+        "groq/compound-mini": {"role": "Zaxira 2 (Compound)", "state": "standby", "context": "128k", "tpm": "70k", "rpm": 250},
+        "Google Gemini": {"role": "Temir Zaxira (1M)", "state": "standby", "context": "1M", "tpm": "1M", "rpm": 15},
+    }
+
+
 class AIService:
     def __init__(self):
         self._groq_clients: list[Any] = []
@@ -709,6 +719,12 @@ class AIService:
             "reserve": 0,
             "autonomous": 0,
         }
+        # Har bir Miya uchun 100% mustaqil modellar zanjiri (Per-Brain Cascade Architecture):
+        self._brain_cascades: dict[str, dict[str, dict[str, Any]]] = {
+            "frontline": _create_default_cascade(),
+            "vip": _create_default_cascade(),
+            "autonomous": _create_default_cascade(),
+        }
         self._metrics: dict[str, Any] = {
             "active_model": config.groq_model,
             "last_provider": "Groq",
@@ -732,12 +748,8 @@ class AIService:
                 "reset_tokens": "0s",
                 "reset_requests": "0s",
             },
-            "cascade_status": {
-                "openai/gpt-oss-120b": {"role": "Asosiy (120B)", "state": "active", "context": "128k", "tpm": "8k", "rpm": 1000},
-                "openai/gpt-oss-20b": {"role": "Zaxira 1 (20B)", "state": "standby", "context": "128k", "tpm": "8k", "rpm": 1000},
-                "groq/compound-mini": {"role": "Zaxira 2 (Compound)", "state": "standby", "context": "128k", "tpm": "70k", "rpm": 250},
-                "Google Gemini": {"role": "Temir Zaxira (1M)", "state": "standby", "context": "1M", "tpm": "1M", "rpm": 15},
-            },
+            "cascade_status": self._brain_cascades["vip"],
+            "brain_cascades": self._brain_cascades,
         }
         self._setup_clients()
 
@@ -750,15 +762,12 @@ class AIService:
         self._last_active_key_idx = 0
         self._last_active_team_idx = 1
         self._key_stats = {}
-        if "cascade_status" in self._metrics:
-            for m in self._metrics["cascade_status"].values():
-                if m.get("role", "").startswith("Asosiy"):
-                    m["state"] = "active"
-                else:
-                    m["state"] = "standby"
-                m.pop("last_error", None)
+        for b in ("frontline", "vip", "autonomous"):
+            self._brain_cascades[b] = _create_default_cascade()
+        self._metrics["cascade_status"] = self._brain_cascades["vip"]
+        self._metrics["brain_cascades"] = self._brain_cascades
         self._setup_clients()
-        logger.info("🔄 AIService to'liq qayta yuklandi va ulanishlar yangilandi.")
+        logger.info("🔄 AIService to'liq qayta yuklandi va mustaqil miya kaskadlari yangilandi.")
 
     def _resolve_brain_tag(self, k_idx: int) -> str:
         """Kalit indeksiga qarab miyaning tagini aniqlaydi."""
@@ -895,19 +904,27 @@ class AIService:
                     "reset_requests": rst_r_str or "0s",
                 }
 
-            self._recalculate_cascade_states(active_override=model_name)
+            self._recalculate_cascade_states(brain=brain_tag, active_override=model_name)
         except Exception as err:
             logger.warning("AI metrikalarini yangilashda ogohlantirish: %s", err)
 
-    def _recalculate_cascade_states(self, active_override: str | None = None) -> None:
+    def _recalculate_cascade_states(self, brain: str = "vip", active_override: str | None = None) -> None:
         """
-        Kaskad zanjiridagi modellar holatini (active, standby, rate_limited)
+        Tanlangan miya (frontline, vip, autonomous) kaskad zanjiridagi modellar holatini
         haqiqiy holat bo'yicha dinamik qayta hisoblaydi.
-        Eng birinchi sog'lom model 'active' (🟢 Faol) bo'ladi,
+        Har bir miya uchun faqat bitta sog'lom model 'active' (🟢 Faol) bo'ladi,
         qolgan sog'lom modellar 'standby' (🟡 Zaxirada) bo'ladi.
         """
         try:
-            cascade = self._metrics.setdefault("cascade_status", {})
+            if not hasattr(self, "_brain_cascades") or not self._brain_cascades:
+                self._brain_cascades = {
+                    "frontline": _create_default_cascade(),
+                    "vip": _create_default_cascade(),
+                    "autonomous": _create_default_cascade(),
+                }
+            if brain not in self._brain_cascades:
+                self._brain_cascades[brain] = _create_default_cascade()
+            cascade = self._brain_cascades[brain]
             now_ts = time.time()
             priority_order = [
                 "openai/gpt-oss-120b",
@@ -930,12 +947,15 @@ class AIService:
                 for m_key, info in cascade.items():
                     if m_key == active_override:
                         info["state"] = "active"
-                        self._metrics["active_model"] = m_key
                     elif info.get("state") != "rate_limited":
                         info["state"] = "standby"
+                if brain == "vip":
+                    self._metrics["active_model"] = active_override
+                    self._metrics["cascade_status"] = cascade
                 return
 
             first_healthy_found = False
+            active_name = None
             for m_key in priority_order:
                 if m_key not in cascade:
                     continue
@@ -944,24 +964,28 @@ class AIService:
                     continue
                 if not first_healthy_found:
                     info["state"] = "active"
-                    self._metrics["active_model"] = m_key
+                    active_name = m_key
                     first_healthy_found = True
                 else:
                     info["state"] = "standby"
 
             # Agar yuqorida bo'lmagan boshqa modellar bo'lsa, ularni ham standby qilish
             for m_key, info in cascade.items():
-                if m_key != self._metrics.get("active_model") and info.get("state") != "rate_limited":
+                if m_key != active_name and info.get("state") != "rate_limited":
                     info["state"] = "standby"
 
             if not first_healthy_found and "Google Gemini" in cascade:
                 cascade["Google Gemini"]["state"] = "active"
-                self._metrics["active_model"] = "Google Gemini"
+                active_name = "Google Gemini"
+
+            if brain == "vip" and active_name:
+                self._metrics["active_model"] = active_name
+                self._metrics["cascade_status"] = cascade
         except Exception as e:
-            logger.debug("Cascade qayta hisoblashda ogohlantirish: %s", e)
+            logger.debug("Cascade qayta hisoblashda ogohlantirish (%s): %s", brain, e)
 
     def _refresh_key_and_model_recovery(self) -> None:
-        """60 soniyalik limit davri o'tgan kalitlar va modellarni avtomatik tiklash."""
+        """60 soniyalik limit davri o'tgan kalitlar va barcha miyalar modellarini avtomatik tiklash."""
         now_ts = time.time()
         for idx, stat in self._key_stats.items():
             if stat.get("status") in ("rate_limited", "error"):
@@ -970,12 +994,21 @@ class AIService:
                     stat["status"] = "standby"
                     stat["last_error"] = None
 
-        self._recalculate_cascade_states()
+        for b in ("frontline", "vip", "autonomous"):
+            self._recalculate_cascade_states(brain=b)
 
-    def _record_model_rate_limited(self, model_name: str, error_msg: str = "") -> None:
-        """Model limitga uchraganida uning holatini yangilaydi (TTL: 60s, TPD bo'lsa 900s)."""
+    def _record_model_rate_limited(self, model_name: str, error_msg: str = "", brain: str = "vip") -> None:
+        """Tanlangan miyada model limitga uchraganida uning holatini yangilaydi (TTL: 60s, TPD bo'lsa 900s)."""
         try:
-            cascade = self._metrics.setdefault("cascade_status", {})
+            if not hasattr(self, "_brain_cascades") or not self._brain_cascades:
+                self._brain_cascades = {
+                    "frontline": _create_default_cascade(),
+                    "vip": _create_default_cascade(),
+                    "autonomous": _create_default_cascade(),
+                }
+            if brain not in self._brain_cascades:
+                self._brain_cascades[brain] = _create_default_cascade()
+            cascade = self._brain_cascades[brain]
             if model_name in cascade:
                 cascade[model_name]["state"] = "rate_limited"
                 cascade[model_name]["last_error"] = str(error_msg)[:120]
@@ -984,7 +1017,7 @@ class AIService:
                     cascade[model_name]["rate_limited_until"] = time.time() + 900.0
                 else:
                     cascade[model_name]["rate_limited_until"] = time.time() + 60.0
-            self._recalculate_cascade_states()
+            self._recalculate_cascade_states(brain=brain)
         except Exception:
             pass
 
@@ -1185,7 +1218,8 @@ class AIService:
             "total_tokens": self._metrics.get("total_tokens", 0),
             "last_request": self._metrics.get("last_request", {}),
             "rate_limits": rl,
-            "cascade_status": self._metrics.get("cascade_status", {}),
+            "cascade_status": self._brain_cascades.get("vip", {}),
+            "brain_cascades": self._brain_cascades,
             "available_groq_keys": len(self._groq_clients),
             "frontline_keys_count": len(self._frontline_clients),
             "vip_keys_count": len(self._vip_clients),
@@ -1198,6 +1232,8 @@ class AIService:
                     "title": "Miya 1: Frontline (Talabalar & Chatlar)",
                     "keys_count": len(self._frontline_clients),
                     "status": "active" if self._frontline_clients else "standby",
+                    "active_model": next((m for m, inf in self._brain_cascades.get("frontline", {}).items() if inf.get("state") == "active"), config.groq_model),
+                    "cascade": self._brain_cascades.get("frontline", {}),
                     "role": "Barcha o'quvchilar va umumiy guruhlar so'rovlariga tezkor javob beradi (Jamoalar #1-#4)",
                     "requests": self._brain_stats.get("frontline", 0),
                     "minute_tokens": _fl_mt,
@@ -1209,6 +1245,8 @@ class AIService:
                     "title": "Miya 2: VIP Vazifalar Guruhi (O'ta muhim)",
                     "keys_count": len(self._vip_clients),
                     "status": "active" if self._vip_clients else "standby",
+                    "active_model": next((m for m, inf in self._brain_cascades.get("vip", {}).items() if inf.get("state") == "active"), config.groq_model),
+                    "cascade": self._brain_cascades.get("vip", {}),
                     "role": "Vazifalar guruhi va Mentor buyruqlari uchun 100% ajratilgan mustaqil limit (Jamoalar #5-#7)",
                     "requests": self._brain_stats.get("vip", 0),
                     "minute_tokens": _vip_mt,
@@ -1220,6 +1258,7 @@ class AIService:
                     "title": "Miya 3: Temir Zaxira (Google Gemini)",
                     "enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
                     "status": ("active" if self._gemini_client else "standby") if memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true" else "disabled",
+                    "active_model": "Google Gemini",
                     "role": "Favqulodda vaziyatlar va Groq limitlari uchun zaxira (1M context)",
                     "requests": self._brain_stats.get("reserve", 0),
                     "minute_tokens": _res_mt,
@@ -1231,6 +1270,8 @@ class AIService:
                     "title": "Miya 4: Avtonom Tafakkur Ongi (Daemon)",
                     "keys_count": len(self._autonomous_clients),
                     "status": "active" if self._autonomous_clients else "standby",
+                    "active_model": next((m for m, inf in self._brain_cascades.get("autonomous", {}).items() if inf.get("state") == "active"), config.groq_model),
+                    "cascade": self._brain_cascades.get("autonomous", {}),
                     "role": "Orqa fonda to'xtovsiz tafakkur qiladi, o'rganadi va yechimlarni oldindan tayyorlaydi (Jamoalar #8-#10)",
                     "requests": self._brain_stats.get("autonomous", 0),
                     "minute_tokens": _aut_mt,
@@ -1417,7 +1458,7 @@ class AIService:
                         preferred.append(m)
                 candidate_models = preferred
 
-                cascade = self._metrics.get("cascade_status", {})
+                cascade = self._brain_cascades.get("autonomous", {})
                 now_ts = time.time()
                 healthy_candidates = [
                     m for m in candidate_models
@@ -1427,6 +1468,7 @@ class AIService:
                 candidate_models = healthy_candidates + rate_limited_candidates
 
                 for model_name in candidate_models:
+                    self._recalculate_cascade_states(brain="autonomous", active_override=model_name)
                     max_try = min(5, len(pool))
                     model_had_success = False
                     for _ in range(max_try):
@@ -1463,7 +1505,7 @@ class AIService:
                                 break
 
                     if not model_had_success:
-                        self._record_model_rate_limited(model_name, "All keys failed or rate-limited")
+                        self._record_model_rate_limited(model_name, "All keys failed or rate-limited", brain="autonomous")
 
             # Fallback to Gemini if Groq is depleted or failed
             if self._gemini_client:
@@ -1849,7 +1891,7 @@ class AIService:
 
         # AGAR model hozirda 'rate_limited' holatida bo'lsa, uni oxiriga surish!
         # Sog'lom (active yoki standby) modellar BIRINCHI bo'lib ishlatiladi
-        cascade = self._metrics.get("cascade_status", {})
+        cascade = self._brain_cascades.get(brain_type, self._brain_cascades.get("frontline", {}))
         now_ts = time.time()
         healthy_models = [
             m for m in candidate_models
@@ -1861,7 +1903,7 @@ class AIService:
         # Kaskadli zaxira modellar bo'yicha ketma-ket urinish:
         for model_to_use in candidate_models:
             # Ushbu modelni aktiv deb kaskadda qayd etish
-            self._recalculate_cascade_states(active_override=model_to_use)
+            self._recalculate_cascade_states(brain=brain_type, active_override=model_to_use)
 
             # Kichik 8k kontekstli modellar (Gemma) limitiga urilmaslik uchun:
             if "gemma" in model_to_use.lower() and est_tokens > 7000:
@@ -1986,7 +2028,7 @@ class AIService:
 
             # Agar bu modelda barcha sinab ko'rilgan kalitlar 429 limit bo'lsa, modelni kaskadda cooldown ga qo'yish
             if not model_success and last_error and ("429" in str(last_error) or "rate_limit_exceeded" in str(last_error)):
-                self._record_model_rate_limited(model_to_use, str(last_error))
+                self._record_model_rate_limited(model_to_use, str(last_error), brain=brain_type)
                 logger.warning("⚡ Model [%s] bo'yicha barcha %d ta kalit sinovi limitga uchradi. Keyingi zaxira modelga o'tilmoqda...", model_to_use, max_attempts)
             else:
                 logger.warning("⚠️ Model [%s] bo'yicha limit yoki xatolik yuz berdi. Keyingi zaxira modelga o'tilmoqda...", model_to_use)
