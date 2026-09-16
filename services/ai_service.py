@@ -1392,82 +1392,96 @@ class AIService:
         O'quvchilar (Frontline) va VIP Vazifalar guruhi limitlariga zarracha ta'sir qilmaydi.
         """
         pool = self._autonomous_clients if self._autonomous_clients else self._groq_clients
-        if pool:
-            self._brain_stats["autonomous"] = self._brain_stats.get("autonomous", 0) + 1
+        for retry_cycle in range(1, 3):
+            if pool:
+                self._brain_stats["autonomous"] = self._brain_stats.get("autonomous", 0) + 1
 
-            self._refresh_key_and_model_recovery()
-            preferred = []
-            if config.groq_model:
-                preferred.append(config.groq_model)
-            for m in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini"]:
-                if m not in preferred:
-                    preferred.append(m)
-            candidate_models = preferred
+                self._refresh_key_and_model_recovery()
+                preferred = []
+                if config.groq_model:
+                    preferred.append(config.groq_model)
+                for m in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini"]:
+                    if m not in preferred:
+                        preferred.append(m)
+                candidate_models = preferred
 
-            cascade = self._metrics.get("cascade_status", {})
-            now_ts = time.time()
-            healthy_candidates = [
-                m for m in candidate_models
-                if cascade.get(m, {}).get("state") != "rate_limited" or now_ts >= cascade.get(m, {}).get("rate_limited_until", 0)
-            ]
-            rate_limited_candidates = [m for m in candidate_models if m not in healthy_candidates]
-            candidate_models = healthy_candidates + rate_limited_candidates
+                cascade = self._metrics.get("cascade_status", {})
+                now_ts = time.time()
+                healthy_candidates = [
+                    m for m in candidate_models
+                    if cascade.get(m, {}).get("state") != "rate_limited" or now_ts >= cascade.get(m, {}).get("rate_limited_until", 0)
+                ]
+                rate_limited_candidates = [m for m in candidate_models if m not in healthy_candidates]
+                candidate_models = healthy_candidates + rate_limited_candidates
 
-            for model_name in candidate_models:
-                max_try = min(3, len(pool))
-                for _ in range(max_try):
-                    idx = self._autonomous_idx % len(pool)
-                    self._autonomous_idx = (self._autonomous_idx + 1) % len(pool)
-                    client = pool[idx]
-                    k_real_idx = self._client_to_idx.get(id(client), 0)
-                    self._mark_key_used(k_real_idx)
-                    try:
-                        res = await client.chat.completions.create(
-                            model=model_name,
-                            messages=[
-                                {"role": "system", "content": "Siz CoddyCamp IT akademiyasining ichki avtonom tafakkur miyasisiz (Miya 4)."},
-                                {"role": "user", "content": prompt},
-                            ],
-                            temperature=0.3,
-                            max_tokens=600,
-                        )
-                        msg_obj = res.choices[0].message
-                        txt = (getattr(msg_obj, "content", "") or "").strip()
-                        if not txt and hasattr(msg_obj, "reasoning") and msg_obj.reasoning:
-                            txt = msg_obj.reasoning.strip()
-                        if txt:
-                            self._record_brain_tokens("autonomous", max(1, len(txt) // 3))
-                            return txt
-                    except Exception as e:
-                        logger.warning("Miya 4 avtonom generatsiyasida ogohlantirish (%s, kalit #%d): %s", model_name, k_real_idx + 1, e)
-                        if "429" in str(e) or "rate_limit" in str(e) or "413" in str(e):
-                            self._mark_key_error(k_real_idx, str(e))
-                            self._record_model_rate_limited(model_name, str(e))
-                            break
-
-        # Fallback to Gemini if Groq is unavailable, depleted or failed
-        if self._gemini_client:
-            try:
-                for m in [config.gemini_model, "gemini-2.0-flash", "gemini-2.5-flash", "gemini-flash-latest"]:
-                    try:
-                        response = self._gemini_client.models.generate_content(
-                            model=m,
-                            contents=prompt,
-                            config=types.GenerateContentConfig(
-                                system_instruction="Siz CoddyCamp IT akademiyasining ichki avtonom tafakkur miyasisiz (Miya 4).",
+                for model_name in candidate_models:
+                    max_try = min(5, len(pool))
+                    model_had_success = False
+                    for _ in range(max_try):
+                        idx = self._autonomous_idx % len(pool)
+                        self._autonomous_idx = (self._autonomous_idx + 1) % len(pool)
+                        client = pool[idx]
+                        k_real_idx = self._client_to_idx.get(id(client), 0)
+                        self._mark_key_used(k_real_idx)
+                        try:
+                            res = await client.chat.completions.create(
+                                model=model_name,
+                                messages=[
+                                    {"role": "system", "content": "Siz CoddyCamp IT akademiyasining ichki avtonom tafakkur miyasisiz (Miya 4)."},
+                                    {"role": "user", "content": prompt},
+                                ],
                                 temperature=0.3,
-                                max_output_tokens=600,
-                            ),
-                        )
-                        if response and response.text:
-                            txt = response.text.strip()
-                            self._record_brain_tokens("autonomous", max(1, len(txt) // 3))
-                            return txt
-                    except Exception as ge:
-                        logger.warning("Miya 4 Gemini zaxira generatsiyasida ogohlantirish (%s): %s", m, ge)
-                        continue
-            except Exception as ge_all:
-                logger.error("Miya 4 Gemini zaxira tizimida xatolik: %s", ge_all)
+                                max_tokens=700,
+                            )
+                            msg_obj = res.choices[0].message
+                            txt = (getattr(msg_obj, "content", "") or "").strip()
+                            if not txt and hasattr(msg_obj, "reasoning") and msg_obj.reasoning:
+                                txt = msg_obj.reasoning.strip()
+                            if txt:
+                                model_had_success = True
+                                self._record_brain_tokens("autonomous", max(1, len(txt) // 3))
+                                return txt
+                        except Exception as e:
+                            logger.warning("Miya 4 avtonom generatsiyasida ogohlantirish (%s, kalit #%d): %s", model_name, k_real_idx + 1, e)
+                            if "429" in str(e) or "rate_limit" in str(e):
+                                self._mark_key_error(k_real_idx, str(e))
+                                # Boshqa kalitlarni sinash uchun davom etamiz
+                                continue
+                            elif "413" in str(e):
+                                break
+
+                    if not model_had_success:
+                        self._record_model_rate_limited(model_name, "All keys failed or rate-limited")
+
+            # Fallback to Gemini if Groq is depleted or failed
+            if self._gemini_client:
+                try:
+                    from google.genai import types
+                    for m in [config.gemini_model, "gemini-2.0-flash", "gemini-2.5-flash", "gemini-flash-latest"]:
+                        try:
+                            response = self._gemini_client.models.generate_content(
+                                model=m,
+                                contents=prompt,
+                                config=types.GenerateContentConfig(
+                                    system_instruction="Siz CoddyCamp IT akademiyasining ichki avtonom tafakkur miyasisiz (Miya 4).",
+                                    temperature=0.3,
+                                    max_output_tokens=700,
+                                ),
+                            )
+                            if response and response.text:
+                                txt = response.text.strip()
+                                self._record_brain_tokens("autonomous", max(1, len(txt) // 3))
+                                return txt
+                        except Exception as ge:
+                            logger.warning("Miya 4 Gemini zaxira generatsiyasida ogohlantirish (%s): %s", m, ge)
+                            continue
+                except Exception as ge_all:
+                    logger.error("Miya 4 Gemini zaxira tizimida xatolik: %s", ge_all)
+
+            # Agar bu siklda hamma kalitlar limit bo'lsa, savolni tashlab yubormasdan 15s kutib qayta urinish:
+            if retry_cycle < 2:
+                logger.info("⏳ Miya 4 da barcha kalitlar qisqa limitda. 15s kutilmoqda va o'sha topshiriq qayta ishlanadi...")
+                await asyncio.sleep(15)
 
         return None
 

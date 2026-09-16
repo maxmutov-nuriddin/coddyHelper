@@ -94,25 +94,34 @@ class AutonomousBrainService:
         self._log_activity(f"Miya 4 {act}.", "config")
 
     def get_mode(self) -> str:
-        """Joriy tezlik rejimini oladi: 'sokin' (20 daq), 'optimal' (10 daq), 'tezkor' (5 daq)."""
-        val = memory_service.get_setting("autonomous_brain_mode", "optimal").lower().strip()
-        return val if val in ("sokin", "optimal", "tezkor") else "optimal"
+        """Joriy tezlik rejimini oladi: 'ultra' (1 daq), 'tezkor' (2.5 daq), 'optimal' (5 daq), 'sokin' (10 daq)."""
+        val = memory_service.get_setting("autonomous_brain_mode", "tezkor").lower().strip()
+        return val if val in ("ultra", "tezkor", "optimal", "sokin") else "tezkor"
 
     def set_mode(self, mode: str) -> None:
         """Miya 4 tezlik rejimini o'zgartirish."""
         m = str(mode).lower().strip()
-        if m in ("sokin", "optimal", "tezkor"):
+        if m in ("ultra", "tezkor", "optimal", "sokin"):
             memory_service.set_setting("autonomous_brain_mode", m)
             self._log_activity(f"Miya 4 tezlik rejimi o'zgartirildi: {m.upper()}", "config")
 
     def get_interval_seconds(self) -> int:
-        """Tanlangan rejim bo'yicha interval soniyasini qaytaradi."""
+        """Tanlangan rejim bo'yicha interval soniyasini qaytaradi:
+        - ultra: 60s (1 daqiqa)
+        - tezkor: 150s (2.5 daqiqa)
+        - optimal: 300s (5 daqiqa)
+        - sokin: 600s (10 daqiqa)
+        """
         mode = self.get_mode()
-        if mode == "tezkor":
-            return 300   # 5 daqiqa
+        if mode == "ultra":
+            return 60     # 1 daqiqa (Ultra tezkor)
+        elif mode == "tezkor":
+            return 150    # 2.5 daqiqa (Tezkor)
+        elif mode == "optimal":
+            return 300    # 5 daqiqa (Optimal)
         elif mode == "sokin":
-            return 1200  # 20 daqiqa
-        return 600       # 10 daqiqa (optimal - default)
+            return 600    # 10 daqiqa (Sokin)
+        return 150        # Default: 2.5 daqiqa
 
     def get_focus(self) -> str:
         """Miya 4 ning kognitiv fokus yo'nalishini oladi:
@@ -383,31 +392,32 @@ class AutonomousBrainService:
 
                 # Tanlangan tezlik rejimi bo'yicha intervalni hisoblash:
                 interval_sec = self.get_interval_seconds()
-                interval_min = interval_sec // 60
+                interval_min_val = interval_sec / 60
+                interval_min_text = f"{interval_min_val:.1f}".rstrip('0').rstrip('.')
 
                 try:
                     tz = ZoneInfo("Asia/Tashkent")
                     next_time = (datetime.now(tz) + timedelta(seconds=interval_sec)).strftime("%H:%M:%S")
-                    self._next_run_estimated = f"{next_time} da ({interval_min} daq)"
+                    self._next_run_estimated = f"{next_time} da ({interval_min_text} daq)"
                 except Exception:
-                    self._next_run_estimated = f"{interval_min} daqiqadan so'ng"
+                    self._next_run_estimated = f"{interval_min_text} daqiqadan so'ng"
 
                 total_lex = len(memory_service.get_all_mentor_lexicon())
                 total_mist = len(memory_service.get_recent_self_mistakes(limit=100))
                 total_ins = len(memory_service.get_all_learned_facts(limit=100))
                 total_ans = len(memory_service.get_all_precomputed_answers(limit=100))
-                self._current_activity = f"Sokin rejimda [{mode.upper()}]. Keyingi tafakkur sikli: {self._next_run_estimated}"
+                self._current_activity = f"Kutish rejimida [{mode.upper()}]. Keyingi tafakkur sikli: {self._next_run_estimated}"
                 self._log_activity(
                     f"Sikl #{self._cycle_count} yakunlandi [{mode.upper()} / {focus.upper()}]. Baza: {total_ins} saboq, {total_lex} leksikon, {total_mist} qoida, {total_ans} kesh.",
                     "info",
                 )
 
-                # Har 15 soniyada rejim yoki to'xtatish o'zgarishini tekshirish (foydalanuvchi appda rejimni o'zgartirsa darhol sezish uchun):
-                steps = max(1, interval_sec // 15)
+                # Har 5 soniyada rejim yoki to'xtatish o'zgarishini tekshirish (rejim o'zgarsa darhol sezish uchun):
+                steps = max(1, interval_sec // 5)
                 for _ in range(steps):
                     if not self._is_running or not self.is_enabled():
                         break
-                    await asyncio.sleep(15)
+                    await asyncio.sleep(5)
                     await self._check_and_send_daily_debrief()
 
             except asyncio.CancelledError:

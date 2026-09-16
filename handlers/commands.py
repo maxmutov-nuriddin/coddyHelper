@@ -747,6 +747,59 @@ def register_command_handlers(client: TelegramClient) -> None:
                 return
 
         # -----------------------------------------------------------
+        # 3.2 .miya4 / .auto - Miya 4 (Avtonom Fikrlash Dvigateli 24/7) boshqaruvi
+        # -----------------------------------------------------------
+        if cmd in ("miya4", "auto", "avtonom"):
+            from services.autonomous_brain_service import autonomous_brain_service
+            clean_arg = (arg or "").lower().strip()
+            if clean_arg in ("off", "0", "stop", "ochir", "o'chir", "disable", "no"):
+                autonomous_brain_service.set_enabled(False)
+                await event.edit("🔴 **Miya 4: Avtonom Fikrlash Dvigateli to'xtatildi (Pauza).**")
+                return
+            elif clean_arg in ("on", "1", "start", "yoq", "faol", "enable", "yes"):
+                autonomous_brain_service.set_enabled(True)
+                await event.edit("🟢 **Miya 4: Avtonom Fikrlash Dvigateli yoqildi!** (24/7 orqa fonda o'rganish faol).")
+                return
+            elif clean_arg in ("ultra", "1", "1m", "1daq", "1daqiqa", "chaqqon"):
+                autonomous_brain_service.set_mode("ultra")
+                await event.edit("⚡⚡ **Miya 4 rejimi: ULTRA (Har 1 daqiqada 1 sikl) ga o'tkazildi!**")
+                return
+            elif clean_arg in ("tezkor", "2.5", "2.5m", "2.5daq", "fast"):
+                autonomous_brain_service.set_mode("tezkor")
+                await event.edit("⚡ **Miya 4 rejimi: TEZKOR (Har 2.5 daqiqada 1 sikl) ga o'tkazildi!**")
+                return
+            elif clean_arg in ("optimal", "5", "5m", "5daq", "standart"):
+                autonomous_brain_service.set_mode("optimal")
+                await event.edit("🌟 **Miya 4 rejimi: OPTIMAL (Har 5 daqiqada 1 sikl) ga o'tkazildi!**")
+                return
+            elif clean_arg in ("sokin", "10", "10m", "10daq", "slow"):
+                autonomous_brain_service.set_mode("sokin")
+                await event.edit("🐢 **Miya 4 rejimi: SOKIN (Har 10 daqiqada 1 sikl) ga o'tkazildi!**")
+                return
+            else:
+                st = autonomous_brain_service.get_status()
+                en_str = "🟢 Yoqilgan" if st.get("enabled") else "🔴 To'xtatilgan"
+                mode_str = st.get("mode", "tezkor").upper()
+                interval_str = f"{st.get('interval_seconds', 150) / 60:.1f}".rstrip('0').rstrip('.')
+                next_est = st.get("next_run_estimated", "Noma'lum")
+                cur_act = st.get("current_activity", "Kutilmoqda")
+                await event.edit(
+                    f"🧬 **Miya 4: Avtonom Fikrlash Dvigateli (24/7)**\n\n"
+                    f"• **Holat:** {en_str}\n"
+                    f"• **Tezlik rejimi:** `{mode_str}` ({interval_str} daqiqalik davr)\n"
+                    f"• **Keyingi sikl:** `{next_est}`\n"
+                    f"• **Joriy amal:** _{cur_act}_\n"
+                    f"• **Baza:** {st.get('insights_generated', 0)} saboq, {st.get('answers_precomputed', 0)} kesh, {st.get('lexicon_learned', 0)} leksikon\n\n"
+                    f"**Tezlikni o'zgartirish:**\n"
+                    f"• `{prefix}miya4 1m` — Ultra tezkor (1 daqiqa)\n"
+                    f"• `{prefix}miya4 2.5m` — Tezkor (2.5 daqiqa)\n"
+                    f"• `{prefix}miya4 5m` — Optimal (5 daqiqa)\n"
+                    f"• `{prefix}miya4 10m` — Sokin (10 daqiqa)\n"
+                    f"• `{prefix}miya4 on / off` — Yoqish / To'xtatish"
+                )
+                return
+
+        # -----------------------------------------------------------
         # 4. .help - Yordam menyusi
         # -----------------------------------------------------------
         if cmd == "help":

@@ -1237,16 +1237,19 @@
             </div>
           </div>
 
-          <!-- 3 SPEED MODES -->
-          <div style="display: flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.35); padding: 3px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
-            <button type="button" id="brain-mode-sokin" onclick="setAutonomousBrainMode('sokin')" style="padding: 5px 9px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid transparent; cursor: pointer; background: transparent; color: var(--hint-color); transition: all 0.2s;" title="Sokin rejim: Har 20 daqiqada 1 sikl (Token tejamkor)">
-              🐢 Sokin (20 daq)
+          <!-- 4 SPEED MODES -->
+          <div style="display: flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.35); padding: 3px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap;">
+            <button type="button" id="brain-mode-ultra" onclick="setAutonomousBrainMode('ultra')" style="padding: 5px 8px; font-size: 10.5px; font-weight: 600; border-radius: 6px; border: 1px solid transparent; cursor: pointer; background: transparent; color: var(--hint-color); transition: all 0.2s;" title="Ultra Tezkor: Har 1 daqiqada 1 sikl (Maksimal kognitiv tezlik)">
+              ⚡⚡ Ultra (1 daq)
             </button>
-            <button type="button" id="brain-mode-optimal" onclick="setAutonomousBrainMode('optimal')" style="padding: 5px 9px; font-size: 11px; font-weight: 700; border-radius: 6px; border: 1px solid rgba(168,85,247,0.7); cursor: pointer; background: rgba(168,85,247,0.3); color: #f3e8ff; transition: all 0.2s;" title="Optimal rejim: Har 10 daqiqada 1 sikl (Tavsiya etiladi, 0% limit xavfi)">
-              🌟 Optimal (10 daq)
+            <button type="button" id="brain-mode-tezkor" onclick="setAutonomousBrainMode('tezkor')" style="padding: 5px 8px; font-size: 10.5px; font-weight: 700; border-radius: 6px; border: 1px solid rgba(168,85,247,0.7); cursor: pointer; background: rgba(168,85,247,0.3); color: #f3e8ff; transition: all 0.2s;" title="Tezkor rejim: Har 2.5 daqiqada 1 sikl (Yuqori tezlik)">
+              ⚡ Tezkor (2.5 daq)
             </button>
-            <button type="button" id="brain-mode-tezkor" onclick="setAutonomousBrainMode('tezkor')" style="padding: 5px 9px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid transparent; cursor: pointer; background: transparent; color: var(--hint-color); transition: all 0.2s;" title="Tezkor rejim: Har 5 daqiqada 1 sikl (Turbo o'rganish)">
-              ⚡ Tezkor (5 daq)
+            <button type="button" id="brain-mode-optimal" onclick="setAutonomousBrainMode('optimal')" style="padding: 5px 8px; font-size: 10.5px; font-weight: 600; border-radius: 6px; border: 1px solid transparent; cursor: pointer; background: transparent; color: var(--hint-color); transition: all 0.2s;" title="Optimal rejim: Har 5 daqiqada 1 sikl (Tavsiya etiladi)">
+              🌟 Optimal (5 daq)
+            </button>
+            <button type="button" id="brain-mode-sokin" onclick="setAutonomousBrainMode('sokin')" style="padding: 5px 8px; font-size: 10.5px; font-weight: 600; border-radius: 6px; border: 1px solid transparent; cursor: pointer; background: transparent; color: var(--hint-color); transition: all 0.2s;" title="Sokin rejim: Har 10 daqiqada 1 sikl (Token tejamkor)">
+              🐢 Sokin (10 daq)
             </button>
           </div>
         </div>
@@ -2931,7 +2934,8 @@
     async function setAutonomousBrainMode(mode) {
       haptic();
       updateModeButtonsUI(mode);
-      const min = mode === 'tezkor' ? '5' : (mode === 'sokin' ? '20' : '10');
+      const minMap = { 'ultra': '1', 'tezkor': '2.5', 'optimal': '5', 'sokin': '10' };
+      const min = minMap[mode] || '2.5';
       showToast(`⚡ Miya 4 rejimi: ${mode.toUpperCase()} (${min} daqiqa) ga o'tkazilmoqda...`);
 
       try {
@@ -2947,7 +2951,7 @@
     }
 
     function updateModeButtonsUI(mode) {
-      const modes = ['sokin', 'optimal', 'tezkor'];
+      const modes = ['ultra', 'tezkor', 'optimal', 'sokin'];
       modes.forEach(m => {
         const btn = document.getElementById(`brain-mode-${m}`);
         if (!btn) return;
