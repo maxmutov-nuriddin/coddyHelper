@@ -450,15 +450,7 @@ async def start_bot_service() -> None:
     except Exception as e:
         logger.warning("Bot Menu Button sozlashda ogohlantirish: %s", e)
 
-    async def post_initial_button():
-        await asyncio.sleep(5)
-        if config.escalation_chat and config.escalation_chat != "me":
-            try:
-                await post_group_panel_button(config.escalation_chat)
-            except Exception as e:
-                logger.info("Guruhga dastlabki tugmani yuborish keyinga qoldirildi: %s", e)
-
-    asyncio.create_task(post_initial_button())
+    # Guruhga har restartda avtomatik xabar tashlash o'chirildi (Faqat /panel buyrug'ida yuboriladi)
 
     logger.info("🚀 Telegram Bot polling xizmati faollashdi.")
     await dp.start_polling(bot, handle_signals=False)

@@ -577,6 +577,85 @@ async def navigate_tash3tm_bot(client, query: str) -> dict[str, Any]:
     return await interact_with_telegram_bot(client, bot_tag, query, _is_direct=True)
 
 
+async def explore_telegram_bot(client, bot_username: str, max_depth: int = 2) -> dict[str, Any]:
+    """
+    Avtonom Bot O'rganuvchi (Bot Explorer):
+    - Berilgan botga kiradi, /start buyrug'ini yuboradi.
+    - Chiqqan barcha asosiy tugmalarni ro'yxatga oladi.
+    - Har bir asosiy bo'lim tugmasini (max 4-5 ta) navbatma-navbat bosib ko'rib, ichidagi imkoniyatlarni o'rganadi.
+    - Natijada mentor uchun botning to'liq kognitiv arxitekturasi va qo'llanmasini tuzadi.
+    """
+    if not client:
+        return {"ok": False, "error": "Telegram mijozi ulanmagan"}
+
+    raw_bot = (bot_username or "").strip().lstrip("@")
+    if not raw_bot:
+        return {"ok": False, "error": "Bot username kiritilmadi"}
+
+    bot_tag = f"@{raw_bot}"
+
+    try:
+        try:
+            bot_entity = await client.get_input_entity(bot_tag)
+        except Exception:
+            bot_entity = await client.get_entity(bot_tag)
+    except Exception as e:
+        return {"ok": False, "error": f"'{bot_tag}' Telegramda topilmadi: {e}"}
+
+    try:
+        # 1. /start buyrug'ini yuborish
+        start_msg = await client.send_message(bot_entity, "/start")
+        await asyncio.sleep(2.0)
+
+        recent = await client.get_messages(bot_entity, limit=4)
+        main_msg = None
+        for rm in recent:
+            if rm and not rm.out and getattr(rm, "buttons", None):
+                main_msg = rm
+                break
+        if not main_msg and recent:
+            main_msg = recent[0]
+
+        if not main_msg:
+            return {"ok": False, "error": f"'{bot_tag}' botidan javob kelmadi."}
+
+        main_matrix, main_buttons = extract_buttons_from_message(main_msg)
+        main_text = (main_msg.message or main_msg.raw_text or "").strip()
+
+        explored_sections = []
+        # Asosiy tugmalardan 4 tasini bosib ko'rib o'rganish
+        btns_to_explore = [b for b in main_buttons if b and len(b.strip()) > 1][:4]
+
+        for b_name in btns_to_explore:
+            try:
+                # Tugmani bosish
+                c_res = await click_chat_button(client, bot_tag, b_name, wait_timeout=6)
+                if c_res.get("ok"):
+                    sub_text = (c_res.get("response") or "").strip()
+                    sub_btns = c_res.get("buttons") or []
+                    explored_sections.append({
+                        "button": b_name,
+                        "screen_text": sub_text[:300],
+                        "sub_buttons": sub_btns[:6],
+                    })
+                await asyncio.sleep(1.2)
+            except Exception as b_err:
+                logger.debug("Tugma bosishda xatolik (%s): %s", b_name, b_err)
+
+        return {
+            "ok": True,
+            "bot": bot_tag,
+            "main_text": main_text,
+            "main_buttons": main_buttons,
+            "main_matrix": main_matrix,
+            "sections": explored_sections,
+        }
+    except Exception as e:
+        logger.error("explore_telegram_bot da xatolik: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+
 async def interact_with_telegram_bot(
     client,
     bot_username: str,
@@ -2015,6 +2094,15 @@ ACTION_SEARCH_CHAT = re.compile(
     r'<<<ACTION:search_chat\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>',
     re.IGNORECASE | re.DOTALL,
 )
+ACTION_EXPLORE_BOT = re.compile(
+    r'<<<ACTION:explore_bot\(["\'](.*?)["\'](?:,\s*(\d+))?\)>>>',
+    re.IGNORECASE | re.DOTALL,
+)
+ACTION_DEEP_SEARCH = re.compile(
+    r'<<<ACTION:deep_search\(["\'](.*?)["\']\)>>>',
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 
 
@@ -2469,6 +2557,61 @@ async def execute_agent_action(
             lines.append(f"{i}. 📍 **{chat_name}** | 👤 *{sender}* ({date}):\n   «{snippet}»{link_md}{b_line}\n")
         return "\n".join(lines)
 
+    # 3.1.1 Action: explore_bot (Botga kirib ishlashini to'liq o'rganish va hisobot berish)
+    m_explore = ACTION_EXPLORE_BOT.search(reply_text)
+    explore_target = ""
+    if m_explore:
+        explore_target = m_explore.group(1).strip()
+    else:
+        exp_m = (
+            re.search(r"(@[A-Za-z0-9_]+(?:bot|_bot))\b\s*(?:botiga|boti|ga)?\s*(?:kirib|ga\s+borib)?\s*(?:ishlashini|qanday\s+ishlashini|nimalar\s+qilishini|menyu(?:sini)?|tuzilishini)?\s*(?:o['’`]?rgan\w*|tekshir\w*|tahlil\s+qil\w*|bilib\s+ber\w*)", orig_msg, re.I) or
+            re.search(r"(?:o['’`]?rgan\w*|tekshir\w*|tahlil\s+qil\w*)\s+(@[A-Za-z0-9_]+(?:bot|_bot))\b", orig_msg, re.I)
+        )
+        if exp_m:
+            explore_target = exp_m.group(1).strip()
+
+    if explore_target:
+        exp_res = await explore_telegram_bot(client, explore_target)
+        if exp_res.get("ok"):
+            b_tag = exp_res.get("bot", explore_target)
+            m_txt = exp_res.get("main_text", "")
+            m_btns = exp_res.get("main_buttons", [])
+            sections = exp_res.get("sections", [])
+            if is_ru:
+                lines = [f"🤖 **Полный анализ и исследование бота {b_tag}:**\n"]
+                lines.append(f"📄 **Главный экран (/start):**\n«{m_txt}»\n")
+                if m_btns:
+                    lines.append(f"🔘 **Главные разделы/кнопки бота:**\n" + "\n".join(f"  • `{b}`" for b in m_btns) + "\n")
+                if sections:
+                    lines.append("⚡️ **Изученные внутренние разделы:**")
+                    for s in sections:
+                        s_btn = s.get("button", "")
+                        s_txt = s.get("screen_text", "").replace("\n", " ")
+                        sub_b = s.get("sub_buttons", [])
+                        lines.append(f"• **[{s_btn}]:** {s_txt}")
+                        if sub_b:
+                            lines.append(f"   ↳ Вложенные кнопки: {', '.join(f'`{sb}`' for sb in sub_b)}")
+                lines.append(f"\n💡 *Вывод:* Бот полностью изучен и готов к управлению. Вы можете сказать «{b_tag} в 'Название кнопки'» или нажать любую из них.")
+            else:
+                lines = [f"🤖 **{b_tag} boti to'liq o'rganildi va tahlil qilindi:**\n"]
+                lines.append(f"📄 **Asosiy ekran (/start xabari):**\n«{m_txt}»\n")
+                if m_btns:
+                    lines.append(f"🔘 **Botning asosiy bo'lim/tugmalari:**\n" + "\n".join(f"  • `{b}`" for b in m_btns) + "\n")
+                if sections:
+                    lines.append("⚡️ **Ichki bo'limlar bo'yicha amaliy tahlil:**")
+                    for s in sections:
+                        s_btn = s.get("button", "")
+                        s_txt = s.get("screen_text", "").replace("\n", " ")
+                        sub_b = s.get("sub_buttons", [])
+                        lines.append(f"• **[{s_btn}] bo'limi:** {s_txt}")
+                        if sub_b:
+                            lines.append(f"   ↳ Ichki tugmalari: {', '.join(f'`{sb}`' for sb in sub_b)}")
+                lines.append(f"\n💡 *Xulosa:* Bot to'liq tahlil qilindi. Endi unga kirib xohlagan tugmani bosishni yoki ma'lumot olishni bemalol buyurishingiz mumkin!")
+            return "\n".join(lines).strip()
+        else:
+            err = exp_res.get("error", "Noma'lum xatolik")
+            return f"❌ **Botni o'rganishda xatolik ({explore_target}):**\n{err}"
+
     # 3.2. Action: inspect_bot (Bot yoki chatning ekranini, barcha tugmalarini va holatini ko'rish)
     m_inspect = ACTION_INSPECT_BOT.search(reply_text)
     insp_target = ""
@@ -2509,7 +2652,7 @@ async def execute_agent_action(
             err = insp_res.get("error", "Noma'lum xatolik")
             return f"❌ **Botni ko'rishda xatolik ({insp_target}):**\n{err}"
 
-    # 3.3. Action: click_button (Bot yoki chatdagi inline tugmani aniq bosish)
+    # 3.3. Action: click_button (Bot yoki chatdagi inline tugmani aniq bosish - shu jumladan Vision skrinshotdagi tugmalar)
     m_click = ACTION_CLICK_BUTTON.search(reply_text)
     click_target = ""
     click_btn_name = ""
@@ -2520,10 +2663,26 @@ async def execute_agent_action(
         if len(m_click.groups()) >= 3 and m_click.group(3):
             click_mid = int(m_click.group(3).strip())
     else:
-        click_m = re.search(r"(@[A-Za-z0-9_]+(?:bot|_bot))\b\s*(?:dagi|da)?\s*['\"]?(.+?)['\"]?\s+(?:degan\s+)?tugma\w*\s*(?:ni\s+)?(?:bos\w*|tanla\w*|klik\s+qil\w*)", orig_msg, re.I)
+        click_m = (
+            re.search(r"(@[A-Za-z0-9_]+(?:bot|_bot))\b\s*(?:dagi|da)?\s*['\"]?(.+?)['\"]?\s+(?:degan\s+)?tugma\w*\s*(?:ni\s+)?(?:bos\w*|tanla\w*|klik\s+qil\w*)", orig_msg, re.I) or
+            re.search(r"(?:shundagi|rasmdagi|ekrandagi|undagi)\s*['\"]?(.+?)['\"]?\s+(?:degan\s+)?tugma\w*\s*(?:ni\s+)?(?:bos\w*|tanla\w*|klik\s+qil\w*)", orig_msg, re.I) or
+            re.search(r"(?:bos|klik\s+qil|tanla)\s+['\"]?(.+?)['\"]?\s+(?:tugmasini|ni)", orig_msg, re.I)
+        )
         if click_m:
-            click_target = click_m.group(1).strip()
-            click_btn_name = click_m.group(2).strip()
+            if len(click_m.groups()) == 2 and click_m.group(1).startswith("@"):
+                click_target = click_m.group(1).strip()
+                click_btn_name = click_m.group(2).strip()
+            else:
+                # Agar faqat tugma nomi aytilgan bo'lsa (masalan rasm bilan kelganda)
+                click_btn_name = click_m.group(1).strip()
+                # Bot nomini orig_msg dan yoki oxirgi eslangan botdan topish
+                b_found = re.search(r"(@[A-Za-z0-9_]+(?:bot|_bot))\b", orig_msg, re.I)
+                if b_found:
+                    click_target = b_found.group(1).strip()
+                else:
+                    # Default: 3tmbot yoki 3tm
+                    if any(w in orig_msg.lower() for w in ("3tm", "avtobus", "marshrut", "bekat", "transport")):
+                        click_target = "@3tmbot"
 
     if click_target and click_btn_name:
         c_res = await click_chat_button(client, click_target, click_btn_name, message_id=click_mid)
@@ -2545,6 +2704,7 @@ async def execute_agent_action(
     # 3.4. Action: interact_with_bot (Boshqa Telegram botlari bilan muloqot va javob olish)
     m_bot_act = ACTION_INTERACT_BOT.search(reply_text)
     target_bot = ""
+
     bot_cmd = ""
     bot_btn = None
     if m_bot_act:
@@ -2714,8 +2874,70 @@ async def execute_agent_action(
                 "joriy joylashuvingizni yuboring. Uni darhol xotiraga saqlab, to'liq Telegram xarita lokatsiyasi (Location Pin) qilib jo'natib beraman!"
             )
 
+    # 3.4.1 Action: deep_search ("Topib kel" / Chuqur qidiruv - Telegram + Internet)
+    m_deep = ACTION_DEEP_SEARCH.search(reply_text)
+    deep_query = ""
+    if m_deep:
+        deep_query = m_deep.group(1).strip()
+    else:
+        # Erkin til: "nimanidir topib ke", "falon narsani topib kel", "shuni topib ber", "batafsil qidirib top"
+        deep_m = (
+            re.search(r"(.+?)\s+(?:haqida|bo['’`]?yicha)?\s*(?:barcha\s+ma['’`]?lumotni\s+)?(?:topib\s+kel\w*|topib\s+ke\w*|chuqur\s+qidir\w*|titkilab\s+chiq\w*|hamma\s+joydan\s+qidir\w*)", orig_msg, re.I) or
+            re.search(r"(?:topib\s+kel\w*|topib\s+ke\w*|chuqur\s+qidir\w*)\s*[:\-]?\s*(.+)", orig_msg, re.I)
+        )
+        if deep_m:
+            candidate_q = (deep_m.group(1) or (deep_m.group(2) if len(deep_m.groups()) >= 2 else "")).strip()
+            # Tugma yoki bot buyrug'i bo'lmasa
+            if candidate_q and not any(w in candidate_q.lower() for w in ("tugma", "bot", "marshrut")):
+                deep_query = candidate_q
+
+    if deep_query:
+        from services.search_service import search_web
+        # 1. Web qidiruv (Internet)
+        web_task = search_web(deep_query, max_results=3)
+        # 2. Telegram chatlaridan qidiruv
+        tg_task = search_telegram_messages(client, deep_query, limit=3)
+
+        web_res, tg_res = await asyncio.gather(web_task, tg_task, return_exceptions=True)
+
+        lines = [f"🔎 **«{deep_query}» bo'yicha chuqur tahlil va qidiruv natijalari (Deep Finder):**\n"]
+
+        # Telegram natijalari
+        has_tg = False
+        if isinstance(tg_res, list) and tg_res and not (len(tg_res) == 1 and "error" in tg_res[0]):
+            lines.append("📱 **Telegram xabarlar va chatlardan:**")
+            for t_item in tg_res[:3]:
+                c_name = t_item.get("chat_name", "Chat")
+                s_name = t_item.get("sender_name", "Noma'lum")
+                snip = t_item.get("snippet", "")
+                link = t_item.get("link")
+                link_str = f" [🔗 Ochish]({link})" if link else ""
+                lines.append(f"• 📍 **{c_name}** ({s_name}): «{snip}»{link_str}")
+            lines.append("")
+            has_tg = True
+
+        # Internet natijalari
+        has_web = False
+        if isinstance(web_res, list) and web_res:
+            lines.append("🌐 **Internet va Rasmiy manbalardan:**")
+            for w_item in web_res[:3]:
+                w_title = w_item.get("title", "")
+                w_snip = w_item.get("snippet", "")
+                w_url = w_item.get("url", "")
+                url_str = f" [🔗 Manba]({w_url})" if w_url else ""
+                lines.append(f"• 📌 **{w_title}**{url_str}\n  {w_snip}")
+            lines.append("")
+            has_web = True
+
+        if has_tg or has_web:
+            lines.append("💡 *Xulosa:* Barcha ochiq manbalar va shaxsiy bazadan to'liq tahlil qilib keltirildi.")
+            return "\n".join(lines).strip()
+        else:
+            return f"🔎 «{deep_query}» bo'yicha Telegram yoki internetdan aniq ma'lumot topilmadi."
+
     # 3.5. Action: web_search (Internet va IT hujjatlaridan qidirish / Поиск в интернете)
     m_web = ACTION_WEB_SEARCH.search(reply_text)
+
     if not m_web:
         fb_web = (
             re.search(r"(?:internetdan|google(?:dan)?|vebdan|webdan)\s+(?:'|\")?([^'\"]+?)(?:'|\")?\s+(?:ni\s+)?(?:qidir|top|izla)", orig_msg, re.I) or
