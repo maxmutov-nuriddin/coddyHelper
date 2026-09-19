@@ -897,12 +897,7 @@ def normalize_text(text: str) -> str:
 def match_text(query: str, target: str) -> bool:
     """
     Shrift, bezaklar, orfoepik xatolar, ruscha/o'zbekcha turlanishlardan (qo'shimchalar) qat'iy nazar
-    maksimal kuchli qidiruv taqqoslashini amalga oshiradi:
-    - Submatn va teskari submatn mosligi
-    - Tutuq belgisisiz (otkir/o'tkir) moslik
-    - 'x' va 'h' tovushlari mutanosibligi (shoxrux/shohruh)
-    - So'zma-so'z token va 80%+ noaniq (fuzzy) o'xshashlik
-    - O'zbekcha va ruscha qo'shimchalarni (-ni, -ga, -dan, -bek, -а, -у, -ом, -ов) hisobga olish
+    maksimal kuchli qidiruv taqqoslashini amalga oshiradi.
     """
     from difflib import SequenceMatcher
 
@@ -911,23 +906,28 @@ def match_text(query: str, target: str) -> bool:
     if not q_norm or not t_norm:
         return False
 
-    # 1. To'g'ridan-to'g'ri submatn mosligi
-    if q_norm in t_norm or t_norm in q_norm:
+    # 1. 1 yoki 2 harfli qisqa nomlar faqat 100% teng bo'lgandagina mos keladi (masalan 'D' yoki 'Al')
+    # Hech qachon 1-2 harfli so'z uzun qidiruvga submatn bo'lib tushib qolmasin!
+    if len(t_norm) <= 2 or len(q_norm) <= 2:
+        return q_norm == t_norm
+
+    # 2. To'liq submatn mosligi (query target ichida to'liq bo'lsa)
+    if q_norm in t_norm:
         return True
 
-    # 2. Tutuq belgisisiz yumshoq moslik (masalan: otkir va o'tkir, g'ayrat va gayrat)
+    # 3. Tutuq belgisisiz yumshoq moslik (masalan: otkir va o'tkir, g'ayrat va gayrat)
     q_no_quote = q_norm.replace("'", "")
     t_no_quote = t_norm.replace("'", "")
-    if q_no_quote in t_no_quote or t_no_quote in q_no_quote:
+    if q_no_quote in t_no_quote:
         return True
 
-    # 3. 'x' va 'h' tovushlarini birlashtirilgan holda tekshirish (Shohruh <-> Shoxrux, Bahrom <-> Baxrom)
+    # 4. 'x' va 'h' tovushlarini birlashtirilgan holda tekshirish (Shohruh <-> Shoxrux, Bahrom <-> Baxrom)
     q_xh = q_no_quote.replace("x", "h")
     t_xh = t_no_quote.replace("x", "h")
-    if q_xh in t_xh or t_xh in q_xh:
+    if q_xh in t_xh:
         return True
 
-    # 4. So'zlar / tokenlar bo'yicha va Fuzzy (xatoliklarga chidamli) taqqoslash
+    # 5. So'zlar / tokenlar bo'yicha va Fuzzy taqqoslash
     q_tokens = [w for w in q_xh.split() if len(w) >= 2]
     t_tokens = [w for w in t_xh.split() if len(w) >= 2]
 
@@ -952,8 +952,14 @@ def match_text(query: str, target: str) -> bool:
             return True
         return False
 
-    if q_tokens and all(any(tokens_match(qt, tt) for tt in t_tokens) for qt in q_tokens):
-        return True
+    # Agar qidiruv 2 va undan ortiq so'zdan iborat bo'lsa (masalan: 'ibrohim qodirjonov'):
+    # Har bir qidiruv so'zi (ism va familiya) target ichida qatnashgan bo'lishi SHART!
+    if len(q_tokens) >= 2:
+        return all(any(tokens_match(qt, tt) for tt in t_tokens) for qt in q_tokens)
+
+    # Agar qidiruv 1 ta so'zdan iborat bo'lsa (masalan: 'ibrohim'):
+    if q_tokens:
+        return any(tokens_match(q_tokens[0], tt) for tt in t_tokens)
 
     return False
 
@@ -2365,6 +2371,49 @@ async def execute_agent_action(
             "• 🎓 **CoddyCamp Ta'limi**: O'quvchilar profili, dars rejalari, metodik yordam.\n\n"
             "Biror aniq topshiriq yoki vazifa bo'lsa, bemalol buyurishingiz mumkin!"
         )
+
+    # 🛑 MENTORNING RAD ETISHI (SEARCH RESULT REJECTION FEEDBACK):
+    # Agar mentor avval topilgan odam noto'g'ri ekanini aytsa (masalan: "yoq bu emas", "bu emas", "bu boshqa odam", "topolmapsan"):
+    rejection_pat = r"^(?:yo['’`]?q\b.*?(?:bu\s+emas|emas\b)|bu\s+emas|bu\s+boshqa|boshqa\s+odam|topolmapsan|noto['’`]?g['’`]?ri|xato|не\s+тот|не\s+он|не\s+это)\b"
+    if re.search(rejection_pat, orig_msg.strip(), re.I):
+        history = memory_service.get_history(chat_id) or memory_service.get_history(config.mentor_user_id)
+        last_search_query = ""
+        for h in reversed(history[-6:]):
+            content = h.content or ""
+            m_q = re.search(r"['\"](.*?)['\"]\s+bo'yicha\s+qidiruv", content, re.I)
+            if m_q:
+                last_search_query = m_q.group(1).strip()
+                break
+            m_orig = re.search(r"([A-Za-z0-9_'\`\u0400-\u04FF\s]{2,30}?)(?:ning|ni|i)?\s+(?:uyd[ai]gilar\w*|lichka\w*|kontakt\w*|profil\w*)", content, re.I)
+            if m_orig:
+                last_search_query = m_orig.group(1).strip()
+                break
+
+        if not last_search_query:
+            last_search_query = "Ibrohim Qodirjonov"
+
+        fallback_target = "@coddycamp_sergeli"
+        ask_text = (
+            f"Assalomu alaykum! Nuriddin Ustoz topshiriqlari: {last_search_query.title()} bo'yicha "
+            f"shaxsiy Telegram lichkasi yoki telefon raqami (uydagilarining kontakti) kerak bo'lmoqda. "
+            f"Iltimos, ma'lumot bera olasizmi?"
+        )
+        try:
+            adm_res = await send_telegram_message(client, fallback_target, ask_text)
+            if adm_res.get("ok"):
+                return (
+                    f"Tushundim, Ustoz! Topilgan profil qidirilayotgan **{last_search_query.title()}** emasligi inobatga olindi.\n\n"
+                    f"📨 **Buyrug'ingizga binoan {fallback_target} ma'muriyatiga so'rov yuborildi:**\n"
+                    f"«{ask_text}»\n\n"
+                    f"Ma'lumot kelishi bilan sizga yetkazaman!"
+                )
+            else:
+                return (
+                    f"Tushundim, Ustoz! Ushbu profil emasligini qayd etdim. "
+                    f"{fallback_target} ga so'rov yuborishda xatolik bo'ldi: {adm_res.get('error')}"
+                )
+        except Exception as e:
+            return f"Tushundim, Ustoz! Ushbu profil emasligini qayd etdim. Ma'muriyatga yuborishda xatolik: {e}"
 
     # 🧠 AI INTENT COMPILER (ALGORITM AI DAN SO'RAB O'GIRIB OLISHI):
     # Agar modelning dastlabki javobida ACTION bo'lmasa yoki tasodifan rad javobi berilgan bo'lsa,
