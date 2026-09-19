@@ -2849,6 +2849,51 @@ class AIService:
 
         return "⚠️ GitHub repozitoriysini tahlil qilishda xatolik yuz berdi."
 
+    async def extract_name_and_group_from_reply(self, reply_text: str) -> dict[str, str]:
+        """
+        O'quvchining ism va guruhi haqidagi javobidan to'liq ism va guruh nomini ajratib oladi.
+        Masalan: 'Mening ismim Bobur Xoliqov, 14:00 guruhi' -> {'name': 'Bobur Xoliqov', 'group': '14:00 guruhi'}
+        """
+        raw = (reply_text or "").strip()
+        if not raw:
+            return {"name": "", "group": ""}
+
+        prompt = (
+            "Foydalanuvchi (o'quvchi) o'z ismi va guruhi haqida quyidagi xabarni yubordi:\n"
+            f"«{raw}»\n\n"
+            "Ushbu matndan o'quvchining haqiqiy to'liq ismini (Ism Familiya) va o'qiydigan guruhini ajratib oling.\n"
+            "Faqat quyidagi JSON formatida javob bering, boshqa hech narsa yozmang:\n"
+            '{"name": "Ism Familiya", "group": "Guruh nomi yoki dars vaqti"}'
+        )
+        try:
+            pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+            if pool:
+                client = pool[self._frontline_idx % len(pool)]
+                self._frontline_idx = (self._frontline_idx + 1) % len(pool)
+                resp = await client.chat.completions.create(
+                    model=config.groq_model or "llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=150,
+                    response_format={"type": "json_object"}
+                )
+                import json
+                parsed = json.loads(resp.choices[0].message.content.strip())
+                if isinstance(parsed, dict):
+                    return {
+                        "name": (parsed.get("name") or "").strip(),
+                        "group": (parsed.get("group") or "").strip(),
+                    }
+        except Exception as e:
+            logger.debug("AI orqali ism/guruh ajratishda ogohlantirish: %s", e)
+
+        # Fallback: regex
+        m_name = re.search(r"\b([A-Z\u0410-\u042F][a-z\u0430-\u044F\']+(?:\s+[A-Z\u0410-\u042F][a-z\u0430-\u044F\']+)?)\b", raw)
+        name_val = m_name.group(1).title() if m_name else raw
+        m_grp = re.search(r"([A-Za-z0-9_\s\u0400-\u04FF]+?)\s+guruh(?:i|idan)?\b", raw, re.I)
+        grp_val = m_grp.group(1).strip() if m_grp else ""
+        return {"name": name_val, "group": grp_val}
+
 
 # Global AI xizmati instansiyasi
 ai_service = AIService()

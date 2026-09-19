@@ -1130,7 +1130,7 @@ async def send_telegram_message(client, target_query: str, message_text: str) ->
         return {"ok": False, "error": "Telegram mijoz ulanmagan"}
 
     target = (target_query or "").strip()
-    text = (message_text or "").strip()
+    text = (message_text or "").strip().replace("\\n", "\n")
 
     if not target or not text:
         return {"ok": False, "error": "Qabul qiluvchi va xabar matni ko'rsatilishi shart"}
@@ -1144,6 +1144,17 @@ async def send_telegram_message(client, target_query: str, message_text: str) ->
             from config import get_vazifalar_chat_target_sync
             resolved_entity = get_vazifalar_chat_target_sync()
             target_name = "Vazifalar guruhi"
+
+        # Ma'muriyatga yo'naltirilgan xabarlar (mamuryat, ma'muriyat, admin va h.k.) -> @coddycamp_sergeli
+        t_lower = target.lower().strip()
+        adm_keywords = {
+            "mamuryat", "mamuriyat", "ma'muriyat", "mamuriyatga", "mamuryatga", "ma'muriyatga",
+            "admin", "adminga", "administratsiya", "administratsiyaga", "adminstratsiya", "adminstratsiyaga",
+            "coddycamp", "sergeli", "coddycamp_sergeli", "@coddycamp_sergeli"
+        }
+        if t_lower in adm_keywords or any(t_lower.startswith(k) for k in ("mamuryat", "mamuriyat", "ma'muriyat", "adminstrats")):
+            target = "@coddycamp_sergeli"
+            target_name = "CoddyCamp Ma'muriyati (@coddycamp_sergeli)"
 
         # 1. Agar @username yoki telefon yoki to'g'ridan-to'g'ri chat ID bo'lsa
         if not resolved_entity and (target.startswith("@") or target.startswith("+") or re.match(r"^-?\d+$", target)):
@@ -1690,12 +1701,169 @@ def is_absence_message(text: str) -> bool:
     return any(re.search(pat, t, re.I) for pat in absence_triggers)
 
 
+LAST_FOUND_SICK_STUDENTS: list[dict[str, Any]] = []
+
+
+def is_likely_nickname_or_unknown(name: str) -> bool:
+    """Ism haqiqiy inson ismi yoki nikneym/taxallus ekanligini aniqlaydi."""
+    if not name or name.strip().lower() in ("noma'lum", "nomalum", "mavjud emas", "unknown", "none", "foydalanuvchi"):
+        return True
+    n = name.strip()
+    if "_" in n or re.search(r"\d{2,}", n):
+        return True
+    nick_markers = {"editz", "edit", "gaming", "pubg", "anime", "shadow", "ghost", "official", "channel", "king", "pro", "boy", "girl"}
+    if any(m in n.lower() for m in nick_markers):
+        return True
+    if len(n) <= 2:
+        return True
+    return False
+
+
+async def extract_real_name_and_group_from_chat(
+    client,
+    user_id: int,
+    raw_name: str = "",
+    username: str = "",
+) -> dict[str, Any]:
+    """
+    O'quvchining haqiqiy ism-familiyasi va guruhini ko'p bosqichli aniqlaydi:
+    1. CRM bazasidan qidirish (ID va username bo'yicha).
+    2. Chat tarixini (oxirgi 40 ta xabar) titkilab, o'quvchi o'zini tanishtirgan joylarni yoki
+       ustozning unga ism bilan murojaatlarini topish.
+    3. Telegram umumiy guruhlarini tahlil qilish.
+    """
+    real_name = None
+    group_name = None
+    is_nick = is_likely_nickname_or_unknown(raw_name)
+
+    # 1. CRM bazasini tekshirish
+    try:
+        from services.memory_service import memory_service
+        crm_st = memory_service.get_student_by_user_id(user_id)
+        if crm_st and crm_st.get("full_name") and not is_likely_nickname_or_unknown(crm_st["full_name"]):
+            real_name = crm_st["full_name"]
+            group_name = crm_st.get("group_name")
+        elif username:
+            all_students = memory_service.get_students(limit=100)
+            u_clean = username.lstrip("@").lower()
+            for s in all_students:
+                if (s.get("username") or "").lstrip("@").lower() == u_clean:
+                    fn = s.get("full_name", "")
+                    if fn and not is_likely_nickname_or_unknown(fn):
+                        real_name = fn
+                        group_name = s.get("group_name")
+                        break
+    except Exception as crm_err:
+        logger.debug("CRM dan tekshirishda ogohlantirish: %s", crm_err)
+
+    # 2. Chat tarixidan qidirish
+    if not real_name and client:
+        try:
+            history_msgs = await client.get_messages(user_id, limit=40)
+            intro_pats = [
+                r"\b(?:mening\s+ismim|ismim)\s+([A-Za-z\u0400-\u04FF\']+(?:\s+[A-Za-z\u0400-\u04FF\']+)?)\b",
+                r"\bmen\s+([A-Za-z\u0400-\u04FF\']+(?:\s+[A-Za-z\u0400-\u04FF\']+)?)\s*(?:man|man\b|edim)",
+                r"\b(?:меня\s+зовут|мое\s+имя|моё\s+имя)\s+([A-Za-z\u0400-\u04FF\']+(?:\s+[A-Za-z\u0400-\u04FF\']+)?)\b",
+                r"\bя\s+([A-Za-z\u0400-\u04FF\']+(?:\s+[A-Za-z\u0400-\u04FF\']+)?)\s+из\s+группы",
+            ]
+            mentor_greeting_pats = [
+                r"\b(?:salom|assalomu\s+alaykum|raxmat|rahmat|yaxshi)\s+([A-Z\u0410-\u042F][a-z\u0430-\u044F\']+(?:\s+[A-Z\u0410-\u042F][a-z\u0430-\u044F\']+)?)\b",
+                r"\b(?:привет|здравствуй|здравствуйте|молодец)\s+([A-Z\u0410-\u042F][a-z\u0430-\u044F\']+(?:\s+[A-Z\u0410-\u042F][a-z\u0430-\u044F\']+)?)\b",
+            ]
+            for m in history_msgs:
+                txt = m.text or ""
+                if not txt:
+                    continue
+                if not m.out:
+                    for pat in intro_pats:
+                        match = re.search(pat, txt, re.I)
+                        if match:
+                            cand = match.group(1).strip()
+                            if cand and not is_likely_nickname_or_unknown(cand):
+                                real_name = cand.title()
+                                break
+                if real_name:
+                    break
+
+            if not real_name:
+                for m in history_msgs:
+                    txt = m.text or ""
+                    if not txt or not m.out:
+                        continue
+                    for pat in mentor_greeting_pats:
+                        match = re.search(pat, txt, re.I)
+                        if match:
+                            cand = match.group(1).strip()
+                            if cand and not is_likely_nickname_or_unknown(cand) and cand.lower() not in ("ustoz", "mentor", "nuriddin", "oka", "aka"):
+                                real_name = cand.title()
+                                break
+                    if real_name:
+                        break
+
+            if not group_name:
+                for m in history_msgs:
+                    txt = m.text or ""
+                    gm = re.search(r"([A-Za-z0-9_\s\u0400-\u04FF]+?)\s+guruh(?:i|idan)?\b", txt, re.I)
+                    if gm:
+                        group_name = gm.group(1).strip()
+                        break
+        except Exception as hist_err:
+            logger.debug("Chat tarixini tahlil qilishda ogohlantirish: %s", hist_err)
+
+    # 3. Agar profil nomi nikneym bo'lmasa
+    if not real_name and raw_name and not is_nick:
+        real_name = raw_name.strip()
+
+    # 4. Umumiy guruhlarni tekshirish
+    if not group_name and client:
+        try:
+            common = await get_student_common_groups(client, user_id)
+            if common:
+                group_name = common[0]
+        except Exception as grp_err:
+            logger.debug("Guruhlarni olishda ogohlantirish: %s", grp_err)
+
+    needs_clarification = not real_name or is_likely_nickname_or_unknown(real_name)
+    return {
+        "real_name": real_name,
+        "group_name": group_name or "Aniqlanmadi",
+        "needs_clarification": needs_clarification,
+        "is_nickname": is_nick,
+    }
+
+
+def format_davomat_card(
+    student_name: str,
+    username: str,
+    user_id: int | str,
+    group_name: str,
+    date_time: str,
+    reason: str,
+    raw_message: str,
+    chat_loc: str = "Shaxsiy chat (Lichka)",
+) -> str:
+    """Chiroyli va professional #DAVOMAT kartochkasini shakllantiradi."""
+    clean_msg = (raw_message or "").replace("[Ovozli xabar]: ", "").strip().replace("\\n", "\n")
+    u_str = f" ({username})" if username and username != "Username yo'q" else ""
+    return (
+        "📋 #DAVOMAT #DARSGA_KELOLMAYDI\n\n"
+        f"👤 **O'quvchi:** {student_name}{u_str}\n"
+        f"🆔 **ID:** `{user_id}`\n"
+        f"📍 **Manba:** {chat_loc}\n"
+        f"📚 **Guruh:** {group_name}\n"
+        f"⏰ **Qachon:** {date_time}\n"
+        f"📝 **Sababi:** {reason}\n\n"
+        f"💬 **O'quvchining xabari:**\n«{clean_msg}»"
+    )
+
+
 async def find_sick_students_in_chats(client, limit: int = 40) -> dict[str, Any]:
     """
     Shaxsiy yozishmalar (lichkalar) va guruhlar ichidan oxirgi xabarlarda
-    kasal bo'lgan ("kasalma", "shomoladim", "boleyu", "ploxo chustvuyu", "kelolmayman" va h.k.)
-    barcha o'quvchilarni titkilab topadi va hisobot beradi.
+    kasal bo'lgan barcha o'quvchilarni titkilab topadi, haqiqiy ismlari va guruhlarini
+    tarixdan aniqlaydi va chiroyli hisobot beradi.
     """
+    global LAST_FOUND_SICK_STUDENTS
     if not client:
         return {"ok": False, "error": "Telegram mijoz ulanmagan"}
 
@@ -1735,19 +1903,35 @@ async def find_sick_students_in_chats(client, limit: int = 40) -> dict[str, Any]
                         continue
 
                     if is_absence_message(m_text):
-                        u_name = d.name or getattr(d.entity, "first_name", "") or "Noma'lum"
+                        raw_name = d.name or getattr(d.entity, "first_name", "") or "Noma'lum"
                         if getattr(d.entity, "last_name", None):
-                            u_name += f" {d.entity.last_name}"
+                            raw_name += f" {d.entity.last_name}"
                         username = f"@{d.entity.username}" if getattr(d.entity, "username", None) else "Username yo'q"
                         phone = getattr(d.entity, "phone", None) or "Mavjud emas"
                         tash_time = _format_relative_time(m.date)
 
+                        # Aqlli ism va guruh aniqlash
+                        resolved = await extract_real_name_and_group_from_chat(
+                            client=client,
+                            user_id=d.id,
+                            raw_name=raw_name,
+                            username=username,
+                        )
+
+                        display_name = resolved.get("real_name") or raw_name
+                        if resolved.get("needs_clarification") and raw_name != display_name:
+                            display_name = f"{display_name} (Nik: {raw_name})"
+
                         found_sick.append({
                             "user_id": d.id,
-                            "name": u_name,
+                            "name": display_name,
+                            "raw_name": raw_name,
+                            "real_name": resolved.get("real_name"),
+                            "group_name": resolved.get("group_name", "Aniqlanmadi"),
+                            "needs_clarification": resolved.get("needs_clarification", False),
                             "username": username,
                             "phone": phone,
-                            "text": m_text.strip(),
+                            "text": m_text.strip().replace("\\n", "\n"),
                             "date": tash_time,
                             "date_obj": m.date,
                             "chat_type": "Lichka" if d.is_user else f"Guruh: {d.name}",
@@ -1761,6 +1945,7 @@ async def find_sick_students_in_chats(client, limit: int = 40) -> dict[str, Any]
         return {"ok": False, "error": str(e)}
 
     found_sick.sort(key=lambda x: x.get("date_obj") or datetime.min, reverse=True)
+    LAST_FOUND_SICK_STUDENTS = found_sick
 
     if not found_sick:
         report = (
@@ -1773,9 +1958,11 @@ async def find_sick_students_in_chats(client, limit: int = 40) -> dict[str, Any]
         f"🏥 **Shaxsiy yozishmalar (lichkalar) bo'yicha aniqlangan betob / dars qoldirgan o'quvchilar ({len(found_sick)} nafar):**\n"
     ]
     for idx, s in enumerate(found_sick, 1):
+        g_str = f" | 📚 Guruh: {s['group_name']}" if s.get('group_name') != "Aniqlanmadi" else ""
+        clarif_note = " ⚠️ (Ismi/guruhi aniqlashtirilmoqda)" if s.get("needs_clarification") else ""
         lines.append(
-            f"{idx}. 👤 **{s['name']}** ({s['username']})\n"
-            f"   🆔 ID: `{s['user_id']}` | 📞 Tel: `{s['phone']}`\n"
+            f"{idx}. 👤 **{s['name']}** ({s['username']}){clarif_note}\n"
+            f"   🆔 ID: `{s['user_id']}` | 📞 Tel: `{s['phone']}`{g_str}\n"
             f"   📍 Manba: {s['chat_type']} | ⏰ Vaqti: {s['date']}\n"
             f"   💬 Xabari: «{s['text']}»\n"
             f"   📋 Holat: @coddycamp_sergeli ma'muriyatiga nazorat uchun yuboriladi"
@@ -2556,6 +2743,42 @@ async def execute_agent_action(
                 )
         except Exception as e:
             return f"Tushundim, Ustoz! Ushbu profil emasligini qayd etdim. Ma'muriyatga yuborishda xatolik: {e}"
+
+    # 📨 MENTOR BUYRUG'I: "Shu ni mamuryatga yubor", "Ha yubor shuni", "mamuryatga yubor", "adminga tashla"
+    forward_to_admin_pat = (
+        r"\b(?:shu(?:ni)?|buni|ha\s+yubor|yubor)\b.*?\b(?:mamur[iy]+at|admin\w*|coddycamp|sergeli)\b|"
+        r"\b(?:mamur[iy]+at|admin\w*|coddycamp)\w*\s*(?:ga)?\s+(?:yubor|tashla|jonat|jo['’`]?nat|yetkaz)\b|"
+        r"\b(?:ha\s+yubor\s+shuni|ha\s+yubor|yubor\s+shuni|tashla\s+shuni)\b"
+    )
+    if re.search(forward_to_admin_pat, orig_msg.strip(), re.I):
+        global LAST_FOUND_SICK_STUDENTS
+        sick_list = LAST_FOUND_SICK_STUDENTS
+        if not sick_list:
+            scan_res = await find_sick_students_in_chats(client, limit=25)
+            sick_list = scan_res.get("students", [])
+
+        if sick_list:
+            target_student = sick_list[0]
+            card = format_davomat_card(
+                student_name=target_student.get("real_name") or target_student.get("name") or target_student.get("raw_name") or "O'quvchi",
+                username=target_student.get("username") or "",
+                user_id=target_student.get("user_id") or "",
+                group_name=target_student.get("group_name") or "Aniqlanmadi",
+                date_time="Bugungi dars",
+                reason="Mazasi yo'qligi / Betoblik",
+                raw_message=target_student.get("text") or "",
+                chat_loc=target_student.get("chat_type") or "Shaxsiy chat (Lichka)",
+            )
+            send_res = await send_telegram_message(client, "@coddycamp_sergeli", card)
+            if send_res.get("ok"):
+                return (
+                    f"✅ **Dars qoldirish hisoboti CoddyCamp ma'muriyatiga (@coddycamp_sergeli) yuborildi!**\n\n"
+                    f"{card}"
+                )
+            else:
+                return f"❌ Ma'muriyatga yuborishda xatolik: {send_res.get('error')}"
+        else:
+            return "ℹ️ Hozircha yuborish uchun kasal bo'lgan o'quvchi xabari topilmadi."
 
     # 🧠 AI INTENT COMPILER (ALGORITM AI DAN SO'RAB O'GIRIB OLISHI):
     # Agar modelning dastlabki javobida ACTION bo'lmasa yoki tasodifan rad javobi berilgan bo'lsa,

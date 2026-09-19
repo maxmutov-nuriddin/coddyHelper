@@ -19,6 +19,9 @@ from services.telegram_agent_service import (
     get_student_common_groups,
     check_group_schedule_and_announcements,
     is_russian_text,
+    extract_real_name_and_group_from_chat,
+    format_davomat_card,
+    _get_tashkent_time,
 )
 
 logger = logging.getLogger(__name__)
@@ -144,6 +147,7 @@ def is_absence_message(text: str) -> bool:
     return any(re.search(pat, t, re.I) for pat in absence_triggers)
 
 
+PENDING_ABSENCE_STUDENTS: dict[int, dict[str, Any]] = {}
 RECENT_ABSENCE_NOTIFICATIONS: dict[int, float] = {}
 
 async def process_student_absence_immediately(
@@ -158,6 +162,7 @@ async def process_student_absence_immediately(
     """
     O'quvchining darsga kelolmasligi / kasalligi haqidagi xabarni 0 soniya kutishsiz,
     darhol @coddycamp_sergeli ga yetkazadi va Vazifalar guruhiga nusxasini yuboradi.
+    Agar o'quvchining ismi nikneym bo'lsa va tarixdan topilmasa, avval o'zidan so'raydi.
     """
     try:
         now_ts = time.time()
@@ -193,16 +198,64 @@ async def process_student_absence_immediately(
         date_time = analysis.get("date_time") or "Bugun"
         reason = analysis.get("reason") or "Mazasi yo'qligi / betoblik"
 
+        # 🔍 Ism va guruhni ko'p bosqichli tekshirish (CRM + Chat tarixi + Guruhlar)
+        resolved = await extract_real_name_and_group_from_chat(
+            client=client,
+            user_id=sender_id,
+            raw_name=s_name,
+            username=s_user,
+        )
+        real_name = resolved.get("real_name")
+        if resolved.get("group_name") and resolved.get("group_name") != "Aniqlanmadi":
+            group_name = resolved.get("group_name")
+
+        # ❓ AGAR ISMI VA GURUHI ANIQLANMAGAN BO'LSA (va shaxsiy chat bo'lsa), O'ZIDAN SO'RASH:
+        if resolved.get("needs_clarification") and is_private:
+            PENDING_ABSENCE_STUDENTS[sender_id] = {
+                "raw_message": clean_raw,
+                "sender_id": sender_id,
+                "chat_id": chat_id,
+                "s_user": s_user,
+                "s_name": s_name,
+                "group_hints": group_hints,
+                "reason": reason,
+                "date_time": date_time,
+            }
+            if is_russian_text(clean_raw):
+                ask_text = (
+                    "Здравствуйте! Информация о том, что вы не сможете прийти на урок, принята.\n\n"
+                    "📋 Чтобы передать точный отчет администрации CoddyCamp (@coddycamp_sergeli), пожалуйста, напишите:\n"
+                    "1. Ваше **Имя и Фамилию**\n"
+                    "2. В какой **группе (время/день)** вы учитесь?\n\n"
+                    "Выздоравливайте! Ждем ваш ответ 😊"
+                )
+            else:
+                ask_text = (
+                    "Assalomu alaykum! Darsga kela olmasligingiz haqidagi xabaringiz qabul qilindi.\n\n"
+                    "📋 CoddyCamp ma'muriyatiga (@coddycamp_sergeli) rasmiy hisobot kiritishimiz uchun iltimos, quyidagilarni yozib yuboring:\n"
+                    "1. To'liq **ism va familiyangiz**\n"
+                    "2. Qaysi **guruhda (qaysi kun/vaqtda)** o'qiysiz?\n\n"
+                    "Tezroq sog'ayib keting! Javobingizni kutamiz 😊"
+                )
+            sent = await event.reply(ask_text)
+            if sent:
+                BOT_SENT_MESSAGE_IDS.add(sent.id)
+            memory_service.add_message(chat_id=chat_id, role="user", content=input_text)
+            memory_service.add_message(chat_id=chat_id, role="model", content=ask_text)
+            return True
+
+        # Ismi aniq bo'lsa, to'liq kartochka shakllantiriladi
+        student_display_name = real_name or student_name
         chat_loc = f"Guruh: {group_name}" if is_group else "Shaxsiy chat (Lichka)"
-        absence_report = (
-            "📋 #DAVOMAT #DARSGA_KELOLMAYDI\n\n"
-            f"👤 **O'quvchi:** {student_name} ({s_user})\n"
-            f"🆔 **ID:** `{sender_id}`\n"
-            f"📍 **Manba:** {chat_loc}\n"
-            f"📚 **Guruh:** {group_name}\n"
-            f"⏰ **Qachon:** {date_time}\n"
-            f"📝 **Sababi:** {reason}\n\n"
-            f"💬 **O'quvchining xabari:**\n\"{clean_raw}\""
+        absence_report = format_davomat_card(
+            student_name=student_display_name,
+            username=s_user,
+            user_id=sender_id,
+            group_name=group_name,
+            date_time=date_time,
+            reason=reason,
+            raw_message=clean_raw,
+            chat_loc=chat_loc,
         )
 
         adm_sent = False
@@ -1257,6 +1310,78 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         input_text = f"[Ovozli xabar]: {transcribed}"
             except Exception as v_err:
                 logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
+
+        # 📋 O'QUVCHI ISM VA GURUHI HAQIDA JAVOB BERGANDA (PENDING ABSENCE CLARIFICATION):
+        if is_private and sender_id in PENDING_ABSENCE_STUDENTS:
+            pending = PENDING_ABSENCE_STUDENTS.pop(sender_id)
+            student_reply = (input_text or message_text).strip()
+            extracted = await ai_service.extract_name_and_group_from_reply(student_reply)
+            real_name = extracted.get("name") or student_reply
+            found_grp = extracted.get("group") or (pending["group_hints"][0] if pending.get("group_hints") else "Aniqlanmadi (Shaxsiy chat)")
+
+            try:
+                memory_service.upsert_student(
+                    user_id=sender_id,
+                    full_name=real_name,
+                    username=pending.get("s_user", "").lstrip("@"),
+                    group_name=found_grp,
+                )
+            except Exception as up_err:
+                logger.debug("O'quvchini CRM ga saqlashda xatolik: %s", up_err)
+
+            card = format_davomat_card(
+                student_name=real_name,
+                username=pending.get("s_user", ""),
+                user_id=sender_id,
+                group_name=found_grp,
+                date_time="Bugun",
+                reason=pending.get("reason", "Mazasi yo'qligi / Betoblik"),
+                raw_message=pending.get("raw_message", ""),
+                chat_loc="Shaxsiy chat (Lichka)",
+            )
+
+            adm_sent = False
+            for adm_target in ("@coddycamp_sergeli", "coddycamp_sergeli", 7754389150):
+                try:
+                    ent = await client.get_entity(adm_target)
+                    if ent:
+                        await client.send_message(ent, card)
+                        adm_sent = True
+                        break
+                except Exception:
+                    continue
+            if not adm_sent:
+                try:
+                    await client.send_message("@coddycamp_sergeli", card)
+                    adm_sent = True
+                except Exception:
+                    pass
+
+            try:
+                v_target = await get_vazifalar_chat_target(client)
+                st_note = "✅ @coddycamp_sergeli ga yetkazildi" if adm_sent else "⚠️ @coddycamp_sergeli ga yetkazishda xatolik"
+                await client.send_message(v_target, f"📨 **O'quvchi o'zini tanishtirdi ({st_note}):**\n\n{card}")
+            except Exception as esc:
+                logger.debug("Vazifalarga yuborishda xatolik: %s", esc)
+
+            if is_russian_text(student_reply):
+                confirm = (
+                    f"Спасибо, {real_name}! Информация принята и передана администрации "
+                    f"(@coddycamp_sergeli) и учителю Нуриддину.\n\n"
+                    f"Выздоравливайте, ждем вас на следующем занятии! 😊"
+                )
+            else:
+                confirm = (
+                    f"Rahmat, {real_name}! Ma'lumotlaringiz qabul qilindi va CoddyCamp ma'muriyati "
+                    f"(@coddycamp_sergeli) hamda Nuriddin ustozga to'liq yetkazildi.\n\n"
+                    f"Tezroq sog'ayib keting, keyingi darsda kutib qolamiz! 😊"
+                )
+            sent = await event.reply(confirm)
+            if sent:
+                BOT_SENT_MESSAGE_IDS.add(sent.id)
+            memory_service.add_message(chat_id=chat_id, role="user", content=student_reply)
+            memory_service.add_message(chat_id=chat_id, role="model", content=confirm)
+            return
 
         # 🚨 KASALLIK VA DAVOMATNI DARHOL (0 SONIYA KUTMASDAN) QAYTA ISHLASH:
         # "kasalma", "shomoladim", "boleyu", "ploxo chustvuyu", "kelolmayman" va h.k.
