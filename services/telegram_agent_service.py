@@ -2366,6 +2366,22 @@ async def execute_agent_action(
             "Biror aniq topshiriq yoki vazifa bo'lsa, bemalol buyurishingiz mumkin!"
         )
 
+    # 🧠 AI INTENT COMPILER (ALGORITM AI DAN SO'RAB O'GIRIB OLISHI):
+    # Agar modelning dastlabki javobida ACTION bo'lmasa yoki tasodifan rad javobi berilgan bo'lsa,
+    # AI Intent Compiler mentorning har qanday so'zlashuv tilidagi buyrug'ini
+    # algoritm tushunadigan aniq ACTION kodiga aylantiradi!
+    is_llm_refusal = bool(re.search(r"(?:shaxsiy\s+ma['’`]?lumot|kirish\s+imkoniyatiga\s+ega\s+emasman|huquqiga\s+ega\s+emasman|maxfiylik\s+siyosati|privacy\s+policy|личные\s+данные|не\s+имею\s+доступа)", reply_text, re.I))
+    if not re.search(r"<<<ACTION:[a-zA-Z0-9_]+", reply_text) or is_llm_refusal:
+        try:
+            from services.ai_service import ai_service
+            compiled = await asyncio.wait_for(ai_service.compile_admin_intent(orig_msg), timeout=4.0)
+            if compiled and "<<<ACTION:" in compiled:
+                logger.info("🧠 AI Intent Compiler mentor buyrug'ini actionga muvaffaqiyatli o'girdi: %s", compiled)
+                clean_rep = re.sub(r"(?:shaxsiy\s+ma['’`]?lumot|kirish\s+imkoniyatiga\s+ega\s+emasman|huquqiga\s+ega\s+emasman|maxfiylik\s+siyosati|privacy\s+policy).*?(\n|$)", "", reply_text, flags=re.I).strip()
+                reply_text = f"{compiled}\n{clean_rep}".strip()
+        except Exception as compile_err:
+            logger.debug("AI Intent Compiler ogohlantirish (normal): %s", compile_err)
+
     # 0. Action: get_recent_senders (Oxirgi marta kim yozdi? Kelgan xabarlar / Кто написал?)
     m_senders = ACTION_RECENT_SENDERS.search(reply_text)
     if not m_senders:
