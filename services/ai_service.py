@@ -2460,6 +2460,8 @@ class AIService:
             "Mavjud Tizim Amallari:\n"
             "• O'quvchi, profil, kontakt, lichka, nomer yoki uydagilarini qidirish/topish:\n"
             "  <<<ACTION:find_contact(\"ism\")>>>\n"
+            "• Shaxsiy yozishmalar (lichkalar) yoki guruhlardan kasal bo'lgan / dars qoldirgan / betob o'quvchilarni topish:\n"
+            "  <<<ACTION:find_sick_students()>>>\n"
             "• Xabar yuborish (shaxsga, botga, guruhga):\n"
             "  <<<ACTION:send_message(\"qabul_qiluvchi\", \"xabar_matni\")>>>\n"
             "• Eslatma yoki vaqtli xabar rejalashtirish:\n"

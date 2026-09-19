@@ -103,30 +103,181 @@ def is_token_abuse(text: str) -> bool:
 
 def is_absence_message(text: str) -> bool:
     """
-    O'quvchining darsga kela olmasligi, kechikishi yoki dars qoldirishi haqidagi xabarni aniqlaydi.
+    O'quvchining darsga kela olmasligi, kechikishi, betobligi yoki dars qoldirishi haqidagi xabarni aniqlaydi.
+    Har qanday variantlarni ("kasalma", "shomoladim", "boleyu", "ploxo chustvuyu", "kelolmayman" va h.k.) qamrab oladi.
     """
     t = text.lower().strip()
     if not t:
         return False
 
     absence_triggers = [
-        # O'zbekcha darsga kelolmaslik / bormaslik / kechikish
-        r"\b(?:kelolmay\w*|kelomiman\w*|kelolmas\w*|kelomas\w*)\b",
-        r"\b(?:borolmay\w*|boromiman\w*|borolmas\w*)\b",
-        r"\b(?:bor\w*|kel\w*|chiq\w*)\s+(?:olmay\w*|bo['’`]?lmay\w*)\b",
-        r"\b(?:qatnasholmay\w*|qatnasha\s+olmay\w*)\b",
+        # 1. O'zbekcha kasallik / betoblik / shamollash / dori-darmon / og'riq
+        r"\b(?:kasal\w*|sh[ao]moll?a\w*|og['’`]?ri\w*|isitma\w*|harorat\w*|temperatura\w*)\b",
+        r"\b(?:maza\w*|tob\w*)\s+(?:yo['’`]?q|bo['’`]?lmay\w*|qoch\w*)\b",
+        r"\b(?:bosh\w*|qor\w*|tish\w*|tomoq\w*|oyoq\w*|bel\w*|ko['’`]?z\w*)\s+og['’`]?ri\w*\b",
+        r"\b(?:doktor\w*|shifoxona\w*|bolnitsa\w*|vrach\w*|davolan\w*|ukol\w*)\b",
+        # 2. O'zbekcha darsga kelolmaslik / bormaslik / kechikish
+        r"\b(?:kelolmay\w*|kelomiman\w*|kelomayman\w*|kelolmas\w*|kelomas\w*|kelomadim\w*|kela\s+olmay\w*)\b",
+        r"\b(?:borolmay\w*|boromiman\w*|boromayman\w*|borolmas\w*|boromas\w*|boromadim\w*|bora\s+olmay\w*)\b",
+        r"\b(?:bor\w*|kel\w*|chiq\w*)\s+(?:olmay\w*|bo['’`]?lmay\w*|qol\w*)\b",
+        r"\b(?:qatnasholmay\w*|qatnasha\s+olmay\w*|qatnashmay\w*)\b",
         r"\b(?:bo['’`]?lolmay\w*|bo['’`]?la\s+olmay\w*)\b",
         r"\b(?:darsga|darsda)\s+(?:\w+\s+){0,2}(?:bormay\w*|kelmay\w*|bo['’`]?l\w*|qatnash\w*)\b",
         r"\b(?:darsni|dars)\s+(?:qoldir\w*|otkaz\w*|o'tkaz\w*)\b",
-        r"\b(?:kasal\s+bo['’`]?lib|kasalman|tobim\s+yo['’`]?q|mazam\s+yo['’`]?q|mazam\s+bo['’`]?lmayapti)\b",
         r"\b(?:kechikib\w*|kechikaman\w*|kech\s+qolaman\w*|kech\s+boraman\w*)\b",
-        # Ruscha
-        r"\b(?:не\s+смогу\s+(?:\w+\s+){0,2}(?:прийти|быть|присутствовать)|не\s+приду|не\s+буду\s+(?:\w+\s+){0,2}уроке)\b",
-        r"\b(?:пропущу|пропускаю)\s+(?:урок|занятие)\b",
-        r"\b(?:заболел\w*|плохо\s+себя\s+чувствую)\b",
+        # 3. Ruscha (Kirill)
+        r"\b(?:боле[юея]\w*|заболе[лл]\w*|приболе[лл]\w*|болен|больна)\b",
+        r"\b(?:плохо\s+(?:себя\s+)?чувству\w*|чувствую\s+себя\s+плохо|мне\s+плохо)\b",
+        r"\b(?:температура\w*|жар\b|знобит|тошнит|простуд\w*|грипп\w*|кашель|ангина)\b",
+        r"\b(?:не\s+смогу\s+(?:\w+\s+){0,2}(?:прийти|быть|присутствовать|приехать)|не\s+приду|не\s+буду\s+(?:\w+\s+){0,2}(?:уроке|заняти\w*))\b",
+        r"\b(?:пропущу|пропускаю|отсутствую)\s+(?:урок\w*|заняти\w*)\b",
         r"\b(?:опоздаю|задержусь)\s*(?:на\s+урок)?\b",
+        # 4. Ruscha (Lotin / Translit - "boleyu", "ploxo chustvuyu", "zabolel")
+        r"\b(?:boleyu\w*|zabolel\w*|pribolel\w*|bolen|bolna)\b",
+        r"\b(?:ploxo|ploho)\s+(?:sebya\s+)?(?:chustvu\w*|chuvstvu\w*)\b",
+        r"\b(?:chuvstvu\w*|chustvu\w*)\s+sebya\s+(?:ploxo|ploho)\b",
+        r"\b(?:mne\s+(?:ploxo|ploho)|samochuvstvie\s+(?:ploxoe|plohoe))\b",
+        r"\b(?:ne\s+smogu\s+(?:\w+\s+){0,2}(?:priyti|bit|prisutstvovat)|ne\s+pridu|ne\s+budu\s+(?:\w+\s+){0,2}(?:uroke|zanyatii))\b",
+        r"\b(?:propus[ht]u|propuskayu)\s+(?:urok|zanyatie)\b",
+        r"\b(?:opozdayu|zaderjus)\b",
     ]
     return any(re.search(pat, t, re.I) for pat in absence_triggers)
+
+
+RECENT_ABSENCE_NOTIFICATIONS: dict[int, float] = {}
+
+async def process_student_absence_immediately(
+    client,
+    event,
+    input_text: str,
+    sender_id: int,
+    chat_id: int,
+    is_group: bool,
+    is_private: bool,
+) -> bool:
+    """
+    O'quvchining darsga kelolmasligi / kasalligi haqidagi xabarni 0 soniya kutishsiz,
+    darhol @coddycamp_sergeli ga yetkazadi va Vazifalar guruhiga nusxasini yuboradi.
+    """
+    try:
+        now_ts = time.time()
+        last_sent = RECENT_ABSENCE_NOTIFICATIONS.get(sender_id, 0.0)
+        is_duplicate = (now_ts - last_sent < 180.0)
+
+        sender_obj = await event.get_sender()
+        s_name = getattr(sender_obj, "first_name", "") or "Noma'lum"
+        if getattr(sender_obj, "last_name", None):
+            s_name += f" {sender_obj.last_name}"
+        s_user = f"@{sender_obj.username}" if getattr(sender_obj, "username", None) else "Username yo'q"
+
+        group_hints = []
+        if is_group:
+            chat_obj = await event.get_chat()
+            g_title = getattr(chat_obj, "title", "")
+            if g_title:
+                group_hints.append(g_title)
+        else:
+            common_grps = await get_student_common_groups(client, sender_id)
+            if common_grps:
+                group_hints.extend(common_grps)
+
+        clean_raw = input_text.replace("[Ovozli xabar]: ", "").strip()
+        analysis = await ai_service.analyze_absence_report(
+            message_text=clean_raw,
+            sender_name=s_name,
+            common_groups=group_hints,
+        )
+
+        student_name = analysis.get("student_name") or s_name
+        group_name = analysis.get("group_name") or (group_hints[0] if group_hints else "Aniqlanmadi (Shaxsiy chat)")
+        date_time = analysis.get("date_time") or "Bugun"
+        reason = analysis.get("reason") or "Mazasi yo'qligi / betoblik"
+
+        chat_loc = f"Guruh: {group_name}" if is_group else "Shaxsiy chat (Lichka)"
+        absence_report = (
+            "📋 #DAVOMAT #DARSGA_KELOLMAYDI\n\n"
+            f"👤 **O'quvchi:** {student_name} ({s_user})\n"
+            f"🆔 **ID:** `{sender_id}`\n"
+            f"📍 **Manba:** {chat_loc}\n"
+            f"📚 **Guruh:** {group_name}\n"
+            f"⏰ **Qachon:** {date_time}\n"
+            f"📝 **Sababi:** {reason}\n\n"
+            f"💬 **O'quvchining xabari:**\n\"{clean_raw}\""
+        )
+
+        adm_sent = False
+        if not is_duplicate:
+            for adm_target in ("@coddycamp_sergeli", "coddycamp_sergeli", 7754389150):
+                try:
+                    ent = await client.get_entity(adm_target)
+                    if ent:
+                        await client.send_message(ent, absence_report)
+                        adm_sent = True
+                        logger.info("Davomat xabari @coddycamp_sergeli ga yuborildi: %s", student_name)
+                        log_activity(f"📋 Davomat: {student_name} -> @coddycamp_sergeli")
+                        break
+                except Exception:
+                    continue
+
+            if not adm_sent:
+                try:
+                    async for dialog in client.iter_dialogs(limit=100):
+                        d_uname = (getattr(dialog.entity, "username", "") or "").lower()
+                        if d_uname in ("coddycamp_sergeli", "coddycamp_sergeli2"):
+                            await client.send_message(dialog.entity, absence_report)
+                            adm_sent = True
+                            logger.info("Davomat dialog orqali @coddycamp_sergeli ga yuborildi: %s", student_name)
+                            log_activity(f"📋 Davomat: {student_name} -> @coddycamp_sergeli (dialog)")
+                            break
+                except Exception:
+                    pass
+
+            if not adm_sent:
+                try:
+                    await client.send_message("@coddycamp_sergeli", absence_report)
+                    adm_sent = True
+                    logger.info("Davomat xabari to'g'ridan-to'g'ri username bilan yuborildi")
+                except Exception as adm_err:
+                    logger.error("@coddycamp_sergeli ga yuborishda xatolik: %s", adm_err)
+
+            try:
+                vazifalar_target = await get_vazifalar_chat_target(client)
+                status_note = "✅ @coddycamp_sergeli ga yetkazildi" if adm_sent else "⚠️ @coddycamp_sergeli ga yetkazishda xatolik (Ustoz nazorati lozim)"
+                await client.send_message(
+                    vazifalar_target,
+                    f"📨 **O'quvchi dars qoldirishi haqida hisobot ({status_note}):**\n\n{absence_report}"
+                )
+                logger.info("Davomat xabari Vazifalar guruhiga nusxa qilindi: %s", vazifalar_target)
+            except Exception as esc_err:
+                logger.error("Vazifalar guruhiga nusxa yuborishda xatolik: %s", esc_err)
+
+            RECENT_ABSENCE_NOTIFICATIONS[sender_id] = now_ts
+
+        if is_russian_text(clean_raw):
+            confirm_reply = (
+                "Здравствуйте! Информация о том, что вы не сможете прийти на урок, "
+                "принята и передана администрации (@coddycamp_sergeli) и учителю Нуриддину.\n\n"
+                "Выздоравливайте / ждем вас на следующем занятии! 😊"
+            )
+        else:
+            confirm_reply = (
+                "Assalomu alaykum! Darsga kela olmasligingiz haqidagi xabaringiz qabul qilindi "
+                "va CoddyCamp ma'muriyati (@coddycamp_sergeli) hamda Nuriddin ustozga yetkazildi.\n\n"
+                "Salomat bo'ling, tezroq tuzalib keting! Keyingi darsda kutib qolamiz! 😊"
+            )
+
+        sent = await event.reply(confirm_reply)
+        if sent:
+            BOT_SENT_MESSAGE_IDS.add(sent.id)
+
+        memory_service.add_message(chat_id=chat_id, role="user", content=input_text)
+        memory_service.add_message(chat_id=chat_id, role="model", content=confirm_reply)
+        return True
+
+    except Exception as abs_err:
+        logger.exception("Tezkor davomat xabarini qayta ishlashda xatolik: %s", abs_err)
+        return False
+
 
 
 def is_schedule_query(text: str) -> bool:
@@ -1094,6 +1245,35 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
         if not message_text.strip() and not has_photo and not has_voice and not has_doc_file and not is_dangerous:
             return
+
+        # Ovozli xabar bo'lsa darhol yuklab o'girish
+        input_text = message_text
+        if has_voice and not input_text.strip():
+            try:
+                audio_bytes = await event.message.download_media(bytes)
+                if audio_bytes:
+                    transcribed = await ai_service.transcribe_audio(audio_bytes)
+                    if transcribed:
+                        input_text = f"[Ovozli xabar]: {transcribed}"
+            except Exception as v_err:
+                logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
+
+        # 🚨 KASALLIK VA DAVOMATNI DARHOL (0 SONIYA KUTMASDAN) QAYTA ISHLASH:
+        # "kasalma", "shomoladim", "boleyu", "ploxo chustvuyu", "kelolmayman" va h.k.
+        # Kimdir yozishi bilan hech qanday kutishsiz va chegarasiz @coddycamp_sergeli ga yuboriladi!
+        is_admin_user = (sender_id in (config.mentor_user_id, 8105823872)) or is_escalation_chat(event.chat_id)
+        if is_absence_message(input_text) and not is_admin_user and not is_vazifalar:
+            handled = await process_student_absence_immediately(
+                client=client,
+                event=event,
+                input_text=input_text,
+                sender_id=sender_id,
+                chat_id=chat_id,
+                is_group=is_group,
+                is_private=is_private,
+            )
+            if handled:
+                return
 
         # Spamerlardan himoya (Rate limiting: 1 daqiqada ko'pi bilan 6 ta so'rov)
         # Mentor va Vazifalar guruhiga HECH QANDAY rate limit yoki cheklov qo'llanilmaydi!

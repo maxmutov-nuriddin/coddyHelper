@@ -1647,6 +1647,144 @@ def format_recent_senders_report(results: list[dict[str, Any]], is_ru: bool = Fa
     return "\n".join(lines).strip()
 
 
+def is_absence_message(text: str) -> bool:
+    """
+    O'quvchining darsga kela olmasligi, kechikishi, betobligi yoki dars qoldirishi haqidagi xabarni aniqlaydi.
+    Har qanday variantlarni ("kasalma", "shomoladim", "boleyu", "ploxo chustvuyu", "kelolmayman" va h.k.) qamrab oladi.
+    """
+    t = text.lower().strip()
+    if not t:
+        return False
+
+    absence_triggers = [
+        # 1. O'zbekcha kasallik / betoblik / shamollash / dori-darmon / og'riq
+        r"\b(?:kasal\w*|sh[ao]moll?a\w*|og['’`]?ri\w*|isitma\w*|harorat\w*|temperatura\w*)\b",
+        r"\b(?:maza\w*|tob\w*)\s+(?:yo['’`]?q|bo['’`]?lmay\w*|qoch\w*)\b",
+        r"\b(?:bosh\w*|qor\w*|tish\w*|tomoq\w*|oyoq\w*|bel\w*|ko['’`]?z\w*)\s+og['’`]?ri\w*\b",
+        r"\b(?:doktor\w*|shifoxona\w*|bolnitsa\w*|vrach\w*|davolan\w*|ukol\w*)\b",
+        # 2. O'zbekcha darsga kelolmaslik / bormaslik / kechikish
+        r"\b(?:kelolmay\w*|kelomiman\w*|kelomayman\w*|kelolmas\w*|kelomas\w*|kelomadim\w*|kela\s+olmay\w*)\b",
+        r"\b(?:borolmay\w*|boromiman\w*|boromayman\w*|borolmas\w*|boromas\w*|boromadim\w*|bora\s+olmay\w*)\b",
+        r"\b(?:bor\w*|kel\w*|chiq\w*)\s+(?:olmay\w*|bo['’`]?lmay\w*|qol\w*)\b",
+        r"\b(?:qatnasholmay\w*|qatnasha\s+olmay\w*|qatnashmay\w*)\b",
+        r"\b(?:bo['’`]?lolmay\w*|bo['’`]?la\s+olmay\w*)\b",
+        r"\b(?:darsga|darsda)\s+(?:\w+\s+){0,2}(?:bormay\w*|kelmay\w*|bo['’`]?l\w*|qatnash\w*)\b",
+        r"\b(?:darsni|dars)\s+(?:qoldir\w*|otkaz\w*|o['’`]?tkaz\w*)\b",
+        r"\b(?:kechikib\w*|kechikaman\w*|kech\s+qolaman\w*|kech\s+boraman\w*)\b",
+        # 3. Ruscha (Kirill)
+        r"\b(?:боле[юея]\w*|заболе[лл]\w*|приболе[лл]\w*|болен|больна)\b",
+        r"\b(?:плохо\s+(?:себя\s+)?чувству\w*|чувствую\s+себя\s+плохо|мне\s+плохо)\b",
+        r"\b(?:температура\w*|жар\b|знобит|тошнит|простуд\w*|грипп\w*|кашель|ангина)\b",
+        r"\b(?:не\s+смогу\s+(?:\w+\s+){0,2}(?:прийти|быть|присутствовать|приехать)|не\s+приду|не\s+буду\s+(?:\w+\s+){0,2}(?:уроке|заняти\w*))\b",
+        r"\b(?:пропущу|пропускаю|отсутствую)\s+(?:урок\w*|заняти\w*)\b",
+        r"\b(?:опоздаю|задержусь)\s*(?:на\s+урок)?\b",
+        # 4. Ruscha (Lotin / Translit - "boleyu", "ploxo chustvuyu", "zabolel")
+        r"\b(?:boleyu\w*|zabolel\w*|pribolel\w*|bolen|bolna)\b",
+        r"\b(?:ploxo|ploho)\s+(?:sebya\s+)?(?:chustvu\w*|chuvstvu\w*)\b",
+        r"\b(?:chuvstvu\w*|chustvu\w*)\s+sebya\s+(?:ploxo|ploho)\b",
+        r"\b(?:mne\s+(?:ploxo|ploho)|samochuvstvie\s+(?:ploxoe|plohoe))\b",
+        r"\b(?:ne\s+smogu\s+(?:\w+\s+){0,2}(?:priyti|bit|prisutstvovat)|ne\s+pridu|ne\s+budu\s+(?:\w+\s+){0,2}(?:uroke|zanyatii))\b",
+        r"\b(?:propus[ht]u|propuskayu)\s+(?:urok|zanyatie)\b",
+        r"\b(?:opozdayu|zaderjus)\b",
+    ]
+    return any(re.search(pat, t, re.I) for pat in absence_triggers)
+
+
+async def find_sick_students_in_chats(client, limit: int = 40) -> dict[str, Any]:
+    """
+    Shaxsiy yozishmalar (lichkalar) va guruhlar ichidan oxirgi xabarlarda
+    kasal bo'lgan ("kasalma", "shomoladim", "boleyu", "ploxo chustvuyu", "kelolmayman" va h.k.)
+    barcha o'quvchilarni titkilab topadi va hisobot beradi.
+    """
+    if not client:
+        return {"ok": False, "error": "Telegram mijoz ulanmagan"}
+
+    from config import config
+    mentor_ids = {config.mentor_user_id, 8105823872}
+    try:
+        me = await client.get_me()
+        if me:
+            mentor_ids.add(me.id)
+    except Exception:
+        pass
+
+    vazifalar_target = str(config.escalation_chat).strip()
+    found_sick = []
+
+    try:
+        dialogs = await client.get_dialogs(limit=limit)
+        for d in dialogs:
+            if d.id in mentor_ids:
+                continue
+            if str(d.id) == vazifalar_target or str(d.id).replace("-100", "-") == vazifalar_target.replace("-100", "-"):
+                continue
+            if d.name and "vazifalar" in d.name.lower():
+                continue
+            if getattr(d.entity, "bot", False):
+                continue
+            if not d.is_user and not d.is_group:
+                continue
+
+            try:
+                msgs = await client.get_messages(d.entity, limit=12)
+                for m in msgs:
+                    if m.out:
+                        continue
+                    m_text = m.text or ""
+                    if not m_text.strip():
+                        continue
+
+                    if is_absence_message(m_text):
+                        u_name = d.name or getattr(d.entity, "first_name", "") or "Noma'lum"
+                        if getattr(d.entity, "last_name", None):
+                            u_name += f" {d.entity.last_name}"
+                        username = f"@{d.entity.username}" if getattr(d.entity, "username", None) else "Username yo'q"
+                        phone = getattr(d.entity, "phone", None) or "Mavjud emas"
+                        tash_time = _format_relative_time(m.date)
+
+                        found_sick.append({
+                            "user_id": d.id,
+                            "name": u_name,
+                            "username": username,
+                            "phone": phone,
+                            "text": m_text.strip(),
+                            "date": tash_time,
+                            "date_obj": m.date,
+                            "chat_type": "Lichka" if d.is_user else f"Guruh: {d.name}",
+                        })
+                        break
+            except Exception as d_err:
+                logger.debug("Dialog %s xabarlarini o'qishda xatolik: %s", d.id, d_err)
+
+    except Exception as e:
+        logger.error("Kasal o'quvchilarni izlashda xatolik: %s", e)
+        return {"ok": False, "error": str(e)}
+
+    found_sick.sort(key=lambda x: x.get("date_obj") or datetime.min, reverse=True)
+
+    if not found_sick:
+        report = (
+            "ℹ️ **Shaxsiy yozishmalar (lichkalar) ichida hozircha betob bo'lgan yoki darsga kelolmasligini bildirgan o'quvchilar aniqlanmadi.**\n\n"
+            "O'quvchilardan 'kasalma', 'shomoladim', 'boleyu', 'ploxo chustvuyu' kabi xabar kelishi bilan tizim zudlik bilan **@coddycamp_sergeli** ga hisobot yuboradi."
+        )
+        return {"ok": True, "count": 0, "report": report, "students": []}
+
+    lines = [
+        f"🏥 **Shaxsiy yozishmalar (lichkalar) bo'yicha aniqlangan betob / dars qoldirgan o'quvchilar ({len(found_sick)} nafar):**\n"
+    ]
+    for idx, s in enumerate(found_sick, 1):
+        lines.append(
+            f"{idx}. 👤 **{s['name']}** ({s['username']})\n"
+            f"   🆔 ID: `{s['user_id']}` | 📞 Tel: `{s['phone']}`\n"
+            f"   📍 Manba: {s['chat_type']} | ⏰ Vaqti: {s['date']}\n"
+            f"   💬 Xabari: «{s['text']}»\n"
+            f"   📋 Holat: @coddycamp_sergeli ma'muriyatiga nazorat uchun yuboriladi"
+        )
+        lines.append("")
+
+    return {"ok": True, "count": len(found_sick), "report": "\n".join(lines).strip(), "students": found_sick}
+
+
 def format_learning_report(topic: str, content: str, is_ru: bool = False) -> str:
     if is_ru:
         return (
@@ -2149,6 +2287,10 @@ ACTION_DEEP_SEARCH = re.compile(
     r'<<<ACTION:deep_search\(["\'](.*?)["\']\)>>>',
     re.IGNORECASE | re.DOTALL,
 )
+ACTION_FIND_SICK = re.compile(
+    r'<<<ACTION:find_sick_students\((.*?)\)>>>',
+    re.IGNORECASE,
+)
 
 
 
@@ -2430,6 +2572,25 @@ async def execute_agent_action(
                 reply_text = f"{compiled}\n{clean_rep}".strip()
         except Exception as compile_err:
             logger.debug("AI Intent Compiler ogohlantirish (normal): %s", compile_err)
+
+    # 🏥 Action: find_sick_students (Lichkalar ichidan kasal bo'lgan / dars qoldirgan o'quvchilarni qidirish)
+    m_sick = ACTION_FIND_SICK.search(reply_text)
+    if not m_sick:
+        sick_pat = (
+            r"(?:lichka\w*\s+ichidan\s+kasal|kasal\w*\s+(?:bo['’`]?lgan\w*|oquvchi\w*|o['’`]?quvchi\w*)|"
+            r"(?:kim|kimlar)\s+kasal|kasallar\w*|kim\s+darsga\s+kelm(?:aydi|adi)|"
+            r"kasal\s+bo['’`]?lganlar\w*|kasal\s+oquvchi\w*|kasal\s+o['’`]?quvchi\w*|"
+            r"кто\s+заболел|кто\s+болеет|болеющие\s+ученики|кто\s+не\s+прид[её]т)"
+        )
+        if re.search(sick_pat, orig_msg, re.I):
+            m_sick = True
+
+    if m_sick:
+        sick_data = await find_sick_students_in_chats(client)
+        if sick_data.get("ok"):
+            return sick_data.get("report")
+        else:
+            return f"❌ Kasal o'quvchilarni aniqlashda xatolik: {sick_data.get('error')}"
 
     # 0. Action: get_recent_senders (Oxirgi marta kim yozdi? Kelgan xabarlar / Кто написал?)
     m_senders = ACTION_RECENT_SENDERS.search(reply_text)
