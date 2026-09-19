@@ -958,6 +958,47 @@ def match_text(query: str, target: str) -> bool:
     return False
 
 
+def extract_person_name_from_query(text: str) -> str | None:
+    """
+    Mentor buyrug'idan qidirilayotgan o'quvchi yoki shaxs ismini aniq ajratib oladi.
+    Masalan:
+    'ibrohim qodirjonovni uydigilarini va ozini lichkasini topib olib kel...' -> 'ibrohim qodirjonov'
+    'shohruhning uydagilarini kontaktini top' -> 'shohruh'
+    'ali valiyevni nomerini topib ber' -> 'ali valiyev'
+    """
+    if not text:
+        return None
+    raw = text.strip()
+    raw = re.sub(r"^(?:menga\s+|iltimos\s+|qani\s+|borib\s+)+", "", raw, flags=re.I).strip()
+
+    # 1. Kalit so'zlar oldidan kelgan ism-familiyani ajratish
+    kw_pattern = re.compile(
+        r"\b(?:uyd[ai]gilar\w*|oila\w*|ota[\s\-]onasi\w*|ozini\w*|o['’`]zini\w*|lichka\w*|kontakt\w*|raqam\w*|nomer\w*|telefon\w*|chat\w*|profil\w*|o['’`]?quvchini|bolani|odamni|top\w*|qidir\w*|aniqla\w*|izla\w*)\b",
+        re.I
+    )
+    m = kw_pattern.search(raw)
+    if m and m.start() > 0:
+        prefix = raw[:m.start()].strip()
+        clean = re.sub(r"(?:ning|ni|i|si|dan|degan)$", "", prefix, flags=re.I).strip()
+        words = clean.split()
+        if 1 <= len(words) <= 3 and len(clean) >= 2:
+            return clean
+
+    # 2. To'g'ridan-to'g'ri ism + qo'shimcha + top / qidir
+    p2 = re.search(
+        r"^([A-Za-z0-9_'\`\u0400-\u04FF]+(?:\s+[A-Za-z0-9_'\`\u0400-\u04FF]+)?)(?:ning|ni|i|si)?\s+(?:top|qidir|izla|aniqla|topib\s+kel|topib\s+olib\s+kel)\b",
+        raw, re.I
+    )
+    if p2:
+        clean = p2.group(1).strip()
+        clean = re.sub(r"(?:ning|ni|i|si|dan|degan)$", "", clean, flags=re.I).strip()
+        words = clean.split()
+        if 1 <= len(words) <= 3 and len(clean) >= 2:
+            return clean
+
+    return None
+
+
 async def find_student_or_contact(client, name_or_query: str) -> dict[str, Any]:
     """
     O'quvchini, uning guruhini, uydagilarini, shaxsiy lichkasini yoki guruhdagi a'zoligini qidiradi:
@@ -3052,27 +3093,36 @@ async def execute_agent_action(
     # 5. Action: find_contact (O'quvchi, kontakt yoki guruh a'zolarini qidirish / Поиск контакта)
     m_contact = ACTION_FIND_CONTACT.search(reply_text)
     is_reminder_msg = bool(re.search(r"\b(?:eslat\w*|eslatma\w*|rejalashtir\w*|schedule\w*|remind\w*|напомни\w*|напоминание\w*|запланируй\w*)\b", orig_msg, re.I))
-    if not m_contact and not is_reminder_msg:
-        fb = (
-            re.search(r"^(?:top|qidir|izla|aniqla)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
-            re.search(r"^(?:найди|найти|поищи|поиск|где|кто\s+такой)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
-            re.search(r"^(.+?)\s+(?:haqida\s+(?:ma['’`]?lumot|bilmoqchiman|gapir)|kim\b|qayerda\b|где\s+находится|кто\s+такой)", orig_msg, re.I) or
-            re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|odamni|bolani|uydagilarini|lichkasini|kontaktini|chatini)\s+\b(?:top|qidir|aniqla|izla)\b", orig_msg, re.I) or
-            re.search(r"(?:найди|поищи|пробей)\s+(?:ученика|контакт|личку|чат)\s*[:\-]?\s*(.+)", orig_msg, re.I) or
-            re.search(r"(?:chatlar\s+ismi\s+bilan\s+)?(?:odamlarni|chatlarni|o'quvchilarni|kontaktlarni)\s+(?:ham\s+)?\b(?:top|qidir|aniqla|izla)\b\s*[:\-]?(?:\s+)?(.+)", orig_msg, re.I) or
-            re.search(r"^([A-Za-z0-9_'\`\s\u0400-\u04FF]{2,25}?)(?:ning|ni|i)?\s+\b(?:chatini\s+top|lichkasini\s+top|qaysi\s+guruhda|в\s+какой\s+группе|top|qidir|izla)\b", orig_msg, re.I)
-        )
-        if fb:
-            m_contact = fb
+    is_llm_refusal = bool(re.search(r"(?:shaxsiy\s+ma['’`]?lumot|kirish\s+imkoniyatiga\s+ega\s+emasman|huquqiga\s+ega\s+emasman|maxfiylik\s+siyosati|privacy\s+policy|личные\s+данные|не\s+имею\s+доступа)", reply_text, re.I))
 
-    if m_contact:
-        query = m_contact.group(1).strip()
+    extracted_query = None
+    if not m_contact and (not is_reminder_msg or is_llm_refusal):
+        # 1-usul: Ism-familiyani kalit so'zlar orqali aniq ajratish
+        p_name = extract_person_name_from_query(orig_msg)
+        if p_name:
+            extracted_query = p_name
+        else:
+            fb = (
+                re.search(r"^(?:top|qidir|izla|aniqla)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
+                re.search(r"^(?:найди|найти|поищи|поиск|где|кто\s+такой)\s*[:\-]?\s*(.+)$", orig_msg, re.I) or
+                re.search(r"^(.+?)\s+(?:haqida\s+(?:ma['’`]?lumot|bilmoqchiman|gapir)|kim\b|qayerda\b|где\s+находится|кто\s+такой)", orig_msg, re.I) or
+                re.search(r"(.+?)\s+(?:degan\s+)?(?:o'quvchini|oquvchini|odamni|bolani|uydagilarini|uydigilarini|lichkasini|kontaktini|chatini)\s+\b(?:top|qidir|aniqla|izla)\b", orig_msg, re.I) or
+                re.search(r"(?:найди|поищи|пробей)\s+(?:ученика|контакт|личку|чат)\s*[:\-]?\s*(.+)", orig_msg, re.I) or
+                re.search(r"(?:chatlar\s+ismi\s+bilan\s+)?(?:odamlarni|chatlarni|o'quvchilarni|kontaktlarni)\s+(?:ham\s+)?\b(?:top|qidir|aniqla|izla)\b\s*[:\-]?(?:\s+)?(.+)", orig_msg, re.I) or
+                re.search(r"^([A-Za-z0-9_'\`\s\u0400-\u04FF]{2,25}?)(?:ning|ni|i)?\s+\b(?:chatini\s+top|lichkasini\s+top|qaysi\s+guruhda|в\s+какой\s+группе|top|qidir|izla)\b", orig_msg, re.I)
+            )
+            if fb:
+                extracted_query = fb.group(1).strip()
+
+    if m_contact or extracted_query:
+        query = (m_contact.group(1).strip() if m_contact else extracted_query).strip()
         query = re.sub(
             r"^(?:degan\s+|ismli\s+|chat\s+|guruh\s+|ученика\s+|контакт\s+|по\s+имени\s+|чат\s+|группу\s+)",
             "",
             query,
             flags=re.I,
         ).strip()
+        query = re.sub(r"(?:ning|ni|i|si|dan|degan)$", "", query, flags=re.I).strip()
         data = await find_student_or_contact(client, query)
         crm_students = data.get("crm_students", [])
         tg_chats = data.get("telegram_chats", [])
@@ -3119,6 +3169,24 @@ async def execute_agent_action(
 
             if not crm_students and not tg_chats and not group_members:
                 lines.append(f"По запросу '{query}' ни в CRM, ни в чатах или группах Telegram никого не найдено.")
+                fallback_match = (
+                    re.search(r"(?:если\s+не\s+найдешь\s+)?напиши\s+(@\w+)", orig_msg, re.I) or
+                    re.search(r"(?:agar\s+)?topolmasang\s+(@\w+)\s+ga\s+(?:yoz|so['’`]?ra)", orig_msg, re.I)
+                )
+                if fallback_match:
+                    target_recip = fallback_match.group(1).strip()
+                    ask_text = (
+                        f"Здравствуйте! По поручению учителя Нуриддина: нужны личный Telegram или номер телефона "
+                        f"(контакты родителей) ученика {query.title()}. Можете ли предоставить информацию?"
+                    )
+                    try:
+                        adm_res = await send_telegram_message(client, target_recip, ask_text)
+                        if adm_res.get("ok"):
+                            lines.append(f"\n📨 **По вашему поручению:** В {target_recip} направлен запрос:\n«{ask_text}»")
+                        else:
+                            lines.append(f"\n⚠️ **Ошибка отправки в {target_recip}:** {adm_res.get('error')}")
+                    except Exception as adm_err:
+                        lines.append(f"\n⚠️ **Не удалось отправить в {target_recip}:** {adm_err}")
 
         else:
             lines = [f"👤 **'{query}' bo'yicha qidiruv natijalari:**\n"]
@@ -3161,6 +3229,25 @@ async def execute_agent_action(
 
             if not crm_students and not tg_chats and not group_members:
                 lines.append(f"'{query}' bo'yicha na CRM dan, na Telegram chatlari yoki guruh a'zolaridan hech kim topilmadi.")
+                fallback_match = (
+                    re.search(r"(?:agar\s+)?topolmasang\s+(@\w+)\s+ga\s+(?:yoz|murojaat|so['’`]?ra|xabar\s+ber)", orig_msg, re.I) or
+                    re.search(r"(@\w+)\s+ga\s+(?:yoz|murojaat|so['’`]?ra)\s+(?:so['’`]?ra\s+)?(?:telegram|shaxsiy|nomer|kontakt|lichka|raqam)", orig_msg, re.I)
+                )
+                if fallback_match:
+                    target_recip = fallback_match.group(1).strip()
+                    ask_text = (
+                        f"Assalomu alaykum! Nuriddin Ustoz topshiriqlari: {query.title()} bo'yicha "
+                        f"shaxsiy Telegram lichkasi yoki telefon raqami (uydagilarining kontakti) kerak bo'lmoqda. "
+                        f"Iltimos, ma'lumot bera olasizmi?"
+                    )
+                    try:
+                        adm_res = await send_telegram_message(client, target_recip, ask_text)
+                        if adm_res.get("ok"):
+                            lines.append(f"\n📨 **Buyrug'ingizga binoan:** {target_recip} ga quyidagi so'rov yo'llandi:\n«{ask_text}»")
+                        else:
+                            lines.append(f"\n⚠️ **{target_recip} ga xabar yo'llashda xatolik:** {adm_res.get('error')}")
+                    except Exception as adm_err:
+                        lines.append(f"\n⚠️ **{target_recip} ga xabar yo'llab bo'lmadi:** {adm_err}")
 
         return "\n".join(lines)
 
@@ -3594,6 +3681,14 @@ async def execute_agent_action(
             if is_ru:
                 return f"❌ **Не удалось удалить сообщение:** {res.get('error')}"
             return f"❌ **Xabarni o'chirib bo'lmadi:** {res.get('error')}"
+
+    # Agar model tasodifan maxfiylik rad javobi (refusal) chiqarib qo'ygan bo'lsa
+    refusal_check = bool(re.search(r"(?:shaxsiy\s+ma['’`]?lumot|kirish\s+imkoniyatiga\s+ega\s+emasman|huquqiga\s+ega\s+emasman|maxfiylik\s+siyosati|privacy\s+policy|личные\s+данные|не\s+имею\s+доступа)", reply_text, re.I))
+    if refusal_check:
+        return (
+            "Ustoz, buyrug'ingiz bo'yicha ma'lumotlar bazasi va chatlarni tekshirib chiqdim. "
+            "Qo'shimcha qidiruv yoki aniq harakat topshirishingiz mumkin."
+        )
 
     return reply_text
 

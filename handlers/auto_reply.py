@@ -998,9 +998,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 "🛡 **Ko'rilgan chora:** Ushbu foydalanuvchi **butunlay va abadiy bloklandi** (ignored_users). Chatni o'chirgan taqdirda ham baza uni unutmaydi va bot unga boshqa aslo javob bermaydi."
             )
             try:
-                target = config.escalation_chat
-                if str(target).isdigit() or (str(target).startswith("-") and str(target)[1:].isdigit()):
-                    target = int(target)
+                target = await get_vazifalar_chat_target(client)
                 await client.send_message(target, alert)
             except Exception as esc_err:
                 logger.error("Xavfsizlik ogohlantirishini yuborishda xatolik: %s", esc_err)
@@ -1028,9 +1026,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 "🛡 **Ko'rilgan chora:** Ushbu foydalanuvchi **butunlay va abadiy bloklandi** (ignored_users). Tizim bitta ham token sarflamadi va bot unga boshqa aslo javob bermaydi."
             )
             try:
-                target = config.escalation_chat
-                if str(target).isdigit() or (str(target).startswith("-") and str(target)[1:].isdigit()):
-                    target = int(target)
+                target = await get_vazifalar_chat_target(client)
                 await client.send_message(target, alert)
             except Exception as esc_err:
                 logger.error("Xavfsizlik ogohlantirishini yuborishda xatolik: %s", esc_err)
@@ -1489,22 +1485,47 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         )
 
                         # 5. @coddycamp_sergeli chatiga yuborish
-                        try:
-                            await client.send_message("@coddycamp_sergeli", absence_report)
-                            logger.info("Davomat xabari @coddycamp_sergeli ga yuborildi: %s", student_name)
-                            log_activity(f"📋 Davomat: {student_name} -> @coddycamp_sergeli")
-                        except Exception as adm_err:
-                            logger.error("@coddycamp_sergeli ga yuborishda xatolik: %s", adm_err)
+                        adm_sent = False
+                        for adm_target in ("@coddycamp_sergeli", "coddycamp_sergeli", 7754389150):
+                            try:
+                                ent = await client.get_entity(adm_target)
+                                if ent:
+                                    await client.send_message(ent, absence_report)
+                                    adm_sent = True
+                                    logger.info("Davomat xabari @coddycamp_sergeli ga yuborildi: %s", student_name)
+                                    log_activity(f"📋 Davomat: {student_name} -> @coddycamp_sergeli")
+                                    break
+                            except Exception:
+                                continue
+                        if not adm_sent:
+                            try:
+                                async for dialog in client.iter_dialogs(limit=100):
+                                    d_uname = (getattr(dialog.entity, "username", "") or "").lower()
+                                    if d_uname in ("coddycamp_sergeli", "coddycamp_sergeli2"):
+                                        await client.send_message(dialog.entity, absence_report)
+                                        adm_sent = True
+                                        logger.info("Davomat dialog orqali @coddycamp_sergeli ga yuborildi: %s", student_name)
+                                        log_activity(f"📋 Davomat: {student_name} -> @coddycamp_sergeli (dialog)")
+                                        break
+                            except Exception:
+                                pass
+                        if not adm_sent:
+                            try:
+                                await client.send_message("@coddycamp_sergeli", absence_report)
+                                adm_sent = True
+                                logger.info("Davomat xabari to'g'ridan-to'g'ri username bilan yuborildi")
+                            except Exception as adm_err:
+                                logger.error("@coddycamp_sergeli ga yuborishda xatolik: %s", adm_err)
 
                         # 6. Nusxasini Vazifalar (Mentor) guruhiga yuborish
                         try:
-                            target = config.escalation_chat
-                            if str(target).isdigit() or (str(target).startswith("-") and str(target)[1:].isdigit()):
-                                target = int(target)
+                            vazifalar_target = await get_vazifalar_chat_target(client)
+                            status_note = "✅ @coddycamp_sergeli ga yetkazildi" if adm_sent else "⚠️ @coddycamp_sergeli ga yetkazishda xatolik (Ustoz nazorati lozim)"
                             await client.send_message(
-                                target,
-                                f"📨 **@coddycamp_sergeli ma'muriyatiga o'quvchi dars qoldirishi haqida xabar yo'llandi:**\n\n{absence_report}"
+                                vazifalar_target,
+                                f"📨 **O'quvchi dars qoldirishi haqida hisobot ({status_note}):**\n\n{absence_report}"
                             )
+                            logger.info("Davomat xabari Vazifalar guruhiga nusxa qilindi: %s", vazifalar_target)
                         except Exception as esc_err:
                             logger.error("Vazifalar guruhiga nusxa yuborishda xatolik: %s", esc_err)
 
@@ -1798,6 +1819,37 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 except Exception as gen_err:
                     logger.error("AI javobini olishda xatolik [%s]: %s", chat_id, gen_err)
                     log_activity(f"⚠️ AI xatolik [{chat_id}]: {str(gen_err)[:35]}")
+                    if not is_admin_chat and not is_vazifalar:
+                        is_ru_req = is_russian_text(input_text or message_text)
+                        err_reply_text = (
+                            "⏳ **Ваш вопрос направлен лично учителю Нуриддину!**\n\n"
+                            "Учитель ознакомится с вопросом и ответит вам в ближайшее время 😊"
+                            if is_ru_req else
+                            "⏳ **Savolingizni shaxsan Nuriddin Ustozga yo'naltirdim!**\n\n"
+                            "Ustoz savolingiz bilan tanishib, tez orada javob beradilar 😊"
+                        )
+                        try:
+                            sent_to = await event.reply(err_reply_text)
+                            if sent_to:
+                                BOT_SENT_MESSAGE_IDS.add(sent_to.id)
+                        except Exception:
+                            pass
+                        try:
+                            vazifalar_target = await get_vazifalar_chat_target(client)
+                            user_entity = await event.get_sender()
+                            u_name = getattr(user_entity, "first_name", "") or "Foydalanuvchi"
+                            u_user = f"@{user_entity.username}" if getattr(user_entity, "username", None) else f"ID: {sender_id}"
+                            c_title = getattr(event.chat, "title", "Shaxsiy chat") if event.is_group else "Shaxsiy chat"
+                            await client.send_message(
+                                vazifalar_target,
+                                f"🚨 #KutilayotganVazifa #UstozgaYo'naltirildi\n\n"
+                                f"👤 **Foydalanuvchi:** {u_name} ({u_user})\n"
+                                f"💬 **Chat:** {c_title}\n"
+                                f"❓ **Savol:** \"{(input_text or message_text)[:350]}\"\n\n"
+                                f"⚠️ **Sabab:** AI javob berishda texnik xatolik yuz berdi ({type(gen_err).__name__}). Ustoz javobi zarur."
+                            )
+                        except Exception as esc_err:
+                            logger.warning("Gen xatolik eskalatsiyasida ogohlantirish: %s", esc_err)
                     return
 
                 # Yakuniy tekshiruv: agar shu orada mentor o'zi yozgan bo'lsa, yubormaslik
@@ -1917,11 +1969,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         logger.info("Murojaat 'Vazifalar' guruhining o'zida bo'lgani uchun qayta ogohlantirish yuborilmadi.")
                     else:
                         try:
-                            target = config.escalation_chat
-                            if target.isdigit() or (target.startswith("-") and target[1:].isdigit()):
-                                target = int(target)
+                            target = await get_vazifalar_chat_target(client)
                             await client.send_message(target, alert_text)
-                            logger.info("Eskalyatsiya xabari '%s' ga yetkazildi.", config.escalation_chat)
+                            logger.info("Eskalyatsiya xabari Vazifalar guruhiga yetkazildi: %s", target)
                         except Exception as exc:
                             logger.error("Eskalyatsiya xabarini yetkazishda xatolik: %s", exc)
 

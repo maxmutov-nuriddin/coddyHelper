@@ -224,6 +224,14 @@ def is_escalation_chat(chat_id: int | str) -> bool:
     return c_norm == t_norm
 
 
+def normalize_group_id(val: int | str) -> int | str:
+    """Telethon uchun superguruh ID larini to'g'ri (-100...) formatga keltiradi."""
+    s = str(val).strip()
+    if s.startswith("-") and not s.startswith("-100") and len(s.lstrip("-")) >= 9:
+        s = f"-100{s.lstrip('-')}"
+    return int(s) if s.lstrip("-").isdigit() else s
+
+
 async def get_vazifalar_chat_target(client=None) -> int | str:
     """
     Vazifalar (Boshqaruv markazi) guruhining haqiqiy ID sini aniqlaydi.
@@ -233,14 +241,13 @@ async def get_vazifalar_chat_target(client=None) -> int | str:
         from services.memory_service import memory_service
         saved = memory_service.get_setting("vazifalar_group_id") or memory_service.get_setting("tasks_group_id")
         if saved and str(saved).strip().lower() not in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
-            val = str(saved).strip()
-            return int(val) if val.lstrip("-").isdigit() else val
+            return normalize_group_id(saved)
     except Exception:
         pass
 
     cfg = str(config.escalation_chat).strip()
     if cfg and cfg.lower() not in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
-        return int(cfg) if cfg.lstrip("-").isdigit() else cfg
+        return normalize_group_id(cfg)
 
     if client:
         try:
@@ -250,8 +257,9 @@ async def get_vazifalar_chat_target(client=None) -> int | str:
                     title = (d.name or "").lower()
                     if "vazifa" in title or "boshqaruv" in title:
                         from services.memory_service import memory_service
-                        memory_service.set_setting("vazifalar_group_id", str(d.id))
-                        return d.id
+                        norm_id = normalize_group_id(d.id)
+                        memory_service.set_setting("vazifalar_group_id", str(norm_id))
+                        return norm_id
         except Exception:
             pass
 
@@ -264,15 +272,15 @@ def get_vazifalar_chat_target_sync() -> int | str:
         from services.memory_service import memory_service
         saved = memory_service.get_setting("vazifalar_group_id") or memory_service.get_setting("tasks_group_id")
         if saved and str(saved).strip().lower() not in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
-            val = str(saved).strip()
-            return int(val) if val.lstrip("-").isdigit() else val
+            return normalize_group_id(saved)
     except Exception:
         pass
 
     cfg = str(config.escalation_chat).strip()
     if cfg and cfg.lower() not in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
-        return int(cfg) if cfg.lstrip("-").isdigit() else cfg
+        return normalize_group_id(cfg)
 
     return -1005388159517
+
 
 
