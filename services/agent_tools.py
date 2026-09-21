@@ -322,6 +322,50 @@ AGENT_TOOL_SCHEMAS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_agent_intelligence_stats",
+            "description": "Agentning haqiqiy intellektual darajasi, IQ balli, Leveli (darajasi), unvoni (title), tajriba ballari (XP), kognitiv qobiliyatlari (xotira, pedagogik, adaptiv, intizom) va tahlil qilingan xabarlar sonini olish.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_memory_storage_status",
+            "description": "Agent xotirasi va ma'lumotlar bazasi holati: MongoDB Atlas bulutli bazasi hajmi (MB), qolgan bo'sh joyi, saqlangan hujjatlar soni va SQLite kesh hajmini aniq ko'rish.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_knowledge_base",
+            "description": "Agent bilimlar bazasini boshqarish: o'rganilgan qoidalarni ko'rish yoki eskirgan/noto'g'ri qoidani xotiradan o'chirish (forget).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "forget"],
+                        "description": "'list' - barcha bilimlarni ko'rish, 'forget' - ko'rsatilgan mavzudagi qoidani o'chirish",
+                    },
+                    "topic": {
+                        "type": "string",
+                        "description": "O'chirilishi kerak bo'lgan mavzu nomi (faqat action='forget' bo'lganda)",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
 ]
 
 
@@ -487,7 +531,50 @@ async def execute_tool_call(tool_name: str, arguments: Dict[str, Any], client, *
         # 16. get_learned_facts
         elif tool_name == "get_learned_facts":
             facts = memory_service.get_learned_facts()
-            return {"ok": True, "facts": facts}
+            return {"ok": True, "facts": facts, "total": len(facts) if facts else 0}
+
+        # 17. get_agent_intelligence_stats (IQ, Level, XP, Kognitiv tahlil)
+        elif tool_name == "get_agent_intelligence_stats":
+            stats = memory_service.get_agent_stats()
+            return {
+                "ok": True,
+                "iq_score": stats.get("iq_score"),
+                "iq_status": stats.get("iq_status"),
+                "level": stats.get("level"),
+                "title": stats.get("title"),
+                "total_xp": stats.get("total_xp"),
+                "current_level_xp": stats.get("current_level_xp"),
+                "next_level_xp": stats.get("next_level_xp"),
+                "progress_pct": stats.get("progress_pct"),
+                "total_messages": stats.get("total_messages"),
+                "total_students": stats.get("total_students"),
+                "total_learned_facts": stats.get("total_learned_facts"),
+                "cognitive_metrics": stats.get("cognitive_metrics"),
+            }
+
+        # 18. get_memory_storage_status (MongoDB va SQLite xotira hajmi va qolgan joy)
+        elif tool_name == "get_memory_storage_status":
+            storage_info = memory_service.get_memory_storage_info()
+            return {"ok": True, "storage": storage_info}
+
+        # 19. manage_knowledge_base
+        elif tool_name == "manage_knowledge_base":
+            action = str(arguments.get("action", "list")).strip().lower()
+            if action == "forget":
+                top = str(arguments.get("topic", "")).strip()
+                if not top:
+                    return {"ok": False, "error": "O'chirish uchun mavzu nomi berilmadi."}
+                succ = memory_service.forget_fact(top)
+                return {
+                    "ok": True,
+                    "action": "forgot",
+                    "topic": top,
+                    "success": succ,
+                    "message": f"«{top}» qoidasi xotiradan muvaffaqiyatli o'chirildi." if succ else f"«{top}» qoidasi topilmadi.",
+                }
+            else:
+                facts = memory_service.get_learned_facts()
+                return {"ok": True, "action": "list", "facts": facts, "total": len(facts) if facts else 0}
 
         else:
             return {"ok": False, "error": f"Noma'lum asbob (Unknown tool): {tool_name}"}

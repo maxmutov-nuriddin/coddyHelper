@@ -1857,6 +1857,82 @@ def format_davomat_card(
     )
 
 
+def format_agent_iq_report() -> str:
+    """Agent intellekt darajasi, IQ, XP va kognitiv ko'nikmalar hisobotini formatlaydi."""
+    from services.memory_service import memory_service
+    stats = memory_service.get_agent_stats()
+    iq_val = stats.get("iq_score", 140)
+    iq_status = stats.get("iq_status", "Aqlli Yordamchi")
+    lvl = stats.get("level", 1)
+    ttl = stats.get("title", "Kichik AI Yordamchi")
+    c_xp = stats.get("current_level_xp", 0)
+    n_xp = stats.get("next_level_xp", 250)
+    t_xp = stats.get("total_xp", 0)
+    prog = stats.get("progress_pct", 0)
+    t_msg = stats.get("total_messages", 0)
+    t_std = stats.get("total_students", 0)
+    t_lrn = stats.get("total_learned_facts", 0)
+    cog = stats.get("cognitive_metrics", {})
+
+    return (
+        f"🧠 **Agent Intellekt & Kognitiv Tahlil:**\n\n"
+        f"• 🏆 **Level:** `LVL {lvl}` — *{ttl}*\n"
+        f"• 💡 **IQ Indeksi:** `{iq_val} ball` ({iq_status})\n"
+        f"• ⚡ **Tajriba (XP):** `{c_xp} / {n_xp} XP` (Jami: `{t_xp} XP`, `{prog}%`)\n"
+        f"• 💬 **Tahlil qilingan xabarlar:** `{t_msg}` ta\n"
+        f"• 🎓 **CoddyCamp o'quvchilari:** `{t_std}` nafar\n"
+        f"• 📚 **O'rganilgan qoidalar:** `{t_lrn}` ta\n\n"
+        f"📊 **Kognitiv Ko'nikmalar:**\n"
+        f"• 💾 Xotira va Bilim Chuqurligi: `{cog.get('memory_depth', 100)}%`\n"
+        f"• 👨‍🏫 Pedagogik Tahlil: `{cog.get('pedagogical_analysis', 60)}%`\n"
+        f"• 🎭 Adaptiv Muloqot & Taktika: `{cog.get('adaptive_intelligence', 50)}%`\n"
+        f"• ⏰ Avtonom Intizom & Rejalar: `{cog.get('execution_discipline', 40)}%`\n\n"
+        f"💡 Batafsil tahlil: [🎛 Web App Boshqaruv Panelida](https://coddyhelper.onrender.com/app)"
+    )
+
+
+def format_agent_storage_report() -> str:
+    """Agent xotirasi va ma'lumotlar bazasi (MongoDB Atlas va SQLite) hajmini formatlaydi."""
+    from services.memory_service import memory_service
+    info = memory_service.get_memory_storage_info()
+    mongo_data = info.get("mongo", {})
+    sqlite_mb = info.get("sqlite_file_mb", 0.0)
+
+    if mongo_data.get("connected"):
+        u_mb = mongo_data.get("storage_used_mb", 0.0)
+        f_mb = mongo_data.get("storage_free_mb", 512.0)
+        lim_mb = mongo_data.get("storage_limit_mb", 512.0)
+        u_pct = mongo_data.get("used_percentage", 0.0)
+        f_pct = mongo_data.get("free_percentage", 100.0)
+        docs = mongo_data.get("total_documents", 0)
+        colls = mongo_data.get("total_collections", 0)
+
+        return (
+            f"💾 **Xotira va Ma'lumotlar Bazasi Holati (Storage Status):**\n\n"
+            f"☁️ **MongoDB Atlas (Bulutli Asosiy Baza):**\n"
+            f"• 🟢 **Ulanish:** Muvaffaqiyatli (Faol va himoyalangan)\n"
+            f"• 📊 **Band joy:** `{u_mb} MB` / `{lim_mb} MB` (`{u_pct}%`)\n"
+            f"• 🔋 **Qolgan bo'sh joy:** `{f_mb} MB` (`{f_pct}%` bo'sh)\n"
+            f"• 📑 **Jami saqlangan hujjatlar:** `{docs}` ta\n"
+            f"• 🗄 **Kolleksiyalar soni:** `{colls}` ta\n\n"
+            f"💽 **Mahalliy SQLite Kesh:**\n"
+            f"• 📁 **Fayl hajmi:** `{sqlite_mb} MB`\n"
+            f"• 💬 **Xabarlar soni:** `{info.get('total_messages', 0)}` ta\n"
+            f"• 📚 **O'rganilgan bilimlar:** `{info.get('total_learned_facts', 0)}` ta\n\n"
+            f"✅ **Xulosa:** Xotirangizda bemalol yana yuz minglab xabarlar va o'quvchilarni saqlash uchun yetarli bo'sh joy mavjud."
+        )
+    else:
+        return (
+            f"💾 **Xotira va Ma'lumotlar Bazasi Holati:**\n\n"
+            f"💽 **Mahalliy SQLite Kesh:** `{sqlite_mb} MB`\n"
+            f"• 💬 **Xabarlar soni:** `{info.get('total_messages', 0)}` ta\n"
+            f"• 📚 **O'rganilgan bilimlar:** `{info.get('total_learned_facts', 0)}` ta\n"
+            f"• 🎓 **O'quvchilar profillari:** `{info.get('total_students', 0)}` nafar\n\n"
+            f"☁️ **MongoDB Atlas:** {mongo_data.get('message', 'Lokal kesh faol.')}\n"
+            f"✅ Mahalliy diskda bo'sh joy yetarli, barcha ma'lumotlar xavfsiz saqlanmoqda."
+        )
+
+
 async def find_sick_students_in_chats(client, limit: int = 40) -> dict[str, Any]:
     """
     Shaxsiy yozishmalar (lichkalar) va guruhlar ichidan oxirgi xabarlarda
@@ -2779,6 +2855,13 @@ async def execute_agent_action(
                 return f"❌ Ma'muriyatga yuborishda xatolik: {send_res.get('error')}"
         else:
             return "ℹ️ Hozircha yuborish uchun kasal bo'lgan o'quvchi xabari topilmadi."
+
+    # ⚡ Tezkor javoblar (0 ms): IQ darajasi, xotira hajmi va bilimlar ro'yxati
+    if re.search(r"\b(?:iq\s*(?:nechchi|nechi|qancha|darajang|score|balli)|level(?:ing)?\s*(?:nechi|qancha|daraja)|aqliy\s*qobiliyat|kognitiv\s*tahlil|darajang\s*qanaqa|qanchalik\s*aqllisan|сколько\s*iq|какой\s*уровень|какой\s*iq)\b", orig_msg, re.I):
+        return format_agent_iq_report()
+
+    if re.search(r"\b(?:qancha\s+joy\s+qoldi|xotirangda\s+qancha\s+joy|xotira\s*hajmi|baza\s*to['’`]?ldimi|mongodb\s*holati|mongo\s*holati|xotirang\s*qancha|qancha\s+joy\s+bor|сколько\s+памяти|сколько\s+места\s+осталось|состояние\s+базы|размер\s+памяти)\b", orig_msg, re.I):
+        return format_agent_storage_report()
 
     # 🧠 AI INTENT COMPILER (ALGORITM AI DAN SO'RAB O'GIRIB OLISHI):
     # Agar modelning dastlabki javobida ACTION bo'lmasa yoki tasodifan rad javobi berilgan bo'lsa,
@@ -3871,6 +3954,86 @@ async def execute_agent_action(
             f"⚙️ **Lichkada AI yordamga kelish kutish vaqti:** `{m_str}`\n\n"
             f"💡 Ushbu va boshqa sozlamalarni [🎛 Web App orqali o'zgartirish](https://coddyhelper.onrender.com/app) mumkin."
         )
+
+    # 10.1 Action: get_agent_intelligence_stats (IQ darajasi, Level, XP, Kognitiv tahlil)
+    m_iq = (
+        bool(re.search(r"\b(?:iq\s*(?:nechchi|nechi|qancha|darajang|score|balli)|level(?:ing)?\s*(?:nechi|qancha|daraja)|aqliy\s*qobiliyat|kognitiv\s*tahlil|darajang\s*qanaqa|qanchalik\s*aqllisan|сколько\s*iq|какой\s*уровень|какой\s*iq)\b", orig_msg, re.I)) or
+        "<<<ACTION:get_agent_intelligence_stats" in reply_text
+    )
+    if m_iq:
+        stats = memory_service.get_agent_stats()
+        iq_val = stats.get("iq_score", 140)
+        iq_status = stats.get("iq_status", "Aqlli Yordamchi")
+        lvl = stats.get("level", 1)
+        ttl = stats.get("title", "Kichik AI Yordamchi")
+        c_xp = stats.get("current_level_xp", 0)
+        n_xp = stats.get("next_level_xp", 250)
+        t_xp = stats.get("total_xp", 0)
+        prog = stats.get("progress_pct", 0)
+        t_msg = stats.get("total_messages", 0)
+        t_std = stats.get("total_students", 0)
+        t_lrn = stats.get("total_learned_facts", 0)
+        cog = stats.get("cognitive_metrics", {})
+
+        return (
+            f"🧠 **Agent Intellekt & Kognitiv Tahlil:**\n\n"
+            f"• 🏆 **Level:** `LVL {lvl}` — *{ttl}*\n"
+            f"• 💡 **IQ Indeksi:** `{iq_val} ball` ({iq_status})\n"
+            f"• ⚡ **Tajriba (XP):** `{c_xp} / {n_xp} XP` (Jami: `{t_xp} XP`, `{prog}%`)\n"
+            f"• 💬 **Tahlil qilingan xabarlar:** `{t_msg}` ta\n"
+            f"• 🎓 **CoddyCamp o'quvchilari:** `{t_std}` nafar\n"
+            f"• 📚 **O'rganilgan qoidalar:** `{t_lrn}` ta\n\n"
+            f"📊 **Kognitiv Ko'nikmalar:**\n"
+            f"• 💾 Xotira va Bilim Chuqurligi: `{cog.get('memory_depth', 100)}%`\n"
+            f"• 👨‍🏫 Pedagogik Tahlil: `{cog.get('pedagogical_analysis', 60)}%`\n"
+            f"• 🎭 Adaptiv Muloqot & Taktika: `{cog.get('adaptive_intelligence', 50)}%`\n"
+            f"• ⏰ Avtonom Intizom & Rejalar: `{cog.get('execution_discipline', 40)}%`\n\n"
+            f"💡 Batafsil tahlil: [🎛 Web App Boshqaruv Panelida](https://coddyhelper.onrender.com/app)"
+        )
+
+    # 10.2 Action: get_memory_storage_status (Xotirada qancha joy qoldi? MongoDB va SQLite xotirasi)
+    m_storage = (
+        bool(re.search(r"\b(?:qancha\s+joy\s+qoldi|xotirangda\s+qancha\s+joy|xotira\s*hajmi|baza\s*to['’`]?ldimi|mongodb\s*holati|mongo\s*holati|xotirang\s*qancha|qancha\s+joy\s+bor|сколько\s+памяти|сколько\s+места\s+осталось|состояние\s+базы|размер\s+памяти)\b", orig_msg, re.I)) or
+        "<<<ACTION:get_memory_storage_status" in reply_text
+    )
+    if m_storage:
+        info = memory_service.get_memory_storage_info()
+        mongo_data = info.get("mongo", {})
+        sqlite_mb = info.get("sqlite_file_mb", 0.0)
+
+        if mongo_data.get("connected"):
+            u_mb = mongo_data.get("storage_used_mb", 0.0)
+            f_mb = mongo_data.get("storage_free_mb", 512.0)
+            lim_mb = mongo_data.get("storage_limit_mb", 512.0)
+            u_pct = mongo_data.get("used_percentage", 0.0)
+            f_pct = mongo_data.get("free_percentage", 100.0)
+            docs = mongo_data.get("total_documents", 0)
+            colls = mongo_data.get("total_collections", 0)
+
+            return (
+                f"💾 **Xotira va Ma'lumotlar Bazasi Holati (Storage Status):**\n\n"
+                f"☁️ **MongoDB Atlas (Bulutli Asosiy Baza):**\n"
+                f"• 🟢 **Ulanish:** Muvaffaqiyatli (Faol va himoyalangan)\n"
+                f"• 📊 **Band joy:** `{u_mb} MB` / `{lim_mb} MB` (`{u_pct}%`)\n"
+                f"• 🔋 **Qolgan bo'sh joy:** `{f_mb} MB` (`{f_pct}%` bo'sh)\n"
+                f"• 📑 **Jami saqlangan hujjatlar:** `{docs}` ta\n"
+                f"• 🗄 **Kolleksiyalar soni:** `{colls}` ta\n\n"
+                f"💽 **Mahalliy SQLite Kesh:**\n"
+                f"• 📁 **Fayl hajmi:** `{sqlite_mb} MB`\n"
+                f"• 💬 **Xabarlar soni:** `{info.get('total_messages', 0)}` ta\n"
+                f"• 📚 **O'rganilgan bilimlar:** `{info.get('total_learned_facts', 0)}` ta\n\n"
+                f"✅ **Xulosa:** Xotirangizda bemalol yana yuz minglab xabarlar va o'quvchilarni saqlash uchun yetarli bo'sh joy mavjud."
+            )
+        else:
+            return (
+                f"💾 **Xotira va Ma'lumotlar Bazasi Holati:**\n\n"
+                f"💽 **Mahalliy SQLite Kesh:** `{sqlite_mb} MB`\n"
+                f"• 💬 **Xabarlar soni:** `{info.get('total_messages', 0)}` ta\n"
+                f"• 📚 **O'rganilgan bilimlar:** `{info.get('total_learned_facts', 0)}` ta\n"
+                f"• 🎓 **O'quvchilar profillari:** `{info.get('total_students', 0)}` nafar\n\n"
+                f"☁️ **MongoDB Atlas:** {mongo_data.get('message', 'Lokal kesh faol.')}\n"
+                f"✅ Mahalliy diskda bo'sh joy yetarli, barcha ma'lumotlar xavfsiz saqlanmoqda."
+            )
 
     # 11. Action: ignore_user (Foydalanuvchini bloklash / ignore qilish / cheklash)
     m_ignore = ACTION_IGNORE_USER.search(reply_text)

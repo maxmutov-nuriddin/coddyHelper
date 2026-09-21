@@ -1052,6 +1052,18 @@ class SQLiteMemoryService:
             logger.error("SQLite bilimni o'chirishda xatolik: %s", e)
         return deleted
 
+    def get_learned_facts(self, limit: int = 50) -> list[dict]:
+        """get_all_learned_facts uchun qulay alias."""
+        return self.get_all_learned_facts(limit=limit)
+
+    def learn_fact(self, topic: str, content: str, category: str = "general") -> int:
+        """add_learned_fact uchun qulay alias."""
+        return self.add_learned_fact(topic=topic, content=content, category=category)
+
+    def forget_fact(self, topic: str) -> bool:
+        """delete_learned_fact uchun qulay alias."""
+        return self.delete_learned_fact(target=topic)
+
     def get_knowledge_context(self, limit: int = 30) -> str:
         """AI promptiga qo'shish uchun barcha o'rganilgan qoidalar va faktlarni chiroyli formatda qaytaradi."""
         facts = self.get_all_learned_facts(limit=limit)
@@ -2511,6 +2523,35 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Baza birlashtirishda xatolik: %s", e)
             return False, str(e)
+
+    def get_memory_storage_info(self) -> dict:
+        """Xotira hajmi: MongoDB Atlas va SQLite ma'lumotlar bazalarining aniq hajmi va qolgan bo'sh joyini beradi."""
+        from services.mongo_memory_service import mongo_memory_service
+
+        sqlite_size_mb = 0.0
+        try:
+            if hasattr(self, "db_path") and self.db_path.exists():
+                sqlite_size_mb = round(self.db_path.stat().st_size / (1024 * 1024), 2)
+        except Exception:
+            pass
+
+        mongo_info = mongo_memory_service.get_storage_stats()
+        agent_stats = self.get_agent_stats()
+
+        return {
+            "sqlite_file_mb": sqlite_size_mb,
+            "mongo": mongo_info,
+            "total_messages": agent_stats.get("total_messages", 0),
+            "total_students": agent_stats.get("total_students", 0),
+            "total_learned_facts": agent_stats.get("total_learned_facts", 0),
+            "total_locations": agent_stats.get("total_locations", 0),
+            "level": agent_stats.get("level", 1),
+            "iq_score": agent_stats.get("iq_score", 140),
+            "title": agent_stats.get("title", "Kichik AI Yordamchi"),
+            "cognitive_metrics": agent_stats.get("cognitive_metrics", {}),
+            "total_xp": agent_stats.get("total_xp", 0),
+            "progress_pct": agent_stats.get("progress_pct", 0),
+        }
 
 
 # Global xotira instansiyasi

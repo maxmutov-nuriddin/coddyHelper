@@ -302,6 +302,44 @@ class MongoMemoryService:
         except Exception:
             return {"iq": 140, "xp": 500, "level": 3}
 
+    def get_storage_stats(self) -> dict:
+        """MongoDB Atlas xotira hajmi, hujjatlar soni va qolgan bo'sh joy statistikasini hisoblaydi."""
+        if not self.is_connected():
+            return {
+                "ok": False,
+                "connected": False,
+                "message": "MongoDB Atlas bilan hozircha ulanish yo'q (mahalliy SQLite kesh ishlamoqda)",
+            }
+        try:
+            db_stats = self._db.command("dbstats")
+            # MongoDB Atlas M0 bepul klaster limiti: 512 MB
+            max_mb = 512.0
+            storage_bytes = db_stats.get("storageSize", 0)
+            data_bytes = db_stats.get("dataSize", 0)
+            storage_mb = round(storage_bytes / (1024 * 1024), 2)
+            data_mb = round(data_bytes / (1024 * 1024), 2)
+            free_mb = max(0.0, round(max_mb - storage_mb, 2))
+            used_pct = min(100.0, round((storage_mb / max_mb) * 100, 2))
+            objects_count = db_stats.get("objects", 0)
+            collections_count = db_stats.get("collections", 0)
+
+            return {
+                "ok": True,
+                "connected": True,
+                "storage_used_mb": storage_mb,
+                "data_used_mb": data_mb,
+                "storage_free_mb": free_mb,
+                "storage_limit_mb": max_mb,
+                "used_percentage": used_pct,
+                "free_percentage": round(100.0 - used_pct, 2),
+                "total_documents": objects_count,
+                "total_collections": collections_count,
+                "db_name": getattr(self._db, "name", "coddy_brain"),
+            }
+        except Exception as e:
+            logger.error("MongoDB get_storage_stats xatolik: %s", e)
+            return {"ok": False, "connected": True, "error": str(e)}
+
     # -----------------------------------------------------------
     # Mentor Lexicon (Mentor tili, qisqartmalari va slengi)
     # -----------------------------------------------------------

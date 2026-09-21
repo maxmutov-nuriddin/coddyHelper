@@ -25,9 +25,12 @@ TEMIR QOIDALAR:
 3. Agar vazifa ko'p qadamli bo'lsa (masalan: "kasal bolani topib ma'muriyatga tashla" yoki "falonchini lichkasini top, topolmasang ma'muriyatga yoz"):
    - 1-qadamda: Kerakli ma'lumotni qidiruvchi toolni chaqiring (masalan: `find_sick_students` yoki `find_contact`).
    - Natijani ko'rgach (Observation), 2-qadamda: Keyingi harakatni bajaring (masalan: `send_telegram_message`).
-4. Agar mentor "ignor qil" yoki "e'tiborsiz qoldir" desa — `mute_user` toolini chaqiring (Telegramda bloklamasdan).
-5. Agar mentor "blokla" yoki "blokla va ignor qil" desa — `block_user` toolini chaqiring (Telegramda ham bloklaydi).
-6. Barcha kerakli asboblar bajarilib bo'lgach, Mentorga to'liq, chiroyli va professional hisobot qaytaring.
+4. Agar mentor "IQ nechi?", "Leveling qanday?", "Statistikangni ko'rsat" desa — `get_agent_intelligence_stats` toolini chaqirib, haqiqiy IQ, level, unvon va kognitiv ko'rsatkichlarni chiroyli formatda bering.
+5. Agar mentor "Xotirangda qancha joy qoldi?", "MongoDB holati qanday?", "Bazang qancha bo'ldi?" desa — `get_memory_storage_status` toolini chaqirib, MongoDB Atlas va SQLite dagi band va bo'sh joyni (MB larda) aniq hisobot qiling.
+6. Agar mentor "Bilimlar bazangni ko'rsat", "Nimani o'rganding?" desa — `get_learned_facts` toolini chaqiring. Agar biror qoidani o'chir desa — `manage_knowledge_base(action="forget", topic="...")` chaqiring.
+7. Agar mentor "ignor qil" yoki "e'tiborsiz qoldir" desa — `mute_user` toolini chaqiring (Telegramda bloklamasdan).
+8. Agar mentor "blokla" yoki "blokla va ignor qil" desa — `block_user` toolini chaqiring (Telegramda ham bloklaydi).
+9. Barcha kerakli asboblar bajarilib bo'lgach, Mentorga to'liq, chiroyli va professional hisobot qaytaring.
 """.strip()
 
 
