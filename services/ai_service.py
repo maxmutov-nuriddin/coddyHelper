@@ -2426,21 +2426,21 @@ class AIService:
             if not answer and gemini_trigger_after in ("gemini_first", "primary_first") and _is_gemini_allowed_for_request():
                 logger.info("🥇 [gemini_first] Google Gemini Asosiy Miya (1-o'rinda) sifatida ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
                 )
 
             # 0.5-ustuvorlik: Agar "vision_first" tanlangan bo'lsa va rasm bo'lsa, 1-o'rinda Gemini Vision ishlaydi
             if not answer and image_bytes and gemini_trigger_after == "vision_first" and _is_gemini_allowed_for_request():
                 logger.info("🖼️ [vision_first] Rasm tahlili uchun to'g'ridan-to'g'ri 1-o'rinda Google Gemini Vision ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
                 )
 
             # 0.7-ustuvorlik: Agar "smart_hybrid" tanlangan bo'lsa va VIP/Mentor yoki rasm bo'lsa, 1-o'rinda Gemini ishlaydi
             if not answer and (is_vip or image_bytes) and gemini_trigger_after == "smart_hybrid" and _is_gemini_allowed_for_request():
                 logger.info("👑 [smart_hybrid] VIP/Murakkab so'rov uchun Gemini 1-o'rinda ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
                 )
 
             # 1-ustuvorlik: Groq Birlamchi Miya (Miya 1: Frontline yoki Miya 2: VIP)
@@ -2464,7 +2464,7 @@ class AIService:
             if not answer and gemini_trigger_after == "after_primary" and _is_gemini_allowed_for_request():
                 logger.info("⚡ [after_primary] Asosiy miya to'ldi. Gemini'ga darhol o'tilmoqda (Groq Zaxira kutib o'tirilmaydi)...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
                 )
 
             # 3-ustuvorlik: Miya 3: Groq Zaxira Qalqoni (12 ta kalit, Jamoalar #9-#12)
@@ -2498,7 +2498,7 @@ class AIService:
                 if gemini_trigger_after != "vision_only_trigger" or image_bytes or file_text:
                     logger.info("⚡ So'nggi istehkom: Google Gemini zaxira tizimi ulanmoqda (scope=%s, trigger=%s)...", gemini_scope, gemini_trigger_after)
                     answer = await self._generate_gemini_reply(
-                        chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                        chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
                     )
 
             if not answer:
