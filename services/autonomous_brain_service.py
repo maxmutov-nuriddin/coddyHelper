@@ -130,22 +130,24 @@ class AutonomousBrainService:
         - 'curriculum': Faqat ta'lim / o'qish (Saboqlar va kesh yechimlar)
         - 'mentor': Faqat menga oid (Mentor slangi va qisqartmalari)
         - 'self_reflection': Faqat o'zini takomillashtirish (O'z xatolari va oltin qoidalar)
+        - 'profiler': Faqat skanerlash (Yashirin profil razvedkasi va chatlar tahlili)
         """
         val = memory_service.get_setting("autonomous_brain_focus", "universal").lower().strip()
-        return val if val in ("universal", "curriculum", "mentor", "self_reflection") else "universal"
+        return val if val in ("universal", "curriculum", "mentor", "self_reflection", "profiler") else "universal"
 
     def set_focus(self, focus: str) -> None:
-        """Miya 4 kognitiv fokus yo'nalishini o'zgartirish."""
+        """Miya 5 kognitiv fokus yo'nalishini o'zgartirish."""
         f = str(focus).lower().strip()
-        if f in ("universal", "curriculum", "mentor", "self_reflection"):
+        if f in ("universal", "curriculum", "mentor", "self_reflection", "profiler"):
             memory_service.set_setting("autonomous_brain_focus", f)
             labels = {
                 "universal": "Universal (Standart)",
                 "curriculum": "Faqat Ta'lim (O'quv dasturi)",
                 "mentor": "Faqat Mentor (Slang & Uslub)",
                 "self_reflection": "Faqat O'zini Takomillashtirish (Xatolar)",
+                "profiler": "Faqat Skanerlash (Profil Razvedkasi)",
             }
-            self._log_activity(f"Miya 4 fokusi: {labels.get(f, f).upper()}", "config")
+            self._log_activity(f"Miya 5 fokusi: {labels.get(f, f).upper()}", "config")
 
     def get_status(self) -> dict[str, Any]:
         """Web App paneli va telemetriya uchun Miya 4 holati."""
@@ -286,6 +288,13 @@ class AutonomousBrainService:
                 await self._learn_mentor_lexicon()
             elif focus == "self_reflection":
                 await self._reflect_on_mistakes()
+            elif focus == "profiler":
+                from services.profile_intelligence_service import profile_intelligence_service
+                if profile_intelligence_service.queue_length == 0:
+                    scanned = await self.trigger_dialog_scan(limit=100)
+                    self._log_activity(f"🕵️‍♂️ Skanerlash fokusi: {scanned} ta yangi foydalanuvchi navbatga olindi.", "profiler")
+                else:
+                    self._log_activity(f"🕵️‍♂️ Skanerlash fokusi: Navbatdagi {profile_intelligence_service.queue_length} ta foydalanuvchi tahlil qilinmoqda...", "profiler")
             else:
                 # Universal (Standart)
                 is_saturated = priorities.get("curriculum_saturated", False)
@@ -374,6 +383,14 @@ class AutonomousBrainService:
                 elif focus == "self_reflection":
                     # 100% Faqat o'z xatolari va oltin qoidalar
                     await self._reflect_on_mistakes()
+                elif focus == "profiler":
+                    # 100% Faqat Skanerlash va Profil Razvedkasi
+                    from services.profile_intelligence_service import profile_intelligence_service
+                    if profile_intelligence_service.queue_length == 0:
+                        scanned = await self.trigger_dialog_scan(limit=100)
+                        self._log_activity(f"🕵️‍♂️ Avtonom Skaner: {scanned} ta yangi foydalanuvchi navbatga olindi.", "profiler")
+                    else:
+                        self._log_activity(f"🕵️‍♂️ Avtonom Skaner: Navbatda {profile_intelligence_service.queue_length} ta odam tahlil qilinmoqda...", "profiler")
                 else:
                     # Universal (Standart Bounded Governor):
                     if is_curriculum_saturated:

@@ -1311,6 +1311,9 @@
             <button type="button" id="brain-focus-self_reflection" onclick="setAutonomousBrainFocus('self_reflection')" style="padding: 7px 8px; font-size: 11px; font-weight: 600; border-radius: 7px; border: 1px solid transparent; cursor: pointer; background: rgba(255,255,255,0.03); color: var(--hint-color); transition: all 0.2s;" title="Faqat O'zini Takomillashtirish: O'tmishdagi xatolar va oltin qoidalar">
               🛡 O'zini Takomillashtirish
             </button>
+            <button type="button" id="brain-focus-profiler" onclick="setAutonomousBrainFocus('profiler')" style="padding: 7px 8px; font-size: 11px; font-weight: 600; border-radius: 7px; border: 1px solid transparent; cursor: pointer; background: rgba(255,255,255,0.03); color: var(--hint-color); transition: all 0.2s;" title="Faqat Skanerlash: Barcha chatlardagi yangi/eski odamlarni profil razvedkasi va tahlil qilish">
+              🕵️‍♂️ Faqat Skanerlash (Razvedka)
+            </button>
           </div>
         </div>
 
@@ -3226,6 +3229,7 @@
         'curriculum': 'Faqat O\'qish (Ta\'lim)',
         'mentor': 'Faqat Menga Oid',
         'self_reflection': 'O\'zini Takomillashtirish',
+        'profiler': 'Faqat Skanerlash (Razvedka)',
       };
       const label = labels[focus] || focus;
       showToast(`🎯 Miya 5 fokusi: ${label} ga o'tkazilmoqda...`);
@@ -3243,12 +3247,13 @@
     }
 
     function updateFocusButtonsUI(focus) {
-      const foci = ['universal', 'curriculum', 'mentor', 'self_reflection'];
+      const foci = ['universal', 'curriculum', 'mentor', 'self_reflection', 'profiler'];
       const labels = {
         'universal': 'Universal (Standart)',
         'curriculum': 'Faqat O\'qish (Ta\'lim)',
         'mentor': 'Faqat Menga Oid',
         'self_reflection': 'O\'zini Takomillashtirish',
+        'profiler': 'Faqat Skanerlash (Razvedka)',
       };
       const badge = document.getElementById('auto-brain-focus-badge');
       if (badge && labels[focus]) {

@@ -1294,7 +1294,7 @@ self.addEventListener('fetch', (event) => {
                 autonomous_brain_service.set_enabled(bool(data["enabled"]))
             if "mode" in data and str(data["mode"]).strip() in ("ultra", "tezkor", "optimal", "sokin"):
                 autonomous_brain_service.set_mode(str(data["mode"]).strip())
-            if "focus" in data and str(data["focus"]).strip() in ("universal", "curriculum", "mentor", "self_reflection"):
+            if "focus" in data and str(data["focus"]).strip() in ("universal", "curriculum", "mentor", "self_reflection", "profiler"):
                 autonomous_brain_service.set_focus(str(data["focus"]).strip())
             if "profiler_enabled" in data:
                 from services.profile_intelligence_service import profile_intelligence_service
