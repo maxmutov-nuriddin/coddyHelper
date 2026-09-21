@@ -404,6 +404,105 @@ def redact_sensitive_data(text: str) -> str:
     return text
 
 
+def detect_programming_topic(text: str) -> str | None:
+    """
+    Foydalanuvchi xabaridan dasturlash mavzusini aniqlaydi.
+    Mavzular: loops, functions, data_structures, oop, syntax_indentation, exceptions, file_io.
+    """
+    if not text:
+        return None
+    t = text.lower()
+
+    if re.search(r"(indentationerror|taberror|syntaxerror|\bprobel|\btab\b|\botstup|\bотступ|\bsintaksis)", t):
+        return "syntax_indentation"
+
+    if re.search(r"(for\s+tsikl|while\s+tsikl|for\s+loop|while\s+loop|\btsikl|\bsikl|\bloop|\bцикл|range\s*\(|cheksiz\s+tsikl|\bfor\s+\w+\s+in\b|\bwhile\s+)", t):
+        return "loops"
+
+    if re.search(r"(\bfunksiya|\bfunktsiya|\bdef\s+\w+|\bparametr|\breturn\b|\bqaytarish|\bфункци)", t):
+        return "functions"
+
+    if re.search(r"(\bclass\s+\w+|\bklass|\bobyekt|\boop\b|__init__|\bmeros|\bpolimorfizm|\binkapsulyatsiya|\bкласс|\bобъект|\bнаследован|\bинкапсуляц)", t):
+        return "oop"
+
+    if re.search(r"(\blist\b|\bdict\b|\bdictionary\b|\blug['’]?at|\bmassiv|\bset\b|\btuple\b|\bkortej|\bro['’]?yxat|\bspisok|\bspiski|\bсловар|\.append\s*\(|\.pop\s*\()", t):
+        return "data_structures"
+
+    if re.search(r"(\btry\s*:|\bexcept\b|\bexception|\bxatolikni\s+ushlash|indexerror|keyerror|valueerror|typeerror|zerodivisionerror|\bисключени)", t):
+        return "exceptions"
+
+    if re.search(r"(\bfayl|open\s*\(|with\s+open|\bfaylga|\bfayldan|\bфайл)", t):
+        return "file_io"
+
+    return None
+
+
+def apply_socratic_critic(answer: str, user_message: str) -> str:
+    """
+    Pedagogik Sifat Nazoratchisi (Critic):
+    O'quvchilarga tayyor uy vazifasi yechimini 100% ko'chirishga berib yubormaydi.
+    Katta (25+ qatorli) tayyor kod bloklarini scaffold + yo'naltiruvchi sokratik savolga aylantiradi.
+    """
+    if not answer:
+        return answer
+
+    # Ortiqcha tizim taglarini tozalash
+    answer = re.sub(r"<<<[A-Za-z0-9_]+:[^>]*>>>", "", answer)
+
+    # Markdown kod bloklarini tekshirish
+    code_block_regex = re.compile(r"```([a-zA-Z0-9_\-\+]*)\n([\s\S]*?)```")
+
+    def _truncate_code_block(match: re.Match) -> str:
+        lang = match.group(1) or "python"
+        code = match.group(2)
+        lines = code.splitlines()
+
+        # Agar kod 25 qatordan kam bo'lsa, o'zgartirmaymiz
+        if len(lines) <= 25:
+            return match.group(0)
+
+        is_ru = is_russian_text(user_message) or is_russian_text(answer)
+
+        # 12 qator saqlab qolamiz, qolganini scaffold qilamiz
+        kept_lines = lines[:12]
+        comment_prefix = "//" if lang.lower() in ("javascript", "js", "cpp", "c", "csharp", "cs", "java", "dart") else "#"
+
+        if is_ru:
+            placeholder = (
+                f"\n{comment_prefix} ... [ОСТАЛЬНУЮ ЧАСТЬ КОДА НАПИШИТЕ САМОСТОЯТЕЛЬНО] ...\n"
+                f"{comment_prefix} Подсказка: Попробуйте применить условие или цикл здесь.\n"
+            )
+        else:
+            placeholder = (
+                f"\n{comment_prefix} ... [QOLGAN MANTIQNI O'ZINGIZ YOZIB KO'RING] ...\n"
+                f"{comment_prefix} Maslahat: Shu yerda shart yoki tsikl yordamida davom ettiring.\n"
+            )
+
+        new_code = "\n".join(kept_lines) + placeholder
+        return f"```{lang}\n{new_code}\n```"
+
+    transformed_answer = code_block_regex.sub(_truncate_code_block, answer)
+
+    # Agar kod qisqartirilgan bo'lsa, oxiriga Sokratik pedagogik savol qo'shamiz
+    if transformed_answer != answer:
+        is_ru = is_russian_text(user_message) or is_russian_text(answer)
+        if is_ru:
+            socratic_hint = (
+                "\n\n💡 **Совет наставника:** Полное копирование готового кода не научит программировать. "
+                "Я дал вам базовый шаблон выше. Как вы думаете, какой следующий шаг нужно сделать? "
+                "Напишите свой вариант, и я с радостью помогу его доработать!"
+            )
+        else:
+            socratic_hint = (
+                "\n\n💡 **Ustoz maslahati:** Tayyor kodni to'liq ko'chirib qo'yish dasturlashni o'rganishga yordam bermaydi. "
+                "Yuqorida sizga asosiy skeletni (shablonni) berdim. Sizningcha, keyingi qadamda nima qilishimiz kerak? "
+                "O'z fikringizni yoki kodingizni yozing, birgalikda tekshiramiz 😊"
+            )
+        transformed_answer += socratic_hint
+
+    return transformed_answer
+
+
 def optimize_image_for_vision(image_bytes: bytes, max_dim: int = 960, quality: int = 80) -> bytes:
     """
     Katta hajmdagi skrinshot va rasmlarni Groq token limitlariga (7000 ITPM) moslash uchun
@@ -2389,6 +2488,40 @@ class AIService:
                 except Exception as s_err:
                     logger.warning("Web search qo'shishda ogohlantirish: %s", s_err)
 
+        # 3-Mexanizm: O'quvchining Dinamik Xatolar Xaritasi (Student Weakness Profiling)
+        # Faqat o'quvchilar uchun (Mentor va Vazifalar guruhiga mutlaqo ta'sir qilmaydi)
+        if not is_admin_mode and user_message:
+            try:
+                topic = detect_programming_topic(user_message)
+                if topic:
+                    memory_service.record_student_topic_struggle(chat_id, topic, user_message)
+                    weaknesses = memory_service.get_student_weaknesses(chat_id)
+                    struggle_count = 0
+                    for w in weaknesses:
+                        if w.get("topic") == topic:
+                            struggle_count = w.get("error_count", 0)
+                            break
+                    if struggle_count >= 2:
+                        topic_names_uz = {
+                            "loops": "Tsikllar (for, while)",
+                            "functions": "Funksiyalar va return",
+                            "data_structures": "Ma'lumotlar tuzilmasi (list, dict, set)",
+                            "oop": "OOP (Klasslar va obyektlar)",
+                            "syntax_indentation": "Sintaksis va Indentation (probellar)",
+                            "exceptions": "Xatoliklarni ushlash (try/except)",
+                            "file_io": "Fayllar bilan ishlash",
+                        }
+                        readable_topic = topic_names_uz.get(topic, topic)
+                        cognitive_guidance = (
+                            f"[Pedagogik Tavsiya: O'quvchi ushbu '{readable_topic}' mavzusida ilgari bir necha bor qiynalgan ({struggle_count} marta savol bergan). "
+                            f"Unga murakkab texnik terminlarsiz, juda oddiy, hayotiy analogiya (o'xshatish) bilan bosqichma-bosqich, "
+                            f"rag'batlantiruvchi tarzda tushuntiring.]"
+                        )
+                        effective_prompt = f"{cognitive_guidance}\n\n{effective_prompt}"
+                        logger.info("🎯 O'quvchi kognitiv profili qo'llandi: chat_id=%s, mavzu=%s (xatolar: %d)", chat_id, topic, struggle_count)
+            except Exception as prof_err:
+                logger.warning("O'quvchi zaiflik profilini yangilashda ogohlantirish: %s", prof_err)
+
         try:
             answer = None
 
@@ -2572,6 +2705,11 @@ class AIService:
                 ).strip()
                 if cleaned_start:
                     answer = cleaned_start[0].upper() + cleaned_start[1:]
+
+            # 4-Mexanizm: "Critic" Pedagogik Sifat Nazoratchisi (Self-Correction & Socratic Hint Enforcement)
+            # Faqat o'quvchilar uchun! (Mentor va Vazifalar guruhiga 0 cheklov - 100% to'liq javob va kod)
+            if not is_admin_mode:
+                answer = apply_socratic_critic(answer, user_message)
 
             # Xotiraga tozalangan javobni saqlash
             memory_service.add_message(chat_id=chat_id, role="user", content=user_message)

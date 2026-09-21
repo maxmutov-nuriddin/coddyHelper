@@ -889,6 +889,48 @@ class MongoMemoryService:
             logger.error("MongoDB update_active_inquiry_status xatolik: %s", e)
             return False
 
+    def save_student_weakness(self, student_id: int, topic: str, question: str = "") -> bool:
+        """O'quvchining zaif mavzusini MongoDB Atlas da yangilaydi."""
+        if not self.is_connected() or not student_id or not topic:
+            return False
+        try:
+            self._db["brain_frontline.student_weaknesses"].update_one(
+                {"student_id": student_id, "topic": topic.strip().lower()},
+                {
+                    "$inc": {"error_count": 1},
+                    "$set": {
+                        "last_question": (question or "").strip()[:300],
+                        "last_seen": datetime.now(ZoneInfo("Asia/Tashkent")),
+                    },
+                },
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_student_weakness xatolik: %s", e)
+            return False
+
+    def get_student_weaknesses(self, student_id: int) -> list[dict]:
+        """O'quvchining zaif mavzularini MongoDB Atlas dan oladi."""
+        if not self.is_connected() or not student_id:
+            return []
+        try:
+            cursor = self._db["brain_frontline.student_weaknesses"].find(
+                {"student_id": student_id}
+            ).sort("error_count", -1).limit(5)
+            res = []
+            for doc in cursor:
+                res.append({
+                    "topic": doc.get("topic"),
+                    "error_count": doc.get("error_count", 1),
+                    "last_question": doc.get("last_question", ""),
+                    "last_seen": str(doc.get("last_seen", "")),
+                })
+            return res
+        except Exception as e:
+            logger.error("MongoDB get_student_weaknesses xatolik: %s", e)
+            return []
+
     # ==========================================
     # 5. Zero-Loss SQLite <-> MongoDB Synchronization
     # ==========================================

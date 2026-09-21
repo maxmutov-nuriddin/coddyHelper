@@ -238,6 +238,22 @@ class SQLiteMemoryService:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_active_inquiries_user ON active_inquiries (target_user_id, status)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS student_weaknesses (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        student_id INTEGER NOT NULL,
+                        topic TEXT NOT NULL,
+                        error_count INTEGER DEFAULT 1,
+                        last_question TEXT DEFAULT '',
+                        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(student_id, topic)
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_student_weaknesses_user ON student_weaknesses (student_id)"
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -2740,6 +2756,100 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Inquiry attempts oshirishda xatolik: %s", e)
             return 1
+
+    # -----------------------------------------------------------
+    # 3-Mexanizm: O'quvchining Dinamik Xatolar Xaritasi (Weaknesses)
+    # -----------------------------------------------------------
+    def record_student_topic_struggle(self, student_id: int, topic: str, question: str = "") -> None:
+        """O'quvchi ma'lum dasturlash mavzusida qiynalganini qayd etadi (error_count ni oshiradi)."""
+        if not student_id or not topic:
+            return
+        t_clean = topic.strip().lower()
+        q_clean = (question or "").strip()[:300]
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO student_weaknesses (student_id, topic, error_count, last_question, last_seen)
+                    VALUES (?, ?, 1, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(student_id, topic) DO UPDATE SET
+                        error_count = error_count + 1,
+                        last_question = excluded.last_question,
+                        last_seen = CURRENT_TIMESTAMP
+                    """,
+                    (student_id, t_clean, q_clean),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error("Student weakness yozishda xatolik: %s", e)
+
+        # MongoDB bilan sinxronlash
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_student_weakness(student_id, t_clean, q_clean)
+        except Exception as me:
+            logger.debug("MongoDB student_weakness sinxronlashda ogohlantirish: %s", me)
+
+    def get_student_weaknesses(self, student_id: int) -> list[dict]:
+        """O'quvchining eng ko'p qiynalgan zaif mavzulari ro'yxatini qaytaradi."""
+        if not student_id:
+            return []
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT topic, error_count, last_question, last_seen
+                    FROM student_weaknesses
+                    WHERE student_id = ?
+                    ORDER BY error_count DESC, last_seen DESC
+                    LIMIT 5
+                    """,
+                    (student_id,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "topic": r[0],
+                        "error_count": r[1],
+                        "last_question": r[2],
+                        "last_seen": str(r[3]),
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("Student weaknesses olishda xatolik: %s", e)
+            return []
+
+    def get_top_struggling_topics(self, limit: int = 5) -> list[dict]:
+        """Barcha o'quvchilar bo'yicha eng ko'p xato qilinayotgan global mavzularni qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT topic, SUM(error_count) as total_errors, COUNT(DISTINCT student_id) as student_count
+                    FROM student_weaknesses
+                    GROUP BY topic
+                    ORDER BY total_errors DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "topic": r[0],
+                        "total_errors": r[1],
+                        "student_count": r[2],
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("Top struggling topics olishda xatolik: %s", e)
+            return []
 
     def get_memory_storage_info(self) -> dict:
         """Xotira hajmi: MongoDB Atlas va SQLite ma'lumotlar bazalarining aniq hajmi va qolgan bo'sh joyini beradi."""

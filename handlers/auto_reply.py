@@ -183,6 +183,62 @@ def is_human_escalation_query(text: str) -> tuple[bool, str]:
     return False, ""
 
 
+def detect_prompt_injection_or_jailbreak(text: str) -> tuple[bool, str, str]:
+    """
+    O'quvchilar tomonidan yuborilgan kiberhujum, jailbreak va system promptni o'g'irlash
+    harakatlarini 0 millisekundda aniqlaydi.
+    Vazifalar guruhi va Mentor uchun ISHLATILMAYDI (faqat oddiy o'quvchilar uchun).
+    """
+    t = text.lower().strip()
+    if not t or len(t) < 4:
+        return False, "", ""
+
+    # 1. System Prompt va ichki yo'riqnomalarni oshkor qilishga urinish
+    leak_patterns = [
+        (r"\b(?:system\s*prompt|tizim\s*prompt\w*|sistemniy\s*prompt|ko['’`]?rsatma\w*ni\s+to['’`]?liq\s+ko['’`]?rsat|show\s+(?:system\s+)?instructions|what\s+is\s+your\s+prompt|print\s+your\s+prompt)\b",
+         "Tizim yo'riqnomasini (System Prompt) o'g'irlash / oshkor qilishga urinish"),
+        (r"\b(?:qoidalaringni\s+chiqar|qanday\s+sozlangan\w*ni\s+ayt|show\s+initial\s+rules|reveal\s+instructions)\b",
+         "Ichki qoidalar va konfiguratsiyani chiqarishga urinish"),
+    ]
+
+    # 2. Qoidalar va xulq-atvorni buzish (Jailbreak / Role Reversal / DAN mode)
+    jailbreak_patterns = [
+        (r"\b(?:ignore\s+(?:all\s+)?previous\s+instructions|oldingi\s+barcha\s+qoidalar\w*\s+unut|barcha\s+buyruqlar\w*\s+esdan\s+chiqar|zabud['’]?\s+vse\s+pravila)\b",
+         "Qoidalar va xotirani o'chirishga (Prompt Override) urinish"),
+        (r"\b(?:sen\s+endi\s+boshqa\s+botsan|sen\s+endi\s+dasturlash\s+boti\s+emassan|sen\s+endi\s+erkin\w*|dan\s+mode|jailbreak|ty\s+teper['’]?\s+ne\s+bot)\b",
+         "Rolni almashtirish / Cheklovlarni buzish (Jailbreak) urinishi"),
+        (r"\b(?:base64\s+(?:decode|ochib\s+ber|shifr)|rot13)\b.*?(?:haker|hack|ddos|parol|password)",
+         "Shifrlangan buzg'unchilik so'rovi"),
+    ]
+
+    # 3. Kiberhujum, buzg'unchilik va zararli dastur so'rovlari
+    exploit_patterns = [
+        (r"\b(?:ddos\s+qilish|saytni\s+buzish|kiberhujum|vzlamat['’]?\s+sayt|parol\s+o['’`]?g['’`]?irlash|trojan\s+yoz|virus\s+yoz)\b",
+         "Zararli buzg'unchilik yoki xakerlik kodi so'rovi"),
+    ]
+
+    for pat, reason in leak_patterns + jailbreak_patterns + exploit_patterns:
+        if re.search(pat, t, re.I):
+            is_ru = is_russian_text(t)
+            if is_ru:
+                polite_reply = (
+                    "🛡️ **Правило безопасности CoddyCamp:**\n\n"
+                    "Я — учебный ментор-ассистент CoddyCamp. Моя задача — помогать вам в изучении программирования и решении учебных задач. "
+                    "Внутренние системные инструкции и взлом не входят в учебную программу.\n\n"
+                    "Давайте вернемся к практике! По какому заданию у вас есть вопрос? 😊"
+                )
+            else:
+                polite_reply = (
+                    "🛡️ **CoddyCamp xavfsizlik qoidasi:**\n\n"
+                    "Men — CoddyCamp dasturlash akademiyasining shaxsiy o'quv assistentiman. Vazifam — darslar va dasturlash topshiriqlarida sizga yo'l ko'rsatish. "
+                    "Tizimning ichki ko'rsatmalari yoki buzg'unchilik dars dasturimizga kirmaydi.\n\n"
+                    "Keling, yaxshisi darsimizga qaytaylik! Dasturlash bo'yicha qaysi topshiriqda qiyinchilik bo'lyapti? 😊"
+                )
+            return True, reason, polite_reply
+
+    return False, "", ""
+
+
 async def dispatch_vazifalar_alert(client: TelegramClient, alert_text: str) -> bool:
     """
     Ogohlantirishni Vazifalar (Boshqaruv) guruhiga va kafolatli zaxirada
@@ -2340,6 +2396,24 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         return
                     except Exception as esc_err:
                         logger.error("Human-in-the-loop eskalatsiyasida xatolik: %s", esc_err)
+
+                # 🛡️ 2-MEXANIZM: DEEP SECURITY & PROMPT INJECTION FIREWALL
+                # Faqat oddiy o'quvchilar uchun! Vazifalar guruhi va Mentor uchun MUTLAQO ISHLAMAYDI!
+                if not is_admin_chat and not is_vazifalar and not is_mentor_user:
+                    is_attack, attack_reason, attack_reply = detect_prompt_injection_or_jailbreak(input_text)
+                    if is_attack:
+                        CURRENT_SENDING_CHATS.add(chat_id)
+                        try:
+                            sent_reply = await event.reply(attack_reply)
+                            if sent_reply:
+                                BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
+                        finally:
+                            CURRENT_SENDING_CHATS.discard(chat_id)
+                        logger.warning("🛡️ Security Firewall buzg'unchi so'rovni to'xtatdi [%s]: %s", chat_id, attack_reason)
+                        log_activity(f"🛡️ Firewall blokladi: {attack_reason} [{chat_id}]")
+                        memory_service.add_message(chat_id=chat_id, role="user", content=input_text)
+                        memory_service.add_message(chat_id=chat_id, role="model", content=attack_reply)
+                        return
 
                 # AI javobini generatsiya qilish (35s timeout bilan himoyalangan)
                 try:
