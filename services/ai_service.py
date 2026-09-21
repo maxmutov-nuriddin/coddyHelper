@@ -437,6 +437,26 @@ def detect_programming_topic(text: str) -> str | None:
     return None
 
 
+def detect_student_feedback_reaction(text: str) -> str | None:
+    """
+    O'quvchining oldingi javobdan keyingi reaksiyasini (muvaffaqiyat / tushunmovchilik) aniqlaydi.
+    Natija: 'success' | 'confusion' | None.
+    """
+    if not text:
+        return None
+    t = text.lower().strip()
+
+    # Muvaffaqiyat (Success)
+    if re.search(r"\b(rahmat|raxmat|tushundim|ishladi|ishlab ketdi|xato yo'qoldi|to'g'rilandi|tog'rilandi|boldi|bo'ldi|spasibo|ponyal|zarabotalo|poluchilos|rabotayet|vse ponyatno|spasibki)\b", t):
+        return "success"
+
+    # Tushunmovchilik (Confusion)
+    if re.search(r"\b(tushunmadim|qanaqasiga|nima degani|yana xato|baribir ishlamadi|ishlamayapti|ishlamadi|ne ponyal|ne rabotayet|snova oshibka|vse ravno ne rabotayet)\b", t):
+        return "confusion"
+
+    return None
+
+
 def apply_socratic_critic(answer: str, user_message: str) -> str:
     """
     Pedagogik Sifat Nazoratchisi (Critic):
@@ -788,6 +808,8 @@ def _create_default_cascade() -> dict[str, dict[str, Any]]:
 
 
 class AIService:
+    detect_student_feedback_reaction = staticmethod(detect_student_feedback_reaction)
+
     def __init__(self):
         self._groq_clients: list[Any] = []
         self._groq_keys: list[str] = []
@@ -2538,8 +2560,50 @@ class AIService:
                         )
                         effective_prompt = f"{cognitive_guidance}\n\n{effective_prompt}"
                         logger.info("🎯 O'quvchi kognitiv profili qo'llandi: chat_id=%s, mavzu=%s (xatolar: %d)", chat_id, topic, struggle_count)
+
+                    # Mavzu bo'yicha eng samarali Oltin Standart analogiyani tekshirish
+                    winning_analogy = memory_service.get_top_pedagogy_for_topic(topic)
+                    if winning_analogy:
+                        analogy_hint = f"[O'quvchilar eng yaxshi tushungan sinovdan o'tgan uslub: {winning_analogy[:200]}]"
+                        effective_prompt = f"{analogy_hint}\n\n{effective_prompt}"
+
+                # Pedagogical Outcome Tracker (Implicit RLHF)
+                reaction = detect_student_feedback_reaction(user_message)
+                if reaction:
+                    hist = memory_service.get_history(chat_id)
+                    last_model_msg = None
+                    last_user_msg = None
+                    for h in reversed(hist):
+                        if h.role == "model" and not last_model_msg:
+                            last_model_msg = h.content
+                        elif h.role == "user" and not last_user_msg:
+                            last_user_msg = h.content
+                        if last_model_msg and last_user_msg:
+                            break
+
+                    cur_topic = topic or detect_programming_topic(last_user_msg or "") or "general"
+                    if reaction == "confusion":
+                        memory_service.record_pedagogical_outcome(chat_id, cur_topic, last_user_msg or "", last_model_msg or "", "confusion", user_message)
+                        cognitive_adapt = (
+                            f"[Pedagogik Qayta Tushuntirish: O'quvchi oldingi tushuntirishni tushunmadi ('{user_message}'). "
+                            f"Oldingi uslubni TAKRORLAMANG! Mutlaqo boshqacha, bolalar tushunadigan juda sodda hayotiy analogiya bilan qisqa va tushunarli qilib qaytadan tushuntiring.]"
+                        )
+                        effective_prompt = f"{cognitive_adapt}\n\n{effective_prompt}"
+                        logger.info("🔄 Pedagogik feedback: 'confusion' qayd etildi va javob soddalashtirildi [%s]", chat_id)
+                    elif reaction == "success":
+                        memory_service.record_pedagogical_outcome(chat_id, cur_topic, last_user_msg or "", last_model_msg or "", "success", user_message)
+                        if last_model_msg and len(last_model_msg.split()) >= 15:
+                            memory_service.save_high_yield_pedagogy(cur_topic, last_model_msg[:500])
+                            logger.info("🏆 Pedagogik muvaffaqiyat: Oltin Standart saqlandi [%s: %s]", chat_id, cur_topic)
+
+                # Miya 5: O'quvchi dosyesidan ichki kontekst olish (agar mavjud bo'lsa)
+                dossier = memory_service.get_user_dossier(chat_id)
+                if dossier and dossier.get("dossier_text"):
+                    dossier_snippet = dossier["dossier_text"][:220].replace("\n", " ")
+                    effective_prompt = f"[Suhbatdosh Kognitiv Ma'lumoti: {dossier_snippet}]\n\n{effective_prompt}"
+
             except Exception as prof_err:
-                logger.warning("O'quvchi zaiflik profilini yangilashda ogohlantirish: %s", prof_err)
+                logger.warning("O'quvchi kognitiv tahlilida ogohlantirish: %s", prof_err)
 
         try:
             answer = None

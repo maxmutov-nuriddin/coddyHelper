@@ -1296,12 +1296,36 @@ self.addEventListener('fetch', (event) => {
                 autonomous_brain_service.set_mode(str(data["mode"]).strip())
             if "focus" in data and str(data["focus"]).strip() in ("universal", "curriculum", "mentor", "self_reflection"):
                 autonomous_brain_service.set_focus(str(data["focus"]).strip())
+            if "profiler_enabled" in data:
+                from services.profile_intelligence_service import profile_intelligence_service
+                profile_intelligence_service.set_enabled(bool(data["profiler_enabled"]))
+            if "profiler_delay" in data:
+                from services.profile_intelligence_service import profile_intelligence_service
+                profile_intelligence_service.set_delay_seconds(int(data["profiler_delay"]))
+            if "profiler_dest" in data:
+                from services.profile_intelligence_service import profile_intelligence_service
+                profile_intelligence_service.set_destination(str(data["profiler_dest"]).strip())
             return web.json_response({
                 "ok": True,
                 "status": autonomous_brain_service.get_status(),
             })
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_autonomous_brain_scan_dialogs(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            added = await autonomous_brain_service.trigger_dialog_scan()
+            return web.json_response({"ok": True, "added": added})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_get_user_dossiers(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        items = memory_service.get_all_user_dossiers(limit=50)
+        return web.json_response({"ok": True, "items": items, "count": memory_service.get_dossier_count()})
 
     async def handle_api_get_precomputed_answers(request: web.Request):
         if not is_authenticated(request):
@@ -1435,6 +1459,8 @@ self.addEventListener('fetch', (event) => {
     app.router.add_get("/api/autonomous-brain/status", handle_api_autonomous_brain_status)
     app.router.add_post("/api/autonomous-brain/trigger", handle_api_autonomous_brain_trigger)
     app.router.add_post("/api/autonomous-brain/settings", handle_api_autonomous_brain_settings)
+    app.router.add_post("/api/autonomous-brain/scan-dialogs", handle_api_autonomous_brain_scan_dialogs)
+    app.router.add_get("/api/autonomous-brain/dossiers", handle_api_get_user_dossiers)
     app.router.add_get("/api/precomputed-answers", handle_api_get_precomputed_answers)
     app.router.add_post("/api/precomputed-answers/delete", handle_api_delete_precomputed_answer)
     app.router.add_get("/api/mentor-lexicon", handle_api_get_mentor_lexicon)

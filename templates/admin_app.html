@@ -1314,6 +1314,57 @@
           </div>
         </div>
 
+        <!-- SILENT PROFILER & HISTORIC CRAWLER CONTROL ROW -->
+        <div style="background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 13px;">🕵️‍♂️</span>
+              <div>
+                <div style="font-size: 11.5px; font-weight: 700; color: #c084fc;">Yashirin Profil Razvedkasi (Silent Profiler & Crawler)</div>
+                <div style="font-size: 9.5px; color: var(--hint-color);">Eski va yangi chatlardagi odamlarni 100% yashirin tahlil qilish (bitta-bitta)</div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label class="switch" style="margin: 0;">
+                <input type="checkbox" id="switch-auto-profiler" onchange="toggleAutoProfiler(this.checked)" checked>
+                <span class="slider"></span>
+              </label>
+              <button onclick="triggerHistoricDialogScan()" id="btn-scan-dialogs" class="btn-secondary" style="padding: 5px 10px; font-size: 11px; font-weight: 700; border-radius: 6px; cursor: pointer; background: rgba(59,130,246,0.22); color: #93c5fd; border: 1px solid rgba(59,130,246,0.5); display: inline-flex; align-items: center; gap: 4px;" title="Barcha eski shaxsiy chatlarni navbatga terib chiqish">
+                <span>🔍</span>
+                <span id="scan-dialogs-text">Eski Chatlarni Skanerlash</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- PROFILER SETTINGS ROW: DELAY & DESTINATION -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
+            <div>
+              <div style="font-size: 10px; color: var(--hint-color); margin-bottom: 4px;">⏱️ Xavfsiz Tanaffus (FloodWait Himoyasi):</div>
+              <select id="select-profiler-delay" onchange="changeProfilerDelay(this.value)" style="width: 100%; background: rgba(0,0,0,0.4); color: #e2e8f0; border: 1px solid rgba(168,85,247,0.3); border-radius: 6px; padding: 5px 8px; font-size: 11px; font-weight: 600;">
+                <option value="15">⚡ 15 soniya (Tezkor)</option>
+                <option value="20" selected>⏱️ 20 soniya (Optimal - Tavsiya)</option>
+                <option value="30">🌟 30 soniya (Xavfsiz)</option>
+                <option value="45">🐢 45 soniya (Maksimal ehtiyotkor)</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size: 10px; color: var(--hint-color); margin-bottom: 4px;">📢 Dosye Yuborish Manzili:</div>
+              <select id="select-profiler-dest" onchange="changeProfilerDestination(this.value)" style="width: 100%; background: rgba(0,0,0,0.4); color: #e2e8f0; border: 1px solid rgba(168,85,247,0.3); border-radius: 6px; padding: 5px 8px; font-size: 11px; font-weight: 600;">
+                <option value="both" selected>📢 Vazifalar Guruhi + Mentor</option>
+                <option value="vazifalar">👥 Faqat Vazifalar Guruhi (-5388159517)</option>
+                <option value="mentor">👤 Faqat Mentor Shaxsan (@mentor_cc)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- PROFILER TELEMETRY STATUS -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 10px; color: var(--hint-color);">
+            <span>📊 Jami tahlil qilinganlar: <strong id="profiler-total-db" style="color: #22c55e;">0 ta</strong></span>
+            <span>⏳ Navbatda: <strong id="profiler-queue-count" style="color: #f59e0b;">0 ta</strong></span>
+            <span>👤 Joriy: <strong id="profiler-current-target" style="color: #c084fc;">Sokin</strong></span>
+          </div>
+        </div>
+
         <!-- CURRENT LIVE ACTIVITY BANNER -->
         <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px;">
           <div style="font-size: 10.5px; color: var(--hint-color); text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center;">
@@ -3064,6 +3115,27 @@
         }
       }
 
+      // Render Profiler Telemetry
+      if (st.profiler) {
+        const pSw = document.getElementById('switch-auto-profiler');
+        if (pSw && typeof st.profiler.enabled !== 'undefined') pSw.checked = !!st.profiler.enabled;
+
+        const pDelay = document.getElementById('select-profiler-delay');
+        if (pDelay && st.profiler.delay_seconds) pDelay.value = String(st.profiler.delay_seconds);
+
+        const pDest = document.getElementById('select-profiler-dest');
+        if (pDest && st.profiler.destination) pDest.value = String(st.profiler.destination);
+
+        const pTot = document.getElementById('profiler-total-db');
+        if (pTot) pTot.innerText = `${st.profiler.total_analyzed_db || 0} ta`;
+
+        const pQ = document.getElementById('profiler-queue-count');
+        if (pQ) pQ.innerText = `${st.profiler.queue_length || 0} ta`;
+
+        const pCur = document.getElementById('profiler-current-target');
+        if (pCur) pCur.innerText = st.profiler.is_crawling ? 'Skanerlanmoqda...' : (st.profiler.current_user || 'Sokin');
+      }
+
       // Render live activity logs
       const logCont = document.getElementById('brain-activity-logs-container');
       if (logCont && st.activity_logs) {
@@ -3208,6 +3280,67 @@
         }
       } catch (e) {
         console.error('refreshAutonomousBrainStatus xatosi:', e);
+      }
+    }
+
+    async function toggleAutoProfiler(enabled) {
+      haptic();
+      showToast(enabled ? "🕵️‍♂️ Yashirin Profiler yoqildi" : "⏸️ Yashirin Profiler to'xtatildi");
+      try {
+        const res = await apiRequest('/api/autonomous-brain/settings', 'POST', { profiler_enabled: enabled });
+        if (res && res.ok && res.status) {
+          renderAutonomousBrain(res.status);
+        }
+      } catch (e) {
+        showToast('Xatolik: ' + e.message, true);
+        await refreshAutonomousBrainStatus();
+      }
+    }
+
+    async function changeProfilerDelay(val) {
+      haptic();
+      const delay = parseInt(val, 10) || 20;
+      showToast(`⏱️ Profiler tanaffus vaqti: ${delay} soniya`);
+      try {
+        const res = await apiRequest('/api/autonomous-brain/settings', 'POST', { profiler_delay: delay });
+        if (res && res.ok && res.status) {
+          renderAutonomousBrain(res.status);
+        }
+      } catch (e) {
+        showToast('Xatolik: ' + e.message, true);
+      }
+    }
+
+    async function changeProfilerDestination(val) {
+      haptic();
+      showToast("🎯 Xulosa yuborish manzili o'zgartirildi");
+      try {
+        const res = await apiRequest('/api/autonomous-brain/settings', 'POST', { profiler_dest: val });
+        if (res && res.ok && res.status) {
+          renderAutonomousBrain(res.status);
+        }
+      } catch (e) {
+        showToast('Xatolik: ' + e.message, true);
+      }
+    }
+
+    async function triggerHistoricDialogScan() {
+      const btn = document.getElementById('btn-scan-dialogs');
+      if (btn) btn.disabled = true;
+      haptic();
+      showToast("🔍 Eski chatlar skanerlanmoqda (bitta-bitta navbatga qo'shilmoqda)...");
+      try {
+        const res = await apiRequest('/api/autonomous-brain/scan-dialogs', 'POST', { limit: 200 });
+        if (res && res.ok) {
+          showToast(`✅ ${res.message || 'Skanerlash yakunlandi'}`);
+          await refreshAutonomousBrainStatus();
+        } else {
+          showToast('⚠️ ' + (res?.message || res?.error || 'Xatolik yuz berdi'), true);
+        }
+      } catch (e) {
+        showToast('Xatolik: ' + e.message, true);
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 

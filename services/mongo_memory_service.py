@@ -931,6 +931,112 @@ class MongoMemoryService:
             logger.error("MongoDB get_student_weaknesses xatolik: %s", e)
             return []
 
+    def save_user_dossier(
+        self,
+        user_id: int,
+        username: str = "",
+        first_name: str = "",
+        last_name: str = "",
+        phone: str = "",
+        bio: str = "",
+        channel_username: str = "",
+        channel_summary: str = "",
+        photo_count: int = 0,
+        has_stories: bool = False,
+        dossier_text: str = "",
+    ) -> bool:
+        """Miya 5 dosyesini MongoDB Atlas'da saqlaydi."""
+        if not self.is_connected() or not user_id:
+            return False
+        try:
+            self._db["brain_frontline.user_dossiers"].update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "username": username or "",
+                        "first_name": first_name or "",
+                        "last_name": last_name or "",
+                        "phone": phone or "",
+                        "bio": bio or "",
+                        "channel_username": channel_username or "",
+                        "channel_summary": channel_summary or "",
+                        "photo_count": photo_count,
+                        "has_stories": bool(has_stories),
+                        "dossier_text": dossier_text,
+                        "analyzed_at": datetime.now(ZoneInfo("Asia/Tashkent")),
+                    }
+                },
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_user_dossier xatolik: %s", e)
+            return False
+
+    def save_pedagogical_outcome(
+        self,
+        student_id: int,
+        topic: str,
+        question: str,
+        answer_snippet: str,
+        outcome: str,
+        student_reaction: str = "",
+    ) -> bool:
+        """Pedagogik natijani MongoDB ga yozadi."""
+        if not self.is_connected() or not student_id:
+            return False
+        try:
+            self._db["brain_frontline.pedagogical_outcomes"].insert_one({
+                "student_id": student_id,
+                "topic": topic,
+                "question": question,
+                "answer_snippet": answer_snippet,
+                "outcome": outcome,
+                "student_reaction": student_reaction,
+                "timestamp": datetime.now(ZoneInfo("Asia/Tashkent")),
+            })
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_pedagogical_outcome xatolik: %s", e)
+            return False
+
+    def save_high_yield_pedagogy(self, topic: str, winning_analogy: str) -> bool:
+        """Oltin Standart pedagogik analogiyani MongoDB ga yozadi."""
+        if not self.is_connected() or not topic:
+            return False
+        try:
+            self._db["brain_frontline.high_yield_pedagogy"].update_one(
+                {"topic": topic.strip().lower()},
+                {
+                    "$set": {
+                        "winning_analogy": winning_analogy,
+                        "last_updated": datetime.now(ZoneInfo("Asia/Tashkent")),
+                    },
+                    "$inc": {"success_count": 1},
+                },
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_high_yield_pedagogy xatolik: %s", e)
+            return False
+
+    def save_bot_pattern(self, bot_username: str, pattern_type: str, observation_summary: str) -> bool:
+        """Kuzatilgan bot patternini MongoDB ga yozadi."""
+        if not self.is_connected() or not bot_username:
+            return False
+        try:
+            self._db["brain_frontline.bot_interaction_patterns"].insert_one({
+                "bot_username": bot_username,
+                "pattern_type": pattern_type,
+                "observation_summary": observation_summary,
+                "created_at": datetime.now(ZoneInfo("Asia/Tashkent")),
+            })
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_bot_pattern xatolik: %s", e)
+            return False
+
     # ==========================================
     # 5. Zero-Loss SQLite <-> MongoDB Synchronization
     # ==========================================

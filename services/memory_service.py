@@ -254,6 +254,66 @@ class SQLiteMemoryService:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_student_weaknesses_user ON student_weaknesses (student_id)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_dossiers (
+                        user_id INTEGER PRIMARY KEY,
+                        username TEXT DEFAULT '',
+                        first_name TEXT DEFAULT '',
+                        last_name TEXT DEFAULT '',
+                        phone TEXT DEFAULT '',
+                        bio TEXT DEFAULT '',
+                        channel_username TEXT DEFAULT '',
+                        channel_summary TEXT DEFAULT '',
+                        photo_count INTEGER DEFAULT 0,
+                        has_stories INTEGER DEFAULT 0,
+                        dossier_text TEXT NOT NULL,
+                        analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_user_dossiers_analyzed ON user_dossiers (analyzed_at)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS pedagogical_outcomes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        student_id INTEGER NOT NULL,
+                        topic TEXT NOT NULL,
+                        question TEXT NOT NULL,
+                        answer_snippet TEXT NOT NULL,
+                        outcome TEXT NOT NULL,
+                        student_reaction TEXT NOT NULL,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_pedagogical_outcomes_topic ON pedagogical_outcomes (topic, outcome)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS high_yield_pedagogy (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        topic TEXT NOT NULL UNIQUE,
+                        winning_analogy TEXT NOT NULL,
+                        success_count INTEGER DEFAULT 1,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS bot_interaction_patterns (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        bot_username TEXT NOT NULL,
+                        pattern_type TEXT NOT NULL,
+                        observation_summary TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -2849,6 +2909,321 @@ class SQLiteMemoryService:
                 ]
         except Exception as e:
             logger.error("Top struggling topics olishda xatolik: %s", e)
+            return []
+
+    # -----------------------------------------------------------
+    # Miya 5: Silent Profiler & User Dossiers
+    # -----------------------------------------------------------
+    def is_user_dossier_exists(self, user_id: int) -> bool:
+        """Foydalanuvchi oldin tahlil qilingan yoki yo'qligini tekshiradi (0.001s)."""
+        if not user_id:
+            return False
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1 FROM user_dossiers WHERE user_id = ? LIMIT 1", (user_id,))
+                return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error("is_user_dossier_exists xatolik: %s", e)
+            return False
+
+    def save_user_dossier(
+        self,
+        user_id: int,
+        username: str = "",
+        first_name: str = "",
+        last_name: str = "",
+        phone: str = "",
+        bio: str = "",
+        channel_username: str = "",
+        channel_summary: str = "",
+        photo_count: int = 0,
+        has_stories: bool = False,
+        dossier_text: str = "",
+    ) -> bool:
+        """Foydalanuvchining to'liq dosyesini saqlaydi (Dual: SQLite + MongoDB)."""
+        if not user_id or not dossier_text:
+            return False
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO user_dossiers (
+                        user_id, username, first_name, last_name, phone, bio,
+                        channel_username, channel_summary, photo_count, has_stories,
+                        dossier_text, analyzed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        username = excluded.username,
+                        first_name = excluded.first_name,
+                        last_name = excluded.last_name,
+                        phone = excluded.phone,
+                        bio = excluded.bio,
+                        channel_username = excluded.channel_username,
+                        channel_summary = excluded.channel_summary,
+                        photo_count = excluded.photo_count,
+                        has_stories = excluded.has_stories,
+                        dossier_text = excluded.dossier_text,
+                        analyzed_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        user_id, username or "", first_name or "", last_name or "", phone or "",
+                        bio or "", channel_username or "", channel_summary or "", photo_count,
+                        1 if has_stories else 0, dossier_text
+                    ),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error("save_user_dossier SQLite xatolik: %s", e)
+
+        # MongoDB ga sinxronlash
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_user_dossier(
+                    user_id=user_id,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name,
+                    phone=phone,
+                    bio=bio,
+                    channel_username=channel_username,
+                    channel_summary=channel_summary,
+                    photo_count=photo_count,
+                    has_stories=has_stories,
+                    dossier_text=dossier_text,
+                )
+        except Exception as me:
+            logger.debug("MongoDB user_dossier sinxronlashda ogohlantirish: %s", me)
+
+        return True
+
+    def get_user_dossier(self, user_id: int) -> dict | None:
+        """Foydalanuvchi dosyesini oladi."""
+        if not user_id:
+            return None
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT user_id, username, first_name, last_name, phone, bio,
+                           channel_username, channel_summary, photo_count, has_stories,
+                           dossier_text, analyzed_at
+                    FROM user_dossiers
+                    WHERE user_id = ?
+                    LIMIT 1
+                    """,
+                    (user_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "user_id": row[0],
+                        "username": row[1],
+                        "first_name": row[2],
+                        "last_name": row[3],
+                        "phone": row[4],
+                        "bio": row[5],
+                        "channel_username": row[6],
+                        "channel_summary": row[7],
+                        "photo_count": row[8],
+                        "has_stories": bool(row[9]),
+                        "dossier_text": row[10],
+                        "analyzed_at": str(row[11]),
+                    }
+        except Exception as e:
+            logger.error("get_user_dossier xatolik: %s", e)
+        return None
+
+    def get_all_user_dossiers(self, limit: int = 50) -> list[dict]:
+        """Tahlil qilingan so'nggi dosyelarni qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT user_id, username, first_name, last_name, phone, bio,
+                           channel_username, channel_summary, photo_count, has_stories,
+                           dossier_text, analyzed_at
+                    FROM user_dossiers
+                    ORDER BY analyzed_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "user_id": r[0],
+                        "username": r[1],
+                        "first_name": r[2],
+                        "last_name": r[3],
+                        "phone": r[4],
+                        "bio": r[5],
+                        "channel_username": r[6],
+                        "channel_summary": r[7],
+                        "photo_count": r[8],
+                        "has_stories": bool(r[9]),
+                        "dossier_text": r[10],
+                        "analyzed_at": str(r[11]),
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("get_all_user_dossiers xatolik: %s", e)
+            return []
+
+    def get_dossier_count(self) -> int:
+        """Jami tahlil qilingan foydalanuvchilar sonini qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM user_dossiers")
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except Exception:
+            return 0
+
+    # -----------------------------------------------------------
+    # Pedagogical Outcome Tracker (Implicit RLHF)
+    # -----------------------------------------------------------
+    def record_pedagogical_outcome(
+        self,
+        student_id: int,
+        topic: str,
+        question: str,
+        answer_snippet: str,
+        outcome: str,
+        student_reaction: str = "",
+    ) -> None:
+        """O'quvchi javobiga bildirilgan reaksiyani (success / confusion) qayd etadi."""
+        if not student_id or not outcome:
+            return
+        t_clean = (topic or "general").strip().lower()
+        q_clean = (question or "").strip()[:300]
+        a_clean = (answer_snippet or "").strip()[:400]
+        r_clean = (student_reaction or "").strip()[:200]
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO pedagogical_outcomes (student_id, topic, question, answer_snippet, outcome, student_reaction)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (student_id, t_clean, q_clean, a_clean, outcome, r_clean),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error("record_pedagogical_outcome xatolik: %s", e)
+
+        # MongoDB sinxronlash
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_pedagogical_outcome(student_id, t_clean, q_clean, a_clean, outcome, r_clean)
+        except Exception as me:
+            logger.debug("MongoDB save_pedagogical_outcome sinxronlashda ogohlantirish: %s", me)
+
+    def save_high_yield_pedagogy(self, topic: str, winning_analogy: str) -> None:
+        """O'quvchilar tomonidan eng yaxshi tushunilgan analogiya yoki tushuntirish uslubini saqlaydi."""
+        if not topic or not winning_analogy:
+            return
+        t_clean = topic.strip().lower()
+        a_clean = winning_analogy.strip()[:600]
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO high_yield_pedagogy (topic, winning_analogy, success_count, last_updated)
+                    VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+                    ON CONFLICT(topic) DO UPDATE SET
+                        winning_analogy = excluded.winning_analogy,
+                        success_count = success_count + 1,
+                        last_updated = CURRENT_TIMESTAMP
+                    """,
+                    (t_clean, a_clean),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error("save_high_yield_pedagogy xatolik: %s", e)
+
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_high_yield_pedagogy(t_clean, a_clean)
+        except Exception as me:
+            logger.debug("MongoDB save_high_yield_pedagogy sinxronlashda ogohlantirish: %s", me)
+
+    def get_top_pedagogy_for_topic(self, topic: str) -> str | None:
+        """Mavzu bo'yicha eng yuqori muvaffaqiyatli tushuntirish analogiyasini qaytaradi."""
+        if not topic:
+            return None
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT winning_analogy FROM high_yield_pedagogy WHERE topic = ? ORDER BY success_count DESC LIMIT 1",
+                    (topic.strip().lower(),),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+        except Exception as e:
+            logger.error("get_top_pedagogy_for_topic xatolik: %s", e)
+        return None
+
+    # -----------------------------------------------------------
+    # Miya 5: Telegram Bot Ecosystem Observer
+    # -----------------------------------------------------------
+    def record_bot_pattern(self, bot_username: str, pattern_type: str, observation_summary: str) -> None:
+        """Boshqa Telegram botlaridan o'rganilgan UI/UX patternni saqlaydi."""
+        if not bot_username or not observation_summary:
+            return
+        b_clean = bot_username.strip().lstrip("@")
+        p_clean = pattern_type.strip()[:100]
+        s_clean = observation_summary.strip()[:600]
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO bot_interaction_patterns (bot_username, pattern_type, observation_summary)
+                    VALUES (?, ?, ?)
+                    """,
+                    (b_clean, p_clean, s_clean),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error("record_bot_pattern xatolik: %s", e)
+
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_bot_pattern(b_clean, p_clean, s_clean)
+        except Exception as me:
+            logger.debug("MongoDB save_bot_pattern sinxronlashda ogohlantirish: %s", me)
+
+    def get_recent_bot_patterns(self, limit: int = 10) -> list[dict]:
+        """O'rganilgan eng so'nggi bot patternlarini qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT bot_username, pattern_type, observation_summary, created_at FROM bot_interaction_patterns ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "bot_username": r[0],
+                        "pattern_type": r[1],
+                        "observation_summary": r[2],
+                        "created_at": str(r[3]),
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error("get_recent_bot_patterns xatolik: %s", e)
             return []
 
     def get_memory_storage_info(self) -> dict:

@@ -1474,6 +1474,15 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         )
         has_github = bool("github.com/" in message_text)
 
+        # Miya 5: Telegram Bot Ecosystem Observer (Boshqa botlar xabarlarini o'rganish)
+        sender_entity = getattr(event, "sender", None)
+        if sender_entity and getattr(sender_entity, "bot", False):
+            try:
+                from services.profile_intelligence_service import profile_intelligence_service
+                profile_intelligence_service.observe_bot_message(event.message)
+            except Exception:
+                pass
+
         if not message_text.strip() and not has_photo and not has_voice and not has_doc_file and not is_dangerous:
             return
 
@@ -2414,6 +2423,15 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         memory_service.add_message(chat_id=chat_id, role="user", content=input_text)
                         memory_service.add_message(chat_id=chat_id, role="model", content=attack_reply)
                         return
+
+                # 🕵️‍♂️ MIYA 5: YASHIRIN PROFIL RAZVEDKASI (SILENT PROFILER ENQUEUE)
+                # Faqat oddiy o'quvchilar/suhbatdoshlar uchun (100% yashirin, o'quvchiga bildirilmaydi)
+                if not is_admin_chat and not is_vazifalar and not is_mentor_user and sender_id:
+                    try:
+                        from services.profile_intelligence_service import profile_intelligence_service
+                        profile_intelligence_service.enqueue_user(sender_id)
+                    except Exception as prof_err:
+                        logger.debug("Profilerga navbatga qo'yishda ogohlantirish: %s", prof_err)
 
                 # AI javobini generatsiya qilish (35s timeout bilan himoyalangan)
                 try:

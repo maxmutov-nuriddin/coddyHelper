@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from typing import Any
 
 from services.memory_service import memory_service
+from services.profile_intelligence_service import profile_intelligence_service
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,7 @@ class AutonomousBrainService:
             "recent_lexicon": recent_lex,
             "recent_mistakes": recent_mist,
             "activity_logs": list(reversed(self._activity_logs[-15:])),
+            "profiler": profile_intelligence_service.get_status(),
         }
 
     def _assess_priorities(self) -> dict[str, Any]:
@@ -238,11 +240,13 @@ class AutonomousBrainService:
         self._client = client
         self._log_activity("Miya 4 avtonom dvigateli yuklanmoqda...", "start")
         self._task = asyncio.create_task(self._run_loop(client))
+        profile_intelligence_service.start(client)
         logger.info("🧬 Miya 4: Avtonom Tafakkur Dvigateli (Autonomous Cogitation Daemon) ishga tushirildi.")
 
     async def stop(self) -> None:
         """Background daemoni to'xtatish."""
         self._is_running = False
+        profile_intelligence_service.stop()
         if self._task and not self._task.done():
             self._task.cancel()
             try:
@@ -251,6 +255,10 @@ class AutonomousBrainService:
                 pass
         self._log_activity("Miya 4 to'xtatildi.", "stop")
         logger.info("🧬 Miya 4 to'xtatildi.")
+
+    async def trigger_dialog_scan(self) -> int:
+        """Eski tarixiy chatlarni to'liq skaner qilishni ishga tushiradi."""
+        return await profile_intelligence_service.scan_historic_dialogs(self._client)
 
     async def run_cycle_now(self) -> dict[str, Any]:
         """Web App panelidan zudlik bilan qo'lda tafakkur siklini ishga tushirish."""
