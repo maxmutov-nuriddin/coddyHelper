@@ -676,16 +676,28 @@ self.addEventListener('fetch', (event) => {
                 except Exception as e:
                     logger.debug("Chatlar kontekstini olishda ogohlantirish: %s", e)
 
-            raw_reply = await ai_service.generate_reply(
-                chat_id=config.mentor_user_id,
-                user_message=msg,
-                reply_to_context=chats_context,
-            )
+            final_reply = None
+            if client:
+                try:
+                    from services.agent_runner import run_autonomous_agent_loop
+                    react_res = await asyncio.wait_for(
+                        run_autonomous_agent_loop(client, user_prompt=msg, chats_context=chats_context),
+                        timeout=30.0,
+                    )
+                    if react_res and str(react_res).strip():
+                        final_reply = str(react_res).strip()
+                except Exception as react_err:
+                    logger.debug("Web App ReAct ogohlantirish: %s", react_err)
 
-            # Execute agent actions if present or detected
-            final_reply = await execute_agent_action(str(raw_reply), client, msg)
+            if not final_reply:
+                raw_reply = await ai_service.generate_reply(
+                    chat_id=config.mentor_user_id,
+                    user_message=msg,
+                    reply_to_context=chats_context,
+                )
+                final_reply = await execute_agent_action(str(raw_reply), client, msg)
 
-            if final_reply != str(raw_reply):
+            if final_reply:
                 # Update SQLite memory so that final executed result is saved
                 memory_service.update_last_message(config.mentor_user_id, final_reply)
 

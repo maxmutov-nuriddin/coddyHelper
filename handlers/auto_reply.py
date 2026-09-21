@@ -923,85 +923,106 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 except Exception as r_err:
                     logger.debug("Reply xabarni o'qishda ogohlantirish: %s", r_err)
 
-            # 5. AI Co-Pilot javobini yaratish (Admin / Co-Pilot rejimida)
-            # 🌟 VAZIFALAR GURUHI OLIY USTUNLIGI (VIP PRIORITY & AUTO-RETRY IMMUNITY):
-            # Vazifalar guruhida ustozga hech qachon "1 daqiqadan so'ng qayta urinib ko'ring" deyilmaydi!
-            # Agar barcha kalitlar vaqtinchalik limitda bo'lsa, tizim statusda kutishni bildirib,
-            # orqa fonda avtomatik qayta urinadi va limit ochilishi bilan javobni darhol yetkazadi.
-            raw_reply = None
-            max_vip_retries = 4
-            retry_delay = 15.0
-
-            for attempt in range(1, max_vip_retries + 1):
+            # 5. Master ReAct Avtonom Tsikli orqali bajarish (Native Tool Calling & Multi-Step Reasoning):
+            final_reply = None
+            if not image_bytes:
                 try:
-                    candidate = await asyncio.wait_for(
-                        ai_service.generate_reply(
-                            chat_id=config.mentor_user_id,
-                            user_message=input_text,
-                            reply_to_context=chats_context,
-                            image_bytes=image_bytes,
-                            file_name=file_name,
-                            file_text=file_text,
-                            is_admin_mode=True,
+                    from services.agent_runner import run_autonomous_agent_loop
+                    react_res = await asyncio.wait_for(
+                        run_autonomous_agent_loop(
+                            client,
+                            user_prompt=input_text,
+                            chats_context=chats_context or "",
+                            reply_user_id=reply_sender_id,
+                            reply_msg_id=reply_msg_id,
+                            max_steps=5,
                         ),
-                        timeout=40.0,
+                        timeout=35.0,
                     )
-                    is_fallback_error = any(phrase in str(candidate).lower() for phrase in (
-                        "yuklama yuqori", "qayta urinib ko'ring", "javob shakllantirib bo'lmadi", "aniq javob shakllantirib"
-                    ))
-                    if not is_fallback_error and candidate and str(candidate).strip():
-                        raw_reply = candidate
-                        break
-                    else:
-                        logger.warning("Vazifalar VIP so'rovi %d-urinishda limit/fallback ga uchradi. Qayta urinilmoqda...", attempt)
+                    if react_res and str(react_res).strip():
+                        final_reply = str(react_res).strip()
+                        logger.info("🚀 Vazifalar buyrug'i ReAct Avtonom Tsikli orqali muvaffaqiyatli bajarildi!")
                 except asyncio.TimeoutError:
-                    logger.warning("Vazifalar VIP so'rovida timeout (%d-urinish).", attempt)
-                except Exception as ai_gen_err:
-                    logger.warning("Vazifalar AI javobida xatolik (%d-urinish): %s", attempt, ai_gen_err)
+                    logger.warning("ReAct Tsikli 35s da timeout bo'ldi, an'anaviy zaxira rejimiga o'tiladi.")
+                except Exception as react_err:
+                    logger.warning("ReAct Tsiklida ogohlantirish: %s, an'anaviy rejimga o'tilmoqda.", react_err)
 
-                if attempt < max_vip_retries:
-                    if status_msg:
-                        try:
-                            await status_msg.edit(
-                                f"⏳ Tizimda qisqa muddatli limit. Ustoz, so'rovingiz 1-o'rinda (VIP Priority), "
-                                f"limit ochilishi bilan javob avtomatik yetkaziladi... (Kutilmoqda {attempt * int(retry_delay)}s)"
-                            )
-                        except Exception:
-                            pass
-                    await asyncio.sleep(retry_delay)
+            if not final_reply:
+                # 6. ZAXIRA (Fallback): An'anaviy AI Co-Pilot javobini yaratish va Regex Action bajarish
+                raw_reply = None
+                max_vip_retries = 4
+                retry_delay = 15.0
 
-            if not raw_reply:
-                # Agar Groq klasteri uzoq band bo'lsa, zaxira Google Gemini ga murojaat:
-                gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
-                allow_gemini = gemini_backup_enabled or bool(image_bytes)
-                if allow_gemini:
+                for attempt in range(1, max_vip_retries + 1):
                     try:
-                        loop = asyncio.get_running_loop()
-                        raw_reply = await loop.run_in_executor(
-                            None, ai_service._generate_with_genai, input_text, chats_context or "", True, image_bytes
+                        candidate = await asyncio.wait_for(
+                            ai_service.generate_reply(
+                                chat_id=config.mentor_user_id,
+                                user_message=input_text,
+                                reply_to_context=chats_context,
+                                image_bytes=image_bytes,
+                                file_name=file_name,
+                                file_text=file_text,
+                                is_admin_mode=True,
+                            ),
+                            timeout=40.0,
                         )
-                    except Exception as final_gem_err:
-                        logger.error("Vazifalar VIP zaxira Gemini ham xato berdi: %s", final_gem_err)
+                        is_fallback_error = any(phrase in str(candidate).lower() for phrase in (
+                            "yuklama yuqori", "qayta urinib ko'ring", "javob shakllantirib bo'lmadi", "aniq javob shakllantirib"
+                        ))
+                        if not is_fallback_error and candidate and str(candidate).strip():
+                            raw_reply = candidate
+                            break
+                        else:
+                            logger.warning("Vazifalar VIP so'rovi %d-urinishda limit/fallback ga uchradi. Qayta urinilmoqda...", attempt)
+                    except asyncio.TimeoutError:
+                        logger.warning("Vazifalar VIP so'rovida timeout (%d-urinish).", attempt)
+                    except Exception as ai_gen_err:
+                        logger.warning("Vazifalar AI javobida xatolik (%d-urinish): %s", attempt, ai_gen_err)
 
-            if not raw_reply:
-                raw_reply = "⚠️ Ustoz, barcha klaster modellarida qisqa uzilish kuzatildi. So'rovingiz yodda saqlandi va tizim qayta ishga tushmoqda."
+                    if attempt < max_vip_retries:
+                        if status_msg:
+                            try:
+                                await status_msg.edit(
+                                    f"⏳ Tizimda qisqa muddatli limit. Ustoz, so'rovingiz 1-o'rinda (VIP Priority), "
+                                    f"limit ochilishi bilan javob avtomatik yetkaziladi... (Kutilmoqda {attempt * int(retry_delay)}s)"
+                                )
+                            except Exception:
+                                pass
+                        await asyncio.sleep(retry_delay)
 
-            # 6. Telegram Action amallarini bajarish (guruh statistikasi, kontakt qidirish, ignore/bloklash, xabar yuborish, lokatsiya)
-            try:
-                final_reply = await asyncio.wait_for(
-                    execute_agent_action(
-                        str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id, reply_user_id=reply_sender_id, reply_msg_id=reply_msg_id
-                    ),
-                    timeout=35.0,
-                )
-            except asyncio.TimeoutError:
-                logger.warning("Vazifalar execute_agent_action 35s da timeout bo'ldi")
-                final_reply = "⚠️ Vazifani bajarish kutilganidan ko'proq vaqt oldi. Qaytadan urinib ko'ring."
-            except Exception as act_err:
-                logger.error("Vazifalar execute_agent_action xatoligi: %s", act_err)
-                final_reply = f"⚠️ Amaliyotni bajarishda xatolik yuz berdi: {act_err}"
+                if not raw_reply:
+                    # Agar Groq klasteri uzoq band bo'lsa, zaxira Google Gemini ga murojaat:
+                    gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
+                    allow_gemini = gemini_backup_enabled or bool(image_bytes)
+                    if allow_gemini:
+                        try:
+                            loop = asyncio.get_running_loop()
+                            raw_reply = await loop.run_in_executor(
+                                None, ai_service._generate_with_genai, input_text, chats_context or "", True, image_bytes
+                            )
+                        except Exception as final_gem_err:
+                            logger.error("Vazifalar VIP zaxira Gemini ham xato berdi: %s", final_gem_err)
 
-            if final_reply != str(raw_reply):
+                if not raw_reply:
+                    raw_reply = "⚠️ Ustoz, barcha klaster modellarida qisqa uzilish kuzatildi. So'rovingiz yodda saqlandi va tizim qayta ishga tushmoqda."
+
+                # Telegram Action amallarini bajarish
+                try:
+                    final_reply = await asyncio.wait_for(
+                        execute_agent_action(
+                            str(raw_reply), client, input_text, is_admin_mode=True, chat_id=chat_id, reply_user_id=reply_sender_id, reply_msg_id=reply_msg_id
+                        ),
+                        timeout=35.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Vazifalar execute_agent_action 35s da timeout bo'ldi")
+                    final_reply = "⚠️ Vazifani bajarish kutilganidan ko'proq vaqt oldi. Qaytadan urinib ko'ring."
+                except Exception as act_err:
+                    logger.error("Vazifalar execute_agent_action xatoligi: %s", act_err)
+                    final_reply = f"⚠️ Amaliyotni bajarishda xatolik yuz berdi: {act_err}"
+
+            if final_reply:
                 # Web App'dagi kabi xotiradagi oxirgi xabarni amaliy natija bilan yangilash:
                 memory_service.update_last_message(config.mentor_user_id, final_reply)
 
