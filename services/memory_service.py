@@ -2922,10 +2922,20 @@ class SQLiteMemoryService:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT 1 FROM user_dossiers WHERE user_id = ? LIMIT 1", (user_id,))
-                return cursor.fetchone() is not None
+                if cursor.fetchone() is not None:
+                    return True
         except Exception as e:
             logger.error("is_user_dossier_exists xatolik: %s", e)
-            return False
+
+        # Fallback to MongoDB (Render restartdan keyin ham bilish uchun)
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                return mongo_memory_service.is_user_dossier_exists(user_id)
+        except Exception:
+            pass
+
+        return False
 
     def save_user_dossier(
         self,
@@ -3068,37 +3078,61 @@ class SQLiteMemoryService:
                         (limit,),
                     )
                 rows = cursor.fetchall()
-                return [
-                    {
-                        "user_id": r[0],
-                        "username": r[1],
-                        "first_name": r[2],
-                        "last_name": r[3],
-                        "phone": r[4],
-                        "bio": r[5],
-                        "channel_username": r[6],
-                        "channel_summary": r[7],
-                        "photo_count": r[8],
-                        "has_stories": bool(r[9]),
-                        "dossier_text": r[10],
-                        "analyzed_at": str(r[11]),
-                    }
-                    for r in rows
-                ]
+                if rows:
+                    return [
+                        {
+                            "user_id": r[0],
+                            "username": r[1],
+                            "first_name": r[2],
+                            "last_name": r[3],
+                            "phone": r[4],
+                            "bio": r[5],
+                            "channel_username": r[6],
+                            "channel_summary": r[7],
+                            "photo_count": r[8],
+                            "has_stories": bool(r[9]),
+                            "dossier_text": r[10],
+                            "analyzed_at": str(r[11]),
+                        }
+                        for r in rows
+                    ]
         except Exception as e:
             logger.error("get_all_user_dossiers xatolik: %s", e)
-            return []
+
+        # Fallback to MongoDB
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                return mongo_memory_service.get_all_user_dossiers(query=query, limit=limit)
+        except Exception:
+            pass
+
+        return []
 
     def get_dossier_count(self) -> int:
         """Jami tahlil qilingan foydalanuvchilar sonini qaytaradi."""
+        count = 0
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM user_dossiers")
                 row = cursor.fetchone()
-                return row[0] if row else 0
+                count = row[0] if row else 0
         except Exception:
-            return 0
+            pass
+
+        if count > 0:
+            return count
+
+        # Fallback to MongoDB
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                return mongo_memory_service.get_dossier_count()
+        except Exception:
+            pass
+
+        return count
 
     # -----------------------------------------------------------
     # Pedagogical Outcome Tracker (Implicit RLHF)

@@ -1316,9 +1316,16 @@ self.addEventListener('fetch', (event) => {
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
         try:
-            added = await autonomous_brain_service.trigger_dialog_scan()
-            return web.json_response({"ok": True, "added": added})
+            client = get_client_func() if callable(get_client_func) else None
+            added = await autonomous_brain_service.trigger_dialog_scan(client=client, limit=200)
+            return web.json_response({
+                "ok": True,
+                "added": added,
+                "message": f"{added} ta yangi foydalanuvchi navbatga olindi!",
+                "status": autonomous_brain_service.get_status(),
+            })
         except Exception as e:
+            logger.error("scan_dialogs xatolik: %s", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
     async def handle_api_get_user_dossiers(request: web.Request):

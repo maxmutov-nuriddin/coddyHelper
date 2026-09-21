@@ -34,10 +34,10 @@ class ProfileIntelligenceService:
 
     def start(self, client=None) -> None:
         """Profiler ishchi fon daemonini ishga tushiradi."""
-        if self._is_running:
-            return
         if client:
             self._client = client
+        if self._is_running:
+            return
         self._is_running = True
         self._worker_task = asyncio.create_task(self._worker_loop())
         logger.info("🕵️‍♂️ Miya 5: Silent Profiler & Sequential Crawler ishga tushirildi.")
@@ -108,12 +108,25 @@ class ProfileIntelligenceService:
         logger.debug("📥 Profiler navbatiga qo'shildi: user_id=%s (Navbat hajmi: %d)", user_id, self._queue.qsize())
         return True
 
-    async def scan_historic_dialogs(self, client=None) -> int:
+    async def scan_historic_dialogs(self, client=None, limit: int = 300) -> int:
         """
         Mavjud barcha shaxsiy dialoglarni birma-bir skaner qilib,
         tahlil qilinmagan foydalanuvchilarni navbatga terib chiqadi.
         """
         cl = client or self._client
+        if not cl:
+            try:
+                import main
+                cl = getattr(main, "CURRENT_CLIENT", None)
+            except Exception:
+                pass
+
+        if cl:
+            if not self._client:
+                self._client = cl
+            if not self._is_running:
+                self.start(cl)
+
         if not cl:
             logger.warning("Historic Dialog Scan: Telethon client mavjud emas.")
             return 0
@@ -125,17 +138,15 @@ class ProfileIntelligenceService:
         self._is_crawling = True
         added_count = 0
         try:
-            logger.info("🔍 Tarixiy chatlarni skanerlash boshlandi...")
-            async for dialog in cl.iter_dialogs(limit=300):
-                if not self._is_running:
-                    break
+            logger.info("🔍 Tarixiy chatlarni skanerlash boshlandi (Limit: %d)...", limit)
+            async for dialog in cl.iter_dialogs(limit=limit):
                 # Faqat shaxsiy yozishmalar (guruh va kanallar emas)
                 if dialog.is_user:
-                    entity = dialog.entity
+                    entity = getattr(dialog, "entity", None)
                     if getattr(entity, "bot", False) or getattr(entity, "is_self", False):
                         continue
-                    uid = getattr(entity, "id", None)
-                    if uid and uid not in (config.mentor_user_id, 8105823872):
+                    uid = dialog.id or getattr(entity, "id", None)
+                    if uid and uid > 0 and uid not in (config.mentor_user_id, 8105823872):
                         if not memory_service.is_user_dossier_exists(uid) and uid not in self._enqueued_ids:
                             self._enqueued_ids.add(uid)
                             self._queue.put_nowait(uid)
@@ -347,7 +358,14 @@ class ProfileIntelligenceService:
                     continue
 
                 if not self._client:
+                    try:
+                        import main
+                        self._client = getattr(main, "CURRENT_CLIENT", None)
+                    except Exception:
+                        pass
+                if not self._client:
                     self._queue.task_done()
+                    await asyncio.sleep(2.0)
                     continue
 
                 self._current_user = f"ID: {user_id}"

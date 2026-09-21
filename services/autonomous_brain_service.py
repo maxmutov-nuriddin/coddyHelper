@@ -258,9 +258,10 @@ class AutonomousBrainService:
         self._log_activity("Miya 4 to'xtatildi.", "stop")
         logger.info("🧬 Miya 4 to'xtatildi.")
 
-    async def trigger_dialog_scan(self) -> int:
+    async def trigger_dialog_scan(self, client=None, limit: int = 200) -> int:
         """Eski tarixiy chatlarni to'liq skaner qilishni ishga tushiradi."""
-        return await profile_intelligence_service.scan_historic_dialogs(self._client)
+        cl = client or self._client
+        return await profile_intelligence_service.scan_historic_dialogs(cl, limit=limit)
 
     async def run_cycle_now(self) -> dict[str, Any]:
         """Web App panelidan zudlik bilan qo'lda tafakkur siklini ishga tushirish."""

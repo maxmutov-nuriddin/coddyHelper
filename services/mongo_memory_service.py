@@ -973,6 +973,65 @@ class MongoMemoryService:
             logger.error("MongoDB save_user_dossier xatolik: %s", e)
             return False
 
+    def is_user_dossier_exists(self, user_id: int) -> bool:
+        """MongoDB'da dosye borligini tekshiradi."""
+        if not self.is_connected() or not user_id:
+            return False
+        try:
+            return self._db["brain_frontline.user_dossiers"].count_documents({"user_id": user_id}, limit=1) > 0
+        except Exception as e:
+            logger.debug("MongoDB is_user_dossier_exists xatolik: %s", e)
+            return False
+
+    def get_dossier_count(self) -> int:
+        """MongoDB'dagi jami dosyelar sonini qaytaradi."""
+        if not self.is_connected():
+            return 0
+        try:
+            return self._db["brain_frontline.user_dossiers"].count_documents({})
+        except Exception:
+            return 0
+
+    def get_all_user_dossiers(self, query: str = "", limit: int = 100) -> list[dict]:
+        """MongoDB'dan dosyelarni qidiruv bilan qaytaradi."""
+        if not self.is_connected():
+            return []
+        try:
+            flt = {}
+            if query and query.strip():
+                regex = {"$regex": query.strip(), "$options": "i"}
+                flt = {
+                    "$or": [
+                        {"first_name": regex},
+                        {"last_name": regex},
+                        {"username": regex},
+                        {"phone": regex},
+                        {"bio": regex},
+                        {"dossier_text": regex},
+                    ]
+                }
+            docs = self._db["brain_frontline.user_dossiers"].find(flt).sort("analyzed_at", -1).limit(limit)
+            result = []
+            for d in docs:
+                result.append({
+                    "user_id": d.get("user_id"),
+                    "username": d.get("username", ""),
+                    "first_name": d.get("first_name", ""),
+                    "last_name": d.get("last_name", ""),
+                    "phone": d.get("phone", ""),
+                    "bio": d.get("bio", ""),
+                    "channel_username": d.get("channel_username", ""),
+                    "channel_summary": d.get("channel_summary", ""),
+                    "photo_count": d.get("photo_count", 0),
+                    "has_stories": bool(d.get("has_stories")),
+                    "dossier_text": d.get("dossier_text", ""),
+                    "analyzed_at": str(d.get("analyzed_at") or ""),
+                })
+            return result
+        except Exception as e:
+            logger.error("MongoDB get_all_user_dossiers xatolik: %s", e)
+            return []
+
     def save_pedagogical_outcome(
         self,
         student_id: int,
@@ -1306,6 +1365,89 @@ class MongoMemoryService:
                             stats["self_mistakes"] = stats.get("self_mistakes", 0) + 1
             except Exception as e:
                 logger.debug("Restore self_mistakes ogohlantirish: %s", e)
+
+            # 12. user_dossiers (Miya 5 Shaxsiy Dosyeler)
+            try:
+                for doc in self._db["brain_frontline.user_dossiers"].find():
+                    uid = doc.get("user_id")
+                    if uid:
+                        cursor.execute(
+                            """
+                            INSERT INTO user_dossiers (
+                                user_id, username, first_name, last_name, phone, bio,
+                                channel_username, channel_summary, photo_count, has_stories,
+                                dossier_text, analyzed_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(user_id) DO UPDATE SET
+                                username = excluded.username,
+                                first_name = excluded.first_name,
+                                last_name = excluded.last_name,
+                                phone = excluded.phone,
+                                bio = excluded.bio,
+                                channel_username = excluded.channel_username,
+                                channel_summary = excluded.channel_summary,
+                                photo_count = excluded.photo_count,
+                                has_stories = excluded.has_stories,
+                                dossier_text = excluded.dossier_text,
+                                analyzed_at = excluded.analyzed_at
+                            """,
+                            (
+                                uid,
+                                doc.get("username", ""),
+                                doc.get("first_name", ""),
+                                doc.get("last_name", ""),
+                                doc.get("phone", ""),
+                                doc.get("bio", ""),
+                                doc.get("channel_username", ""),
+                                doc.get("channel_summary", ""),
+                                doc.get("photo_count", 0),
+                                1 if doc.get("has_stories") else 0,
+                                doc.get("dossier_text", ""),
+                                str(doc.get("analyzed_at") or ""),
+                            ),
+                        )
+                        stats["user_dossiers"] = stats.get("user_dossiers", 0) + 1
+            except Exception as e:
+                logger.debug("Restore user_dossiers ogohlantirish: %s", e)
+
+            # 13. high_yield_pedagogy (Oltin Analogiyalar)
+            try:
+                for doc in self._db["brain_frontline.high_yield_pedagogy"].find():
+                    top = doc.get("topic")
+                    analogy = doc.get("winning_analogy")
+                    sc = doc.get("success_count", 1)
+                    if top and analogy:
+                        cursor.execute(
+                            """
+                            INSERT INTO high_yield_pedagogy (topic, winning_analogy, success_count, last_updated)
+                            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                            ON CONFLICT(topic) DO UPDATE SET
+                                winning_analogy = excluded.winning_analogy,
+                                success_count = excluded.success_count
+                            """,
+                            (top, analogy, sc),
+                        )
+                        stats["high_yield_pedagogy"] = stats.get("high_yield_pedagogy", 0) + 1
+            except Exception as e:
+                logger.debug("Restore high_yield_pedagogy ogohlantirish: %s", e)
+
+            # 14. bot_interaction_patterns
+            try:
+                for doc in self._db["brain_frontline.bot_interaction_patterns"].find().limit(200):
+                    buname = doc.get("bot_username")
+                    ptype = doc.get("pattern_type")
+                    obs = doc.get("observation_summary")
+                    if buname and obs:
+                        cursor.execute(
+                            """
+                            INSERT INTO bot_interaction_patterns (bot_username, pattern_type, observation_summary)
+                            VALUES (?, ?, ?)
+                            """,
+                            (buname, ptype or "general", obs),
+                        )
+                        stats["bot_patterns"] = stats.get("bot_patterns", 0) + 1
+            except Exception as e:
+                logger.debug("Restore bot_patterns ogohlantirish: %s", e)
 
             conn.commit()
             conn.close()
