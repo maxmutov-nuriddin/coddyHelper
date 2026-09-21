@@ -1528,10 +1528,15 @@
                 <span>👥</span> Kim uchun ishlasin (Qamrov):
               </label>
               <select id="select-gemini-scope" onchange="updateGeminiControl('scope', this.value)" style="background: rgba(0,0,0,0.4); color: #fff; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 6px 8px; font-size: 11.5px; outline: none; cursor: pointer;">
-                <option value="all">🌐 Barchasi uchun (O'quvchilar + VIP + Mentor)</option>
+                <option value="all">🌐 Barchasi uchun (O'quvchilar + VIP + Mentor + Guruhlar)</option>
+                <option value="students_only">👨‍🎓 Faqat O'quvchilar (Barcha guruh va shaxsiy chatlar)</option>
+                <option value="students_dm_only">🎒 Faqat O'quvchilar Lichkasi (Guruhlarda emas)</option>
+                <option value="groups_only">👥 Faqat Guruh Chatlari (Barcha guruhlar)</option>
+                <option value="private_only">💬 Faqat Shaxsiy Chatlar (Lichkalar / DM)</option>
                 <option value="vip_only">👑 Faqat Vazifalar Guruhi & Mentor (VIP)</option>
-                <option value="students_only">👨‍🎓 Faqat O'quvchilar & Chatlar</option>
-                <option value="vision_only">📸 Faqat Rasmlar (Vision)</option>
+                <option value="mentor_only">👤 Faqat Ustoz / Mentor (@mentor_cc shaxsiy)</option>
+                <option value="vazifalar_group_only">🎯 Faqat Vazifalar Guruhi</option>
+                <option value="vision_only">📸 Faqat Rasmlar va Skrinshotlar (Vision)</option>
               </select>
             </div>
 
@@ -1541,9 +1546,12 @@
                 <span>⚡</span> Nimadan keyin ishlasin (Kaskad):
               </label>
               <select id="select-gemini-trigger" onchange="updateGeminiControl('trigger_after', this.value)" style="background: rgba(0,0,0,0.4); color: #fff; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 6px 8px; font-size: 11.5px; outline: none; cursor: pointer;">
-                <option value="after_reserve">🛡️ Barcha Groq to'lganda (Zaxira Qalqonidan keyin - Standart)</option>
-                <option value="after_primary">⏩ Asosiy miyadan keyin darhol (Zaxira Qalqonini kutmasdan)</option>
-                <option value="vision_first">🖼️ Rasm bo'lsa darhol 1-o'rinda, matnda Groq'dan keyin</option>
+                <option value="gemini_first">🥇 1-O'rinda: Birlamchi Miya (Har doim Gemini 1-chi, Groq zaxirada)</option>
+                <option value="after_primary">⏩ 2-O'rinda: Asosiy Groq to'lganda darhol (Zaxira Qalqonidan oldin)</option>
+                <option value="after_reserve">🛡️ 3-O'rinda: Barcha Groq to'lganda (Frontline + Zaxira Qalqonidan keyin)</option>
+                <option value="vision_first">🖼️ Rasm bo'lsa 1-o'rinda, matnda barcha Groq'dan keyin</option>
+                <option value="smart_hybrid">👑 Aqlli Gibrid (VIP/Rasmlarda 1-o'rinda, oddiy savollarda Groq)</option>
+                <option value="vision_only_trigger">📸 Faqat Rasm & Fayllar uchun (Matnda Gemini ishlamaydi)</option>
               </select>
             </div>
           </div>

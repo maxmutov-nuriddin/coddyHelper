@@ -516,14 +516,22 @@ self.addEventListener('fetch', (event) => {
             logger.info("Admin Panel orqali gemini_backup_enabled o'zgartirildi: %s", enabled)
         elif feature == "gemini_scope":
             val = str(data.get("value", "all")).strip()
-            if val not in ("all", "vip_only", "students_only", "vision_only"):
+            allowed_scopes = {
+                "all", "students_only", "students_dm_only", "groups_only",
+                "private_only", "vip_only", "mentor_only", "vazifalar_group_only", "vision_only"
+            }
+            if val not in allowed_scopes:
                 val = "all"
             memory_service.set_setting("gemini_scope", val)
             logger.info("Admin Panel orqali gemini_scope o'zgartirildi: %s", val)
             return web.json_response({"ok": True, "gemini_scope": val})
         elif feature == "gemini_trigger_after":
             val = str(data.get("value", "after_reserve")).strip()
-            if val not in ("after_reserve", "after_primary", "vision_first"):
+            allowed_triggers = {
+                "gemini_first", "primary_first", "after_primary",
+                "after_reserve", "vision_first", "smart_hybrid", "vision_only_trigger"
+            }
+            if val not in allowed_triggers:
                 val = "after_reserve"
             memory_service.set_setting("gemini_trigger_after", val)
             logger.info("Admin Panel orqali gemini_trigger_after o'zgartirildi: %s", val)
@@ -591,12 +599,20 @@ self.addEventListener('fetch', (event) => {
                 logger.info("Gemini settings API orqali enabled: %s", data["enabled"])
             if "scope" in data:
                 val = str(data["scope"]).strip()
-                if val in ("all", "vip_only", "students_only", "vision_only"):
+                allowed_scopes = {
+                    "all", "students_only", "students_dm_only", "groups_only",
+                    "private_only", "vip_only", "mentor_only", "vazifalar_group_only", "vision_only"
+                }
+                if val in allowed_scopes:
                     memory_service.set_setting("gemini_scope", val)
                     logger.info("Gemini settings API orqali scope: %s", val)
             if "trigger_after" in data:
                 val = str(data["trigger_after"]).strip()
-                if val in ("after_reserve", "after_primary", "vision_first"):
+                allowed_triggers = {
+                    "gemini_first", "primary_first", "after_primary",
+                    "after_reserve", "vision_first", "smart_hybrid", "vision_only_trigger"
+                }
+                if val in allowed_triggers:
                     memory_service.set_setting("gemini_trigger_after", val)
                     logger.info("Gemini settings API orqali trigger_after: %s", val)
         return web.json_response({

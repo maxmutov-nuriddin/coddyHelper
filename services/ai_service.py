@@ -2390,25 +2390,55 @@ class AIService:
 
             # Gemini sozlamalari (Kim uchun va nimadan keyin ishlashi)
             gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
-            gemini_scope = memory_service.get_setting("gemini_scope", "all")  # "all", "vip_only", "students_only", "vision_only"
-            gemini_trigger_after = memory_service.get_setting("gemini_trigger_after", "after_reserve")  # "after_reserve", "after_primary", "vision_first"
+            gemini_scope = memory_service.get_setting("gemini_scope", "all")
+            gemini_trigger_after = memory_service.get_setting("gemini_trigger_after", "after_reserve")
+
+            is_group_chat = (chat_id < 0)
+            is_vazifalar = is_escalation_chat(chat_id)
+            is_mentor = (chat_id in (config.mentor_user_id, 8105823872))
+            is_vip = bool(is_admin_mode or is_vazifalar or is_mentor)
 
             def _is_gemini_allowed_for_request() -> bool:
                 if not self._gemini_client or not gemini_backup_enabled:
                     return False
-                if image_bytes:
-                    return True  # Rasm uchun har doim zaxira yoki birlamchi bo'lib xizmat qiladi
-                if gemini_scope == "vip_only" and not is_admin_mode:
-                    return False
-                if gemini_scope == "students_only" and is_admin_mode:
-                    return False
-                if gemini_scope == "vision_only" and not bool(image_bytes):
-                    return False
+                if gemini_scope == "all":
+                    return True
+                elif gemini_scope == "vip_only":
+                    return is_vip
+                elif gemini_scope == "students_only":
+                    return not is_vip
+                elif gemini_scope == "mentor_only":
+                    return is_mentor
+                elif gemini_scope == "vazifalar_group_only":
+                    return is_vazifalar
+                elif gemini_scope == "groups_only":
+                    return is_group_chat
+                elif gemini_scope == "private_only":
+                    return not is_group_chat
+                elif gemini_scope == "students_dm_only":
+                    return (not is_vip) and (not is_group_chat)
+                elif gemini_scope == "vision_only":
+                    return bool(image_bytes)
                 return True
 
-            # 0-ustuvorlik: Agar "vision_first" tanlangan bo'lsa va xabarda rasm bo'lsa, 1-o'rinda Google Gemini Vision ishlaydi
+            # 0-ustuvorlik: Gemini Asosiy Miya sifatida (gemini_first / primary_first)
+            # Har doim 1-o'rinda Google Gemini ishlaydi, Groq esa uning zaxirasi bo'lib turadi
+            if not answer and gemini_trigger_after in ("gemini_first", "primary_first") and _is_gemini_allowed_for_request():
+                logger.info("🥇 [gemini_first] Google Gemini Asosiy Miya (1-o'rinda) sifatida ishga tushirildi...")
+                answer = await self._generate_gemini_reply(
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                )
+
+            # 0.5-ustuvorlik: Agar "vision_first" tanlangan bo'lsa va rasm bo'lsa, 1-o'rinda Gemini Vision ishlaydi
             if not answer and image_bytes and gemini_trigger_after == "vision_first" and _is_gemini_allowed_for_request():
                 logger.info("🖼️ [vision_first] Rasm tahlili uchun to'g'ridan-to'g'ri 1-o'rinda Google Gemini Vision ishga tushirildi...")
+                answer = await self._generate_gemini_reply(
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                )
+
+            # 0.7-ustuvorlik: Agar "smart_hybrid" tanlangan bo'lsa va VIP/Mentor yoki rasm bo'lsa, 1-o'rinda Gemini ishlaydi
+            if not answer and (is_vip or image_bytes) and gemini_trigger_after == "smart_hybrid" and _is_gemini_allowed_for_request():
+                logger.info("👑 [smart_hybrid] VIP/Murakkab so'rov uchun Gemini 1-o'rinda ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
                     chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
                 )
@@ -2438,7 +2468,7 @@ class AIService:
                 )
 
             # 3-ustuvorlik: Miya 3: Groq Zaxira Qalqoni (12 ta kalit, Jamoalar #9-#12)
-            # Agar "after_reserve" bo'lsa yoki "after_primary" da Gemini xato bergan bo'lsa zaxira Groq ulanadi
+            # Agar "after_reserve" bo'lsa yoki oldingi bosqichlarda xatolik bo'lsa zaxira Groq ulanadi
             if not answer and self._reserve_clients and not image_bytes:
                 try:
                     logger.info("🛡️ Miya 3: Groq Zaxira Qalqoni (12 ta kalit) yordamga ulandi...")
@@ -2463,12 +2493,13 @@ class AIService:
                     answer = None
 
             # 4-ustuvorlik: Google Gemini (Temir Zaxira - 1 million token limit)
-            # Standart "after_reserve" rejimida barcha Groq to'lgandan so'ng so'nggi istehkom bo'lib ishlaydi
+            # Standart "after_reserve", "smart_hybrid" yoki yuqoridagi barcha miyalar to'lganda so'nggi istehkom
             if not answer and _is_gemini_allowed_for_request():
-                logger.info("⚡ So'nggi istehkom: Google Gemini zaxira tizimi ulanmoqda (scope=%s)...", gemini_scope)
-                answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
-                )
+                if gemini_trigger_after != "vision_only_trigger" or image_bytes or file_text:
+                    logger.info("⚡ So'nggi istehkom: Google Gemini zaxira tizimi ulanmoqda (scope=%s, trigger=%s)...", gemini_scope, gemini_trigger_after)
+                    answer = await self._generate_gemini_reply(
+                        chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                    )
 
             if not answer:
                 answer = "Hozirda tizimda yuklama yuqori bo'lgani sababli javob bera olmadim. Iltimos, 1 daqiqadan so'ng qayta urinib ko'ring! ⏳"
