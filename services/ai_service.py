@@ -2451,6 +2451,25 @@ class AIService:
         if reply_to_context:
             effective_prompt = f"[Javob berilayotgan xabar: \"{reply_to_context}\"]\n{effective_prompt}"
 
+        # 0.2-Bosqich: Universal Multi-Stack Linter (Python, JS, React, HTML, CSS, JSON)
+        # O'quvchilar kodi xatoliklarini 0.005s da AI'siz, mutlaqo bepul va vizual ko'rsatkich bilan aniqlash
+        # Mentor va Vazifalar guruhiga 0 ta cheklov (mutlaq erkin, to'liq AI ishlaydi)
+        if not is_admin_mode and not image_bytes:
+            try:
+                from services.code_linter_service import check_code_snippets
+                is_ru = is_russian_text(user_message)
+                code_to_check = file_text if file_text else user_message
+                lint_err, lint_topic = check_code_snippets(code_to_check, file_name=file_name, is_ru=is_ru)
+                if lint_err:
+                    logger.info("⚡ Universal Linter sintaksis xatosini aniqladi [%s: %s]", chat_id, lint_topic)
+                    if lint_topic:
+                        memory_service.record_student_topic_struggle(chat_id, lint_topic, user_message[:200])
+                    memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
+                    memory_service.add_message(chat_id=chat_id, role="model", content=lint_err)
+                    return AIResult(lint_err)
+            except Exception as l_err:
+                logger.warning("Universal Linter tekshiruvida ogohlantirish: %s", l_err)
+
         # Web Search & Rasmiy IT Dokumentatsiyalardan qidiruv (Real-time docs)
         web_search_enabled = memory_service.get_setting("web_search_enabled", "true").lower() == "true"
         if web_search_enabled and not image_bytes and user_message:
