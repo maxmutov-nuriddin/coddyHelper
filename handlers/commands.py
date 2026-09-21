@@ -309,10 +309,11 @@ def register_command_handlers(client: TelegramClient) -> None:
                 target_id = event.chat_id
 
             if target_id:
-                memory_service.ignore_user(target_id, target_uname)
+                memory_service.ignore_user(target_id, target_uname, reason="Mentor buyrug'i (ai ignore)")
                 await event.edit(
-                    f"🚫 **Foydalanuvchi `{target_id}` {target_uname} bloklandi!**\n"
-                    "• AI endi bu foydalanuvchiga javob bermaydi.\n\n"
+                    f"🔇 **Foydalanuvchi `{target_id}` {target_uname} ignore qilindi (Telegramda bloklanmadi)!**\n"
+                    "• AI endi bu foydalanuvchiga javob bermaydi.\n"
+                    "• Telegram hisobingizda bloklanmadi (shaxsiy yozishma ochiq qoladi).\n\n"
                     f"Qayta ochish uchun: `ai unignore {target_id}`"
                 )
             else:

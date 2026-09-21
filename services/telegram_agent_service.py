@@ -3879,7 +3879,24 @@ async def execute_agent_action(
     ign_reason = ""
     ign_notify = ""
     ign_max_msg = 0
-    block_in_telegram = False
+    raw_tg = ""
+
+    # Aniq ajratish: "ignor qil" vs "blokla" / "blokla va ignor qil"
+    has_negative_block = bool(re.search(
+        r"\b(?:bloklama\w*|bloklash\s*shart\s*emas|bloklashsiz|bloklanmasin|не\s*блокируй\w*|без\s*блокировки)\b",
+        orig_msg,
+        re.I,
+    ))
+    has_explicit_block = bool(re.search(
+        r"\b(?:blokla\w*|blok\s*qil\w*|blokirovka\s*qil\w*|blokga\s*tiq\w*|blokirovkaga\s*(?:tiq\w*|tashla\w*)|telegramda\s*ham|telegramda|telegramdan|telegramini|tgda|tg\s*da|butunlay\s*blok\w*|haqiqiy\s*blok\w*|заблокируй\w*|забань\w*|блокни\w*)\b",
+        orig_msg,
+        re.I,
+    ))
+    has_pure_ignore = bool(re.search(
+        r"\b(?:ignor(?:e)?\s*qil\w*|ignor(?:e)?ga\s*(?:tiq\w*|sol\w*|tashla\w*|qo['’`]?y\w*)|e['’`]?tiborsiz\s*qoldir\w*|javob\s*berma\w*|игнор\w*|не\s*отвечай\w*)\b",
+        orig_msg,
+        re.I,
+    ))
 
     if m_ignore:
         ign_target = (m_ignore.group(1) or "").strip()
@@ -3888,12 +3905,10 @@ async def execute_agent_action(
         raw_max = (m_ignore.group(4) or "").strip()
         ign_max_msg = int(raw_max) if raw_max and raw_max.isdigit() else 0
         raw_tg = (m_ignore.group(5) or "").strip().lower()
-        if raw_tg == "true":
-            block_in_telegram = True
     else:
         # Erkin til (O'zbekcha / Ruscha)
-        ignore_kw = r"\b(?:ignor(?:e)?\s*qil\w*|blok(?:la\w*|irovka\s*qil\w*)?|игнор\w*|заблокируй\w*|блокни\w*)\b"
-        unign_check = r"\b(?:unignore|blokdan\s*chiqar|blokni\s*och|разблокируй)\b"
+        ignore_kw = r"\b(?:ignor(?:e)?\s*qil\w*|ignor(?:e)?ga\s*(?:tiq\w*|sol\w*|tashla\w*|qo['’`]?y\w*)|e['’`]?tiborsiz\s*qoldir\w*|blok(?:la\w*|irovka\s*qil\w*)?|игнор\w*|заблокируй\w*|блокни\w*)\b"
+        unign_check = r"\b(?:unignore|ignordan\s*chiqar|ignordan\s*ol|blokdan\s*chiqar|blokni\s*och|разблокируй|сними\s*с\s*игнора)\b"
         if re.search(ignore_kw, orig_msg, re.I) and not re.search(unign_check, orig_msg, re.I):
             is_direct_ignore = True
 
@@ -3915,15 +3930,6 @@ async def execute_agent_action(
             if reason_m:
                 ign_reason = reason_m.group(1).strip()
 
-            # Telegramda ham / Butunlay bloklash kalit so'zlari:
-            tg_block_trigger = bool(re.search(
-                r"\b(?:butunlay|telegramda\s*ham|telegramda|telegramdan|telegramini|tgda|tg\s*da|haqiqiy\s*blok|навсегда|в\s*телеграм(?:е)?)\b",
-                orig_msg,
-                re.I
-            ))
-            if tg_block_trigger:
-                block_in_telegram = True
-
             # Targetni aniqlash:
             uname_m = re.search(r"(@[A-Za-z0-9_]{4,})", orig_msg)
             id_m = re.search(r"\b(\d{6,15})\b", orig_msg)
@@ -3932,15 +3938,28 @@ async def execute_agent_action(
             elif id_m and not (limit_m and id_m.group(1) == limit_m.group(1)):
                 ign_target = id_m.group(1)
             else:
-                # Ism bo'yicha ajratish: "Jasurni ignor qil", "Alini blokla"
+                # Ism bo'yicha ajratish: "Jasurni ignor qil", "Alini blokla", "Valini blokla va ignor qil"
                 name_m = re.search(r"([A-Za-z0-9_'\`\u0400-\u04FF]+?)(?:ni|ga|ni\s+ham)?\s+" + ignore_kw, orig_msg, re.I) or \
-                         re.search(r"(?:заблокируй|игнорируй|блокни)\s+([A-Za-z0-9_'\`\u0400-\u04FF]+)", orig_msg, re.I)
+                         re.search(r"(?:заблокируй|игнорируй|блокни|игнор|blokla|ignore\s*qil)\s+([A-Za-z0-9_'\`\u0400-\u04FF]+)", orig_msg, re.I)
                 if name_m:
                     raw_n = name_m.group(1).strip()
                     if raw_n.lower() not in ("shu", "bu", "o'sha", "shu shu", "foydalanuvchi", "foydalanuvchini", "odam", "odamni", "bola", "bolani", "ученика", "пользователя"):
                         ign_target = raw_n
 
     if m_ignore or is_direct_ignore:
+        # Telegramda bloklash niyatini aniq tekshirish:
+        # 1. Agar foydalanuvchi "bloklama" degan bo'lsa -> mutlaqo bloklamaslik
+        # 2. Agar foydalanuvchi "blokla" yoki "blokla va ignor qil" degan bo'lsa -> bloklash
+        # 3. Agar faqat "ignor qil" / "e'tiborsiz qoldir" degan bo'lsa -> HECH QACHON Telegramda bloklamaslik
+        if has_negative_block:
+            block_in_telegram = False
+        elif has_explicit_block:
+            block_in_telegram = True
+        elif has_pure_ignore:
+            block_in_telegram = False
+        else:
+            block_in_telegram = (raw_tg == "true")
+
         user_info = await resolve_target_user(client, ign_target, reply_user_id=reply_user_id)
         if not user_info.get("ok"):
             return f"❌ {user_info.get('error')}"
@@ -3956,18 +3975,18 @@ async def execute_agent_action(
                 max_messages=ign_max_msg,
                 username=target_uname,
                 notify_text=ign_notify,
-                reason=ign_reason or f"Mentor tomonidan {ign_max_msg} ta xabardan so'ng bloklash buyrug'i",
+                reason=ign_reason or (f"Mentor tomonidan {ign_max_msg} ta xabardan so'ng bloklash buyrug'i" if block_in_telegram else f"Mentor tomonidan {ign_max_msg} ta xabardan so'ng ignore qilish buyrug'i"),
                 block_in_telegram=block_in_telegram,
             )
-            tg_plan_notice = "\n• **Telegram:** Belgilangan limitdan so'ng Telegramning o'zida ham qora ro'yxatga kiritiladi." if block_in_telegram else ""
-            tg_plan_notice_ru = "\n• **Telegram:** После исчерпания лимита будет заблокирован и в самом Telegram." if block_in_telegram else ""
+            tg_plan_notice = "\n• **Telegram:** Belgilangan limitdan so'ng Telegramning o'zida ham qora ro'yxatga kiritiladi." if block_in_telegram else "\n• **Telegram:** Shaxsiy hisobingizda bloklanmaydi (faqat AI javob bermaydi)."
+            tg_plan_notice_ru = "\n• **Telegram:** После исчерпания лимита будет заблокирован и в самом Telegram." if block_in_telegram else "\n• **Telegram:** В Telegram заблокирован не будет (только AI перестанет отвечать)."
 
             if is_ru:
                 res_lines = [
                     f"⏳ **Установлен лимит сообщений для пользователя:**\n",
                     f"• **Пользователь:** {target_name} ({target_uname or target_id})",
                     f"• **Лимит сообщений:** `{ign_max_msg}` сообщений",
-                    f"• **Действие:** После {ign_max_msg}-го сообщения бот автоматически заблокирует пользователя.{tg_plan_notice_ru}",
+                    f"• **Действие:** После {ign_max_msg}-го сообщения AI прекратит отвечать.{tg_plan_notice_ru}",
                 ]
                 if ign_notify:
                     res_lines.append(f"• **Текст предупреждения:** «{ign_notify}»")
@@ -3977,13 +3996,13 @@ async def execute_agent_action(
                     f"⏳ **Foydalanuvchiga xabarlar limiti o'rnatildi:**\n",
                     f"• **Foydalanuvchi:** {target_name} ({target_uname or target_id})",
                     f"• **Belgilangan limit:** `{ign_max_msg}` ta xabar",
-                    f"• **Harakat:** {ign_max_msg}-xabardan so'ng tizim uni avtomatik bloklaydi.{tg_plan_notice}",
+                    f"• **Harakat:** {ign_max_msg}-xabardan so'ng AI unga javob berishni to'xtatadi.{tg_plan_notice}",
                 ]
                 if ign_notify:
                     res_lines.append(f"• **Ogohlantirish xabari:** «{ign_notify}»")
                 return "\n".join(res_lines)
         else:
-            # 1. Ogohlantirish xabari bo'lsa, Telegramda bloklashdan OLDIN yuborish
+            # 1. Ogohlantirish xabari bo'lsa, yuborish
             notify_status = ""
             if ign_notify:
                 send_res = await send_telegram_message(client, str(target_id), ign_notify)
@@ -3992,7 +4011,7 @@ async def execute_agent_action(
                 else:
                     notify_status = f"\n⚠️ **Xabar yetkazishda xatolik:** {send_res.get('error')}"
 
-            # 2. Telegramning o'zida ham qora ro'yxatga (BlockRequest) kiritish:
+            # 2. Telegramning o'zida ham qora ro'yxatga (BlockRequest) kiritish (faqat agar block_in_telegram bo'lsa):
             tg_status = ""
             if block_in_telegram:
                 tg_ok = await block_telegram_user(client, user_info.get("entity") or target_id)
@@ -4002,23 +4021,48 @@ async def execute_agent_action(
                     tg_status = "\n⚠️ **Telegramda bloklashda ogohlantirish yuz berdi.**"
 
             # 3. AI tizimida ignore qilish:
-            memory_service.ignore_user(target_id, username=target_uname, reason=ign_reason or "Mentor buyrug'i bilan bloklandi")
-
-            if is_ru:
-                return (
-                    f"🚫 **Пользователь {target_name} ({target_uname or target_id}) заблокирован!**\n\n"
-                    f"• **Причина:** {ign_reason or 'Команда наставника'}\n"
-                    f"• **Статус:** AI больше не будет отвечать на сообщения этого пользователя."
-                    f"{tg_status}{notify_status}\n\n"
-                    f"💡 Разблокировать: `ai unignore {target_id}` или напишите *{target_name}ни блокдан чиқар*"
-                )
-            return (
-                f"🚫 **Foydalanuvchi {target_name} ({target_uname or target_id}) bloklandi!**\n\n"
-                f"• **Sabab:** {ign_reason or 'Mentor buyrug\'i'}\n"
-                f"• **Holat:** AI endi ushbu foydalanuvchiga mutlaqo javob bermaydi."
-                f"{tg_status}{notify_status}\n\n"
-                f"💡 Blokdan chiqarish uchun: *{target_name}ni blokdan chiqar* yoki `ai unignore {target_id}`"
+            memory_service.ignore_user(
+                target_id,
+                username=target_uname,
+                reason=ign_reason or ("Mentor buyrug'i bilan bloklandi" if block_in_telegram else "Mentor buyrug'i bilan ignore qilindi"),
             )
+
+            if block_in_telegram:
+                if is_ru:
+                    return (
+                        f"🚫 **Пользователь {target_name} ({target_uname or target_id}) заблокирован в Telegram!**\n\n"
+                        f"• **Причина:** {ign_reason or 'Команда наставника'}\n"
+                        f"• **Telegram:** Внесён в Чёрный список Telegram (больше не сможет писать).\n"
+                        f"• **Статус AI:** AI заблокировал пользователя и не будет отвечать."
+                        f"{tg_status}{notify_status}\n\n"
+                        f"💡 Разблокировать: `ai unignore {target_id}` или напишите *{target_name}ни блокдан чиқар*"
+                    )
+                return (
+                    f"🚫 **Foydalanuvchi {target_name} ({target_uname or target_id}) Telegramda bloklandi!**\n\n"
+                    f"• **Sabab:** {ign_reason or 'Mentor buyrug\'i bilan bloklandi'}\n"
+                    f"• **Telegram:** Telegram hisobingizda qora ro'yxatga kiritildi (sizga boshqa yoza olmaydi).\n"
+                    f"• **AI Holati:** AI tizimida ham to'liq bloklandi va unga javob bermaydi."
+                    f"{tg_status}{notify_status}\n\n"
+                    f"💡 Blokdan chiqarish uchun: *{target_name}ni blokdan chiqar* yoki `ai unignore {target_id}`"
+                )
+            else:
+                if is_ru:
+                    return (
+                        f"🔇 **Пользователь {target_name} ({target_uname or target_id}) поставлен в игнор (без блокировки в Telegram)!**\n\n"
+                        f"• **Причина:** {ign_reason or 'Игнор по команде наставника'}\n"
+                        f"• **Статус AI:** AI больше не будет отвечать на сообщения этого пользователя.\n"
+                        f"• **Telegram:** В Telegram НЕ заблокирован (личка остаётся открытой)."
+                        f"{notify_status}\n\n"
+                        f"💡 Снять с игнора: *{target_name}ни игнордан чиқар* или `ai unignore {target_id}`"
+                    )
+                return (
+                    f"🔇 **Foydalanuvchi {target_name} ({target_uname or target_id}) ignore qilindi (Telegramda bloklanmadi)!**\n\n"
+                    f"• **Sabab:** {ign_reason or 'Mentor buyrug\'i bilan ignore qilindi'}\n"
+                    f"• **AI Holati:** AI endi ushbu foydalanuvchiga mutlaqo javob bermaydi.\n"
+                    f"• **Telegram:** Shaxsiy hisobingizda bloklanmadi (oddiy yozishmalar ochiq qoladi)."
+                    f"{notify_status}\n\n"
+                    f"💡 Ignordan chiqarish uchun: *{target_name}ni ignordan chiqar* yoki `ai unignore {target_id}`"
+                )
 
     # 12. Action: unignore_user (Foydalanuvchini blokdan chiqarish / ochish)
     m_unignore = ACTION_UNIGNORE_USER.search(reply_text)
@@ -4028,7 +4072,7 @@ async def execute_agent_action(
     if m_unignore:
         unign_target = (m_unignore.group(1) or "").strip()
     else:
-        unign_kw = r"\b(?:unignore\s*qil\w*|blokdan\s*chiqar\w*|blokni\s*och\w*|разблокируй\w*|сними\s*блок)\b"
+        unign_kw = r"\b(?:unignore\w*|ignordan\s*chiqar\w*|ignordan\s*ol\w*|ignorni\s*(?:och\w*|bekor\s*qil\w*)|blokdan\s*chiqar\w*|blokni\s*och\w*|разблокируй\w*|сними\s*блок\w*|сними\s*с\s*игнора\w*)\b"
         if re.search(unign_kw, orig_msg, re.I):
             is_direct_unignore = True
             uname_m = re.search(r"(@[A-Za-z0-9_]{4,})", orig_msg)
@@ -4039,7 +4083,7 @@ async def execute_agent_action(
                 unign_target = id_m.group(1)
             else:
                 name_m = re.search(r"([A-Za-z0-9_'\`\u0400-\u04FF]+?)(?:ni|ni\s+ham)?\s+" + unign_kw, orig_msg, re.I) or \
-                         re.search(r"(?:разблокируй|сними\s*блок\s*с)\s+([A-Za-z0-9_'\`\u0400-\u04FF]+)", orig_msg, re.I)
+                         re.search(r"(?:разблокируй|сними\s*блок\s*с|сними\s*с\s*игнора|ignordan\s*chiqar|blokdan\s*chiqar)\s+([A-Za-z0-9_'\`\u0400-\u04FF]+)", orig_msg, re.I)
                 if name_m:
                     raw_n = name_m.group(1).strip()
                     if raw_n.lower() not in ("shu", "bu", "o'sha", "shu shu", "foydalanuvchi", "foydalanuvchini", "odam", "odamni", "bola", "bolani", "ученика", "пользователя"):
@@ -4060,13 +4104,13 @@ async def execute_agent_action(
 
         if is_ru:
             return (
-                f"✅ **Пользователь {target_name} ({user_info.get('username') or target_id}) успешно разблокирован!**\n\n"
-                f"• **Telegram:** Разблокирован в Telegram (удалён из Чёрного списка).\n"
+                f"✅ **Пользователь {target_name} ({user_info.get('username') or target_id}) успешно разблокирован / снят с игнора!**\n\n"
+                f"• **Telegram:** Удалён из Чёрного списка Telegram (если был заблокирован).\n"
                 f"• **AI Статус:** AI снова активен и готов отвечать на вопросы этого пользователя."
             )
         return (
-            f"✅ **Foydalanuvchi {target_name} ({user_info.get('username') or target_id}) blokdan chiqarildi!**\n\n"
-            f"• **Telegram:** Telegram qora ro'yxatidan (blokdan) chiqarildi.\n"
+            f"✅ **Foydalanuvchi {target_name} ({user_info.get('username') or target_id}) blok/ignordan chiqarildi!**\n\n"
+            f"• **Telegram:** Telegram qora ro'yxatidan chiqarildi (agar bloklangan bo'lsa).\n"
             f"• **AI Holati:** AI yana ushbu foydalanuvchining savollariga to'liq javob bera oladi."
         )
 
