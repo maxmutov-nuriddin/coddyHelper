@@ -2399,7 +2399,7 @@ class SQLiteMemoryService:
                 else:
                     title = "Master Avtonom AI Hamkor (Master Autonomous AI)"
 
-                emergency_id = self.get_setting("emergency_contact_id", "5023430798")
+                emergency_id = self.get_setting("emergency_contact_id", "")
 
                 return {
                     "level": level,
@@ -2426,7 +2426,7 @@ class SQLiteMemoryService:
                 "title": "Boshlang'ich AI Yordamchi",
                 "total_xp": 0,
                 "progress_pct": 0,
-                "emergency_contact_id": "5023430798",
+                "emergency_contact_id": "",
             }
 
     # -----------------------------------------------------------

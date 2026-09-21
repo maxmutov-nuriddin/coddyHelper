@@ -1998,16 +1998,21 @@
       <div class="card">
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
           <span class="card-title" style="margin: 0; font-size: 14px; font-weight: 700;">🚨 Favqulodda Uyg'otish Kontaktlari</span>
-          <span class="badge badge-success" style="white-space: nowrap; flex-shrink: 0; margin-left: 8px;">Faol</span>
+          <span id="emergency-contacts-badge" class="badge badge-success" style="white-space: nowrap; flex-shrink: 0; margin-left: 8px;">Faol</span>
         </div>
         <p style="font-size: 12px; color: var(--hint-color); margin: 6px 0 10px 0; line-height: 1.4;">
-          Ertalab soat 08:00 dagi brifingga 10 daqiqa (08:10 gacha) "Turdim" deb javob berilmasa, agent avtomatik kiritilgan <strong>barcha</strong> kontaktlarga sizni uyg'otib qo'yishni iltimos qilib xabar yuboradi.
+          Ertalab soat 08:00 dagi brifingga 10 daqiqa (08:10 gacha) "Turdim" deb javob berilmasa, agent kiritilgan kontaktlarga sizni uyg'otib qo'yishni iltimos qilib xabar yuboradi. Agar favqulodda uyg'otish kerak bo'lmasa, kontaktlarni <strong>to'liq o'chirib qo'yishingiz</strong> mumkin.
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <input type="text" id="agent-emergency-contact-input" class="form-input" placeholder="Telegram ID lar (masalan: 5023430798, 123456789)" style="width: 100%; font-size: 13px; padding: 10px 12px;" />
-          <button class="btn btn-primary" onclick="saveEmergencyContact()" style="width: 100%; padding: 10px;">
-            💾 Kontaktlarni Saqlash
-          </button>
+          <input type="text" id="agent-emergency-contact-input" class="form-input" placeholder="Telegram ID lar (masalan: 5023430798, 123456789 yoki bo'sh qoldiring)" style="width: 100%; font-size: 13px; padding: 10px 12px;" />
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <button class="btn btn-primary" onclick="saveEmergencyContact()" style="padding: 10px; font-size: 12.5px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+              💾 Saqlash
+            </button>
+            <button class="btn" onclick="deleteEmergencyContact()" style="padding: 10px; font-size: 12.5px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); color: #fca5a5; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; border-radius: 8px;">
+              🗑️ O'chirish
+            </button>
+          </div>
         </div>
       </div>
 
@@ -4440,10 +4445,25 @@
           document.getElementById("agent-stat-messages").innerText = st.total_messages || 0;
         }
 
-        // Emergency Contact
+        // Emergency Contact & Badge
         const emInput = document.getElementById("agent-emergency-contact-input");
+        const emBadge = document.getElementById("emergency-contacts-badge");
         if (emInput && !emInput.matches(":focus")) {
-          emInput.value = res.emergency_contact_id || "5023430798";
+          const val = (res.emergency_contact_id !== undefined && res.emergency_contact_id !== null) ? String(res.emergency_contact_id).trim() : "";
+          emInput.value = val;
+          if (emBadge) {
+            if (val && !["none", "off", "0", "yo'q", "disabled"].includes(val.toLowerCase())) {
+              emBadge.className = "badge badge-success";
+              emBadge.innerText = "Faol";
+              emBadge.style.background = "";
+              emBadge.style.color = "";
+            } else {
+              emBadge.className = "badge";
+              emBadge.innerText = "O'chirilgan";
+              emBadge.style.background = "rgba(148, 163, 184, 0.2)";
+              emBadge.style.color = "#94a3b8";
+            }
+          }
         }
 
         // Skills List
@@ -4606,23 +4626,49 @@
     }
 
     async function saveEmergencyContact() {
+      haptic();
       const input = document.getElementById("agent-emergency-contact-input");
       if (!input) return;
       const contactIds = input.value.trim();
-      if (!contactIds) {
-        showToast("Iltimos, kamida bitta Telegram ID kiriting!");
-        return;
-      }
       try {
         const res = await apiRequest("/api/agent/settings", "POST", { emergency_contact_id: contactIds });
         if (res && res.ok) {
-          showToast("Favqulodda kontaktlar saqlandi ✅");
+          if (contactIds && !["none", "off", "0", "yo'q", "disabled"].includes(contactIds.toLowerCase())) {
+            showToast("Favqulodda kontaktlar saqlandi ✅");
+          } else {
+            showToast("Favqulodda kontaktlar o'chirildi 🗑️");
+          }
           loadAgentStats();
         } else {
-          showToast("Xatolik: " + (res?.error || "Saqlab bo'lmadi"));
+          showToast("Xatolik: " + (res?.error || "Saqlab bo'lmadi"), true);
         }
       } catch (e) {
-        showToast("Saqlashda xatolik yuz berdi");
+        showToast("Saqlashda xatolik yuz berdi", true);
+      }
+    }
+
+    async function deleteEmergencyContact() {
+      haptic();
+      const input = document.getElementById("agent-emergency-contact-input");
+      if (!input) return;
+      if (!input.value.trim()) {
+        showToast("Kontaktlar allaqachon bo'sh / o'chirilgan");
+        return;
+      }
+      if (!confirm("Rostdan ham barcha favqulodda uyg'otish kontaktlarini o'chirmoqchimisiz?")) {
+        return;
+      }
+      input.value = "";
+      try {
+        const res = await apiRequest("/api/agent/settings", "POST", { emergency_contact_id: "" });
+        if (res && res.ok) {
+          showToast("Barcha favqulodda kontaktlar o'chirildi 🗑️");
+          loadAgentStats();
+        } else {
+          showToast("Xatolik: " + (res?.error || "O'chirib bo'lmadi"), true);
+        }
+      } catch (e) {
+        showToast("O'chirishda xatolik yuz berdi", true);
       }
     }
 

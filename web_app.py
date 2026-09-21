@@ -1212,7 +1212,7 @@ self.addEventListener('fetch', (event) => {
                 "current_level_xp": stats.get("current_level_xp", 0),
                 "next_level_xp": stats.get("next_level_xp", 250),
                 "progress_pct": stats.get("progress_pct", 0),
-                "emergency_contact_id": stats.get("emergency_contact_id", "5023430798"),
+                "emergency_contact_id": stats.get("emergency_contact_id", ""),
                 "stats": {
                     "saved_locations": len(saved_locations),
                     "today_plans": len(today_plans),
@@ -1238,10 +1238,10 @@ self.addEventListener('fetch', (event) => {
         try:
             data = await request.json()
             if "emergency_contact_id" in data:
-                raw_id = str(data["emergency_contact_id"]).strip()
-                if raw_id:
-                    memory_service.set_setting("emergency_contact_id", raw_id)
-            return web.json_response({"ok": True})
+                raw_id = str(data.get("emergency_contact_id", "") or "").strip()
+                memory_service.set_setting("emergency_contact_id", raw_id)
+                logger.info("Favqulodda kontaktlar sozlamasi yangilandi/o'chirildi: '%s'", raw_id)
+            return web.json_response({"ok": True, "emergency_contact_id": memory_service.get_setting("emergency_contact_id", "")})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 

@@ -184,22 +184,24 @@ async def _monitor_wakeup_escalation(client, date_str: str, wait_seconds: float 
     global PENDING_WAKEUP
     if PENDING_WAKEUP.get("date") == date_str and not PENDING_WAKEUP.get("confirmed") and not PENDING_WAKEUP.get("escalated"):
         PENDING_WAKEUP["escalated"] = True
-        emergency_raw = memory_service.get_setting("emergency_contact_id", "5023430798")
+        emergency_raw = memory_service.get_setting("emergency_contact_id", "")
         
         # Bir nechta ID larni vergul, bo'sh joy yoki nuqta-vergul orqali ajratib olish
         import re
         contact_ids = []
-        for part in re.split(r"[,;\s\n]+", str(emergency_raw).strip()):
-            clean = part.strip().lstrip("@")
-            if not clean:
-                continue
-            if clean.isdigit() or (clean.startswith("-") and clean[1:].isdigit()):
-                contact_ids.append(int(clean))
-            else:
-                contact_ids.append(clean)
+        if emergency_raw and str(emergency_raw).strip().lower() not in ("none", "off", "0", "disabled", "yo'q", "yoq"):
+            for part in re.split(r"[,;\s\n]+", str(emergency_raw).strip()):
+                clean = part.strip().lstrip("@")
+                if not clean:
+                    continue
+                if clean.isdigit() or (clean.startswith("-") and clean[1:].isdigit()):
+                    contact_ids.append(int(clean))
+                else:
+                    contact_ids.append(clean)
 
         if not contact_ids:
-            contact_ids = [5023430798]
+            logger.info("ℹ️ Favqulodda uyg'otish kontaktlari o'chirilgan yoki kiritilmagan. Hech kimga xabar yuborilmadi.")
+            return
 
         alert_msg = (
             "Assalomu alaykum! Men Nuriddinning shaxsiy assistentiman.\n\n"
