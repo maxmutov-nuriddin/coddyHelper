@@ -3036,22 +3036,37 @@ class SQLiteMemoryService:
             logger.error("get_user_dossier xatolik: %s", e)
         return None
 
-    def get_all_user_dossiers(self, limit: int = 50) -> list[dict]:
-        """Tahlil qilingan so'nggi dosyelarni qaytaradi."""
+    def get_all_user_dossiers(self, query: str = "", limit: int = 100) -> list[dict]:
+        """Tahlil qilingan so'nggi dosyelarni qaytaradi (qidiruv filtri bilan)."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT user_id, username, first_name, last_name, phone, bio,
-                           channel_username, channel_summary, photo_count, has_stories,
-                           dossier_text, analyzed_at
-                    FROM user_dossiers
-                    ORDER BY analyzed_at DESC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                )
+                if query and query.strip():
+                    q_clean = f"%{query.strip()}%"
+                    cursor.execute(
+                        """
+                        SELECT user_id, username, first_name, last_name, phone, bio,
+                               channel_username, channel_summary, photo_count, has_stories,
+                               dossier_text, analyzed_at
+                        FROM user_dossiers
+                        WHERE first_name LIKE ? OR last_name LIKE ? OR username LIKE ? OR phone LIKE ? OR bio LIKE ? OR dossier_text LIKE ?
+                        ORDER BY analyzed_at DESC
+                        LIMIT ?
+                        """,
+                        (q_clean, q_clean, q_clean, q_clean, q_clean, q_clean, limit),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT user_id, username, first_name, last_name, phone, bio,
+                               channel_username, channel_summary, photo_count, has_stories,
+                               dossier_text, analyzed_at
+                        FROM user_dossiers
+                        ORDER BY analyzed_at DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    )
                 rows = cursor.fetchall()
                 return [
                     {

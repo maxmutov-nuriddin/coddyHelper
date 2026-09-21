@@ -1324,7 +1324,8 @@ self.addEventListener('fetch', (event) => {
     async def handle_api_get_user_dossiers(request: web.Request):
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
-        items = memory_service.get_all_user_dossiers(limit=50)
+        query = request.query.get("q", "").strip()
+        items = memory_service.get_all_user_dossiers(query=query, limit=100)
         return web.json_response({"ok": True, "items": items, "count": memory_service.get_dossier_count()})
 
     async def handle_api_get_precomputed_answers(request: web.Request):
