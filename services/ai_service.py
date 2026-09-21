@@ -2900,6 +2900,81 @@ class AIService:
         grp_val = m_grp.group(1).strip() if m_grp else ""
         return {"name": name_val, "group": grp_val}
 
+    async def verify_inquiry_answer(
+        self, question: str, expected_info: str, reply_text: str
+    ) -> dict[str, Any]:
+        """
+        Kutilayotgan so'rov (inquiry) savoliga olingan javobning mantiqan to'g'ri va mosligini tekshiradi.
+        Qaytaradi:
+        {
+            "is_relevant": bool,
+            "extracted_answer": str,
+            "clarification_needed": bool,
+            "polite_followup": str
+        }
+        """
+        raw = (reply_text or "").strip()
+        if not raw:
+            return {
+                "is_relevant": False,
+                "extracted_answer": "",
+                "clarification_needed": True,
+                "polite_followup": "Kechirasiz, javobingizni tushuna olmadim. Iltimos, batafsilroq yozib yubora olasizmi? 😊",
+            }
+
+        prompt = (
+            "Siz CoddyCamp yordamchi agentisiz. Suhbatdoshga oldinroq quyidagi savol berilgan edi:\n"
+            f"❓ Berilgan savol: «{question}»\n"
+            f"🎯 Kutilayotgan ma'lumot (maqsad): «{expected_info}»\n\n"
+            f"Suhbatdoshdan kelgan javob xabari:\n«{raw}»\n\n"
+            "Vazifangiz ushbu javobni tahlil qilish:\n"
+            "1. 'is_relevant': Javob berilgan savolga mantiqan mos keladimi va kutilayotgan ma'lumotni o'z ichiga oladimi? (true yoki false)\n"
+            "   (Agar javob salomlashish, tushunarsiz stiker/emoji yoki mavzudan mutlaqo yiroq bo'lsa -> false)\n"
+            "   (Agar javob savolga mantiqiy javob bersa, masalan 'ha', 'yo\\'q', 'ertaga kela olmayman', 'bormayman', 'kechikaman', 'tayyor' -> true)\n"
+            "2. 'extracted_answer': Suhbatdosh javobining qisqa, aniq xulosasi (masalan: 'Ertaga darsga kela olmaydi', 'Soat 15:00 da keladi', 'Vazifani tugatgan').\n"
+            "3. 'clarification_needed': Agar javob noaniq bo'lsa yoki savolga javob berilmagan bo'lsa -> true, aks holda false.\n"
+            "4. 'polite_followup': Agar clarification_needed true bo'lsa, o'quvchiga savolni muloyimlik bilan eslatib, aniqlashtirish so'rovchi qisqa xabar matni (o'zbek tilida). Agar is_relevant true bo'lsa bo'sh qoldiring.\n\n"
+            "Faqat quyidagi JSON formatida javob bering:\n"
+            "{\n"
+            '  "is_relevant": true,\n'
+            '  "extracted_answer": "...",\n'
+            '  "clarification_needed": false,\n'
+            '  "polite_followup": ""\n'
+            "}"
+        )
+
+        try:
+            pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+            if pool:
+                client = pool[self._frontline_idx % len(pool)]
+                self._frontline_idx = (self._frontline_idx + 1) % len(pool)
+                resp = await client.chat.completions.create(
+                    model=config.groq_model or "llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=250,
+                    response_format={"type": "json_object"}
+                )
+                import json
+                parsed = json.loads(resp.choices[0].message.content.strip())
+                if isinstance(parsed, dict):
+                    return {
+                        "is_relevant": bool(parsed.get("is_relevant")),
+                        "extracted_answer": str(parsed.get("extracted_answer") or raw).strip(),
+                        "clarification_needed": bool(parsed.get("clarification_needed")),
+                        "polite_followup": str(parsed.get("polite_followup") or "").strip(),
+                    }
+        except Exception as e:
+            logger.warning("AI verify_inquiry_answer tahlilida ogohlantirish: %s", e)
+
+        # Fallback agar AI ishlamay qolsa
+        return {
+            "is_relevant": len(raw) > 1,
+            "extracted_answer": raw,
+            "clarification_needed": False,
+            "polite_followup": "",
+        }
+
 
 # Global AI xizmati instansiyasi
 ai_service = AIService()

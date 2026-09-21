@@ -215,6 +215,27 @@ class SQLiteMemoryService:
                     )
                     """
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS active_inquiries (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        target_user_id INTEGER NOT NULL,
+                        target_username TEXT DEFAULT '',
+                        target_name TEXT DEFAULT '',
+                        question_text TEXT NOT NULL,
+                        expected_info TEXT NOT NULL,
+                        mentor_chat_id TEXT DEFAULT '',
+                        status TEXT DEFAULT 'pending',
+                        result_summary TEXT DEFAULT '',
+                        attempts INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_active_inquiries_user ON active_inquiries (target_user_id, status)"
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -2523,6 +2544,139 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Baza birlashtirishda xatolik: %s", e)
             return False, str(e)
+
+    # -----------------------------------------------------------
+    # Active Inquiries (Borib so'rab, aniqlashtirib kelish)
+    # -----------------------------------------------------------
+    def create_active_inquiry(
+        self,
+        target_user_id: int,
+        target_name: str,
+        target_username: str,
+        question_text: str,
+        expected_info: str,
+        mentor_chat_id: str = "",
+    ) -> int:
+        """Yangi kutilayotgan so'rov (inquiry) vazifasini yaratadi."""
+        inq_id = 0
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # Avvalgi eski pending holatlarni yangisiga almashtirish
+                cursor.execute(
+                    "UPDATE active_inquiries SET status = 'superseded' WHERE target_user_id = ? AND status = 'pending'",
+                    (target_user_id,),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO active_inquiries (
+                        target_user_id, target_username, target_name, question_text, expected_info, mentor_chat_id, status, attempts
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0)
+                    """,
+                    (target_user_id, target_username or "", target_name or "", question_text, expected_info, str(mentor_chat_id or "")),
+                )
+                conn.commit()
+                inq_id = cursor.lastrowid or 0
+        except Exception as e:
+            logger.error("Active inquiry yaratishda xatolik: %s", e)
+
+        # MongoDB bilan sinxronlash
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.save_active_inquiry({
+                    "inquiry_id": inq_id,
+                    "target_user_id": target_user_id,
+                    "target_username": target_username,
+                    "target_name": target_name,
+                    "question_text": question_text,
+                    "expected_info": expected_info,
+                    "mentor_chat_id": str(mentor_chat_id or ""),
+                    "status": "pending",
+                    "attempts": 0,
+                })
+        except Exception as me:
+            logger.debug("MongoDB active_inquiry sinxronlashda ogohlantirish: %s", me)
+
+        return inq_id
+
+    def get_pending_inquiry_for_user(self, target_user_id: int) -> dict | None:
+        """Foydalanuvchiga tegishli faol kutilayotgan so'rovni qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, target_user_id, target_username, target_name, question_text, expected_info, mentor_chat_id, status, attempts, created_at
+                    FROM active_inquiries
+                    WHERE target_user_id = ? AND status = 'pending'
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (target_user_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "id": row[0],
+                        "target_user_id": row[1],
+                        "target_username": row[2],
+                        "target_name": row[3],
+                        "question_text": row[4],
+                        "expected_info": row[5],
+                        "mentor_chat_id": row[6],
+                        "status": row[7],
+                        "attempts": row[8],
+                        "created_at": row[9],
+                    }
+        except Exception as e:
+            logger.error("Pending inquiry olishda xatolik: %s", e)
+        return None
+
+    def mark_inquiry_status(self, inquiry_id: int, status: str, result_summary: str = "") -> bool:
+        """So'rov holatini (answered, expired, cancelled) yangilaydi."""
+        ok = False
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE active_inquiries
+                    SET status = ?, result_summary = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (status, result_summary, inquiry_id),
+                )
+                conn.commit()
+                ok = cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Inquiry statusini yangilashda xatolik: %s", e)
+
+        # MongoDB yangilash
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.update_active_inquiry_status(inquiry_id, status, result_summary)
+        except Exception as me:
+            logger.debug("MongoDB inquiry status yangilashda ogohlantirish: %s", me)
+
+        return ok
+
+    def increment_inquiry_attempts(self, inquiry_id: int) -> int:
+        """So'rov uchun urinishlar sonini oshiradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE active_inquiries SET attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (inquiry_id,),
+                )
+                cursor.execute("SELECT attempts FROM active_inquiries WHERE id = ?", (inquiry_id,))
+                row = cursor.fetchone()
+                conn.commit()
+                return row[0] if row else 1
+        except Exception as e:
+            logger.error("Inquiry attempts oshirishda xatolik: %s", e)
+            return 1
 
     def get_memory_storage_info(self) -> dict:
         """Xotira hajmi: MongoDB Atlas va SQLite ma'lumotlar bazalarining aniq hajmi va qolgan bo'sh joyini beradi."""

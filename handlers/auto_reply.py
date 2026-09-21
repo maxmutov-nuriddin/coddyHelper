@@ -935,6 +935,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             chats_context=chats_context or "",
                             reply_user_id=reply_sender_id,
                             reply_msg_id=reply_msg_id,
+                            chat_id=event.chat_id,
                             max_steps=5,
                         ),
                         timeout=35.0,
@@ -1403,6 +1404,115 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             memory_service.add_message(chat_id=chat_id, role="user", content=student_reply)
             memory_service.add_message(chat_id=chat_id, role="model", content=confirm)
             return
+
+        # 🕵️‍♂️ FAOL SO'ROV (ACTIVE INQUIRY) JAVOBINI KUTISH VA MANTIQAN TEKSHIRISH:
+        # Mentor topshirig'i bilan o'quvchiga savol berilgan bo'lsa va u javob qaytarsa:
+        pending_inquiry = memory_service.get_pending_inquiry_for_user(sender_id) if is_private else None
+        if pending_inquiry:
+            inquiry_reply = (input_text or message_text).strip()
+            if inquiry_reply:
+                eval_res = await ai_service.verify_inquiry_answer(
+                    question=pending_inquiry["question_text"],
+                    expected_info=pending_inquiry["expected_info"],
+                    reply_text=inquiry_reply,
+                )
+                logger.info(
+                    "Inquiry tahlili [ID: %s, User: %s]: relevant=%s, extracted=%s",
+                    pending_inquiry["id"],
+                    sender_id,
+                    eval_res.get("is_relevant"),
+                    eval_res.get("extracted_answer"),
+                )
+
+                if eval_res.get("is_relevant"):
+                    # 1. Baza holatini yangilash
+                    memory_service.mark_inquiry_status(
+                        pending_inquiry["id"],
+                        status="answered",
+                        result_summary=eval_res.get("extracted_answer") or inquiry_reply,
+                    )
+
+                    # 2. O'quvchiga minnatdorchilik bildirish
+                    if is_russian_text(inquiry_reply):
+                        confirm_text = "Спасибо за ответ! Информация принята и передана учителю. 😊"
+                    else:
+                        confirm_text = "Rahmat! Javobingiz qabul qilindi va ustozga yetkazildi. 😊"
+                    sent_msg = await event.reply(confirm_text)
+                    if sent_msg:
+                        BOT_SENT_MESSAGE_IDS.add(sent_msg.id)
+
+                    memory_service.add_message(chat_id=chat_id, role="user", content=inquiry_reply)
+                    memory_service.add_message(chat_id=chat_id, role="model", content=confirm_text)
+
+                    # 3. Mentor yoki Vazifalar guruhiga to'liq tahliliy hisobot yetkazish
+                    target_name = pending_inquiry.get("target_name") or "O'quvchi"
+                    target_user = f"@{pending_inquiry['target_username']}" if pending_inquiry.get("target_username") else f"ID: `{sender_id}`"
+                    report_card = (
+                        "🎯 **ANIQLASHTIRILGAN MA'LUMOT (INQUIRY NATIJASI):**\n\n"
+                        f"👤 **Shaxs:** {target_name} ({target_user})\n"
+                        f"❓ **Berilgan savol:** {pending_inquiry['question_text']}\n"
+                        f"🎯 **Kutilgan maqsad:** {pending_inquiry['expected_info']}\n"
+                        f"💬 **Haqiqiy javob:** «{inquiry_reply}»\n"
+                        f"✅ **Mantiqiy xulosa:** {eval_res.get('extracted_answer')}\n"
+                        "───────────────\n"
+                        "🤖 *CoddyCamp Avtonom Agent tekshiruvi muvaffaqiyatli yakunlandi.*"
+                    )
+
+                    dest_chat = pending_inquiry.get("mentor_chat_id")
+                    delivered = False
+                    if dest_chat:
+                        try:
+                            dest_ent = int(dest_chat) if (dest_chat.isdigit() or dest_chat.startswith("-")) else dest_chat
+                            await client.send_message(dest_ent, report_card)
+                            delivered = True
+                        except Exception as d_err:
+                            logger.debug("Mentor chatiga (%s) inquiry hisobot yuborishda xatolik: %s", dest_chat, d_err)
+
+                    if not delivered:
+                        try:
+                            v_target = await get_vazifalar_chat_target(client)
+                            await client.send_message(v_target, report_card)
+                        except Exception as v_err:
+                            logger.error("Vazifalar guruhiga inquiry hisobot yuborishda xatolik: %s", v_err)
+
+                    return
+
+                else:
+                    # Javob savolga mantiqan mos kelmadi (boshqa mavzu, stiker yoki noaniq gap)
+                    attempts = pending_inquiry.get("attempts", 0)
+                    if attempts < 2:
+                        memory_service.increment_inquiry_attempts(pending_inquiry["id"])
+                        followup = (
+                            eval_res.get("polite_followup")
+                            or f"Kechirasiz, aniqroq tushunishim uchun so'rayapman: {pending_inquiry['question_text']} 😊"
+                        )
+                        sent_followup = await event.reply(followup)
+                        if sent_followup:
+                            BOT_SENT_MESSAGE_IDS.add(sent_followup.id)
+                        memory_service.add_message(chat_id=chat_id, role="user", content=inquiry_reply)
+                        memory_service.add_message(chat_id=chat_id, role="model", content=followup)
+                        return
+                    else:
+                        # 2 marta so'ralganda ham noaniq javob kelsa — topshiriqni yakunlab mentorga xabar berish
+                        memory_service.mark_inquiry_status(
+                            pending_inquiry["id"],
+                            status="inconclusive",
+                            result_summary=inquiry_reply,
+                        )
+                        target_name = pending_inquiry.get("target_name") or "O'quvchi"
+                        target_user = f"@{pending_inquiry['target_username']}" if pending_inquiry.get("target_username") else f"ID: `{sender_id}`"
+                        inconcl_card = (
+                            "⚠️ **INQUIRY BO'YICHA NOANIQ JAVOB:**\n\n"
+                            f"👤 **Shaxs:** {target_name} ({target_user})\n"
+                            f"❓ **Berilgan savol:** {pending_inquiry['question_text']}\n"
+                            f"💬 **Oxirgi xabari:** «{inquiry_reply}»\n"
+                            "ℹ️ O'quvchidan kutilgan savol bo'yicha aniq javob olinmadi (2 marta qayta so'raldi)."
+                        )
+                        try:
+                            v_target = await get_vazifalar_chat_target(client)
+                            await client.send_message(v_target, inconcl_card)
+                        except Exception:
+                            pass
 
         # 🚨 KASALLIK VA DAVOMATNI DARHOL (0 SONIYA KUTMASDAN) QAYTA ISHLASH:
         # "kasalma", "shomoladim", "boleyu", "ploxo chustvuyu", "kelolmayman" va h.k.

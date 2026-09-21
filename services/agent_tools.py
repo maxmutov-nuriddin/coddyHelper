@@ -366,6 +366,31 @@ AGENT_TOOL_SCHEMAS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_and_clarify_task",
+            "description": "O'quvchi yoki biror shaxsga borib savol berish, javobini kutish va javob mantiqan mos kelishini tekshirib mentorga hisobot berish (avtonom inquiry/so'rab bilib kelish vazifasi). Masalan: 'Alidan darsga keladimi-yo\\'qmi so'rab bilib kel'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Kimgadir savol berish kerak bo'lgan shaxsning ismi, familiyasi yoki username (@user)",
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "Shaxsga beriladigan muloyim savol matni (masalan: 'Assalomu alaykum! Ertaga darsga kela olasizmi?')",
+                    },
+                    "expected_info": {
+                        "type": "string",
+                        "description": "Aniqlashtirilishi kutilayotgan ma'lumot (masalan: 'Ertaga darsga kela olishi yoki olmasligi sababi')",
+                    },
+                },
+                "required": ["target", "question", "expected_info"],
+            },
+        },
+    },
 ]
 
 
@@ -575,6 +600,49 @@ async def execute_tool_call(tool_name: str, arguments: Dict[str, Any], client, *
             else:
                 facts = memory_service.get_learned_facts()
                 return {"ok": True, "action": "list", "facts": facts, "total": len(facts) if facts else 0}
+
+        # 20. ask_and_clarify_task (Borib so'rab, aniqlashtirib kelish)
+        elif tool_name == "ask_and_clarify_task":
+            target = str(arguments.get("target", "")).strip()
+            question = str(arguments.get("question", "")).strip()
+            expected_info = str(arguments.get("expected_info", "")).strip()
+            if not target or not question:
+                return {"ok": False, "error": "target yoki question ko'rsatilmadi."}
+
+            user_info = await tas.resolve_target_user(client, target, reply_user_id=reply_user_id)
+            if not user_info.get("ok"):
+                return {"ok": False, "error": f"Foydalanuvchi topilmadi: {user_info.get('error')}"}
+
+            t_id = user_info["user_id"]
+            t_uname = user_info.get("username", "")
+            t_name = user_info.get("name", "Foydalanuvchi")
+
+            # Xabarni foydalanuvchiga yuborish
+            send_res = await tas.send_telegram_message(client, str(t_id), question)
+            if not send_res.get("ok"):
+                return {"ok": False, "error": f"Xabar yuborishda xatolik: {send_res.get('error')}"}
+
+            mentor_chat_id = str(kwargs.get("chat_id") or "")
+
+            inq_id = memory_service.create_active_inquiry(
+                target_user_id=t_id,
+                target_name=t_name,
+                target_username=t_uname,
+                question_text=question,
+                expected_info=expected_info,
+                mentor_chat_id=mentor_chat_id,
+            )
+
+            return {
+                "ok": True,
+                "inquiry_id": inq_id,
+                "target_name": t_name,
+                "target_username": t_uname,
+                "target_user_id": t_id,
+                "question": question,
+                "status": "pending",
+                "message": f"Savol {t_name} (@{t_uname or t_id}) ga yuborildi. U javob berganda javob mantiqan tahlil qilinib, hisobot beriladi.",
+            }
 
         else:
             return {"ok": False, "error": f"Noma'lum asbob (Unknown tool): {tool_name}"}

@@ -847,6 +847,49 @@ class MongoMemoryService:
             return []
 
     # ==========================================
+    # Active Inquiries (Borib so'rab, aniqlashtirib kelish)
+    # ==========================================
+    def save_active_inquiry(self, doc: dict) -> bool:
+        if not self.is_connected() or not doc:
+            return False
+        try:
+            inquiry_data = dict(doc)
+            inquiry_data["updated_at"] = datetime.now(ZoneInfo("Asia/Tashkent"))
+            inquiry_id = inquiry_data.get("inquiry_id")
+            if inquiry_id:
+                self._db["brain_frontline.active_inquiries"].update_one(
+                    {"inquiry_id": inquiry_id},
+                    {"$set": inquiry_data, "$setOnInsert": {"created_at": datetime.now(ZoneInfo("Asia/Tashkent"))}},
+                    upsert=True,
+                )
+            else:
+                inquiry_data["created_at"] = datetime.now(ZoneInfo("Asia/Tashkent"))
+                self._db["brain_frontline.active_inquiries"].insert_one(inquiry_data)
+            return True
+        except Exception as e:
+            logger.error("MongoDB save_active_inquiry xatolik: %s", e)
+            return False
+
+    def update_active_inquiry_status(self, inquiry_id: int, status: str, result_summary: str = "") -> bool:
+        if not self.is_connected() or not inquiry_id:
+            return False
+        try:
+            self._db["brain_frontline.active_inquiries"].update_one(
+                {"inquiry_id": inquiry_id},
+                {
+                    "$set": {
+                        "status": status,
+                        "result_summary": result_summary,
+                        "updated_at": datetime.now(ZoneInfo("Asia/Tashkent")),
+                    }
+                },
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB update_active_inquiry_status xatolik: %s", e)
+            return False
+
+    # ==========================================
     # 5. Zero-Loss SQLite <-> MongoDB Synchronization
     # ==========================================
     def restore_to_sqlite(self, sqlite_path: Path) -> dict[str, int]:

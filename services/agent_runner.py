@@ -30,7 +30,8 @@ TEMIR QOIDALAR:
 6. Agar mentor "Bilimlar bazangni ko'rsat", "Nimani o'rganding?" desa — `get_learned_facts` toolini chaqiring. Agar biror qoidani o'chir desa — `manage_knowledge_base(action="forget", topic="...")` chaqiring.
 7. Agar mentor "ignor qil" yoki "e'tiborsiz qoldir" desa — `mute_user` toolini chaqiring (Telegramda bloklamasdan).
 8. Agar mentor "blokla" yoki "blokla va ignor qil" desa — `block_user` toolini chaqiring (Telegramda ham bloklaydi).
-9. Barcha kerakli asboblar bajarilib bo'lgach, Mentorga to'liq, chiroyli va professional hisobot qaytaring.
+9. Agar mentor "falonchidan so'rab bilchi", "darsga keladimi bilib kel", "aniqlashtirib kel", "so'rab kel" kabi vazifa bersa — `ask_and_clarify_task(target="...", question="...", expected_info="...")` toolini chaqiring. Bu tool orqali agent unga savol yuboradi va uning javobini kutish holatiga oladi.
+10. Barcha kerakli asboblar bajarilib bo'lgach, Mentorga to'liq, chiroyli va professional hisobot qaytaring.
 """.strip()
 
 
@@ -40,6 +41,7 @@ async def run_autonomous_agent_loop(
     chats_context: str = "",
     reply_user_id: Optional[int] = None,
     reply_msg_id: Optional[int] = None,
+    chat_id: Optional[Any] = None,
     max_steps: int = 5,
 ) -> Optional[str]:
     """
@@ -146,6 +148,7 @@ async def run_autonomous_agent_loop(
                     client,
                     reply_user_id=reply_user_id,
                     reply_msg_id=reply_msg_id,
+                    chat_id=chat_id,
                 )
                 total_tool_calls_executed += 1
 
