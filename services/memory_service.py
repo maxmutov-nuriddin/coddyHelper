@@ -5,6 +5,8 @@ Suhbatlar kompyuter o'chsa yoki dastur qayta ishga tushsa ham saqlanib qoladi.
 
 import logging
 import sqlite3
+import re
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass
@@ -1293,18 +1295,40 @@ class SQLiteMemoryService:
             return None
 
     def find_precomputed_answer(self, query: str) -> dict | None:
-        """Foydalanuvchi savoliga oldindan tayyorlab qo'yilgan mukammal yechim mavjudligini tekshiradi."""
+        """
+        Foydalanuvchi savoliga Miya 5 (Avtonom Ong) tomonidan oldindan tayyorlab qo'yilgan
+        mukammal yechim mavjudligini tekshiradi (Substring + Kalit so'zlar o'xshashligi + MongoDB zaxirasi).
+        """
+        if not query or len(query.strip()) < 3:
+            return None
+
+        stopwords = {
+            "qanday", "qilsa", "bo'ladi", "boladi", "nima", "uchun", "kerak", "qanaqa",
+            "qaysi", "haqida", "bilan", "aytib", "bering", "iltimos", "salom", "assalomu",
+            "alaykum", "как", "что", "это", "сделать", "почему", "для", "ли", "скажите", "пожалуйста"
+        }
+
         try:
+            q_lower = query.lower().strip()
+            q_tokens = set(re.findall(r"[a-zA-Z0-9]{3,}", q_lower)) - stopwords
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT id, topic, question_pattern, answer_text FROM precomputed_answers ORDER BY usage_count DESC LIMIT 30"
+                    "SELECT id, topic, question_pattern, answer_text FROM precomputed_answers ORDER BY usage_count DESC LIMIT 1000"
                 )
                 rows = cursor.fetchall()
-                q_lower = query.lower().strip()
+
+                best_match = None
+                best_score = 0.0
+
                 for r in rows:
                     pat = (r[2] or "").lower().strip()
-                    if pat and len(pat) >= 5 and (pat in q_lower or q_lower in pat):
+                    if not pat:
+                        continue
+
+                    # 1. Aniq qism-qator (Substring) mosligi: eng yuqori ustuvorlik
+                    if len(pat) >= 5 and (pat in q_lower or q_lower in pat):
                         conn.execute("UPDATE precomputed_answers SET usage_count = usage_count + 1 WHERE id = ?", (r[0],))
                         conn.commit()
                         return {
@@ -1312,7 +1336,46 @@ class SQLiteMemoryService:
                             "topic": r[1],
                             "question_pattern": r[2],
                             "answer_text": r[3],
+                            "match_type": "exact_substring",
                         }
+
+                    # 2. Kalit so'zlar (Token Overlap) tahlili
+                    pat_tokens = set(re.findall(r"[a-zA-Z0-9]{3,}", pat)) - stopwords
+                    if pat_tokens and q_tokens:
+                        common = pat_tokens & q_tokens
+                        if len(common) >= 2:
+                            score = len(common) / len(pat_tokens)
+                            if score > best_score and score >= 0.4:
+                                best_score = score
+                                best_match = r
+
+                if best_match and best_score >= 0.4:
+                    conn.execute("UPDATE precomputed_answers SET usage_count = usage_count + 1 WHERE id = ?", (best_match[0],))
+                    conn.commit()
+                    return {
+                        "id": best_match[0],
+                        "topic": best_match[1],
+                        "question_pattern": best_match[2],
+                        "answer_text": best_match[3],
+                        "match_type": f"keyword_overlap_{int(best_score * 100)}%",
+                    }
+
+            # 3. Agar SQLite da topilmasa, MongoDB Atlas zaxirasini tekshirish
+            mongo_items = mongo_memory_service.get_all_precomputed_answers(limit=50)
+            for m in mongo_items:
+                pat = (m.get("question_pattern") or "").lower().strip()
+                ans = m.get("answer_text") or m.get("answer_code") or ""
+                if not pat or not ans:
+                    continue
+                if len(pat) >= 5 and (pat in q_lower or q_lower in pat):
+                    return {
+                        "id": str(m.get("_id", "")),
+                        "topic": m.get("topic", "Dasturlash"),
+                        "question_pattern": pat,
+                        "answer_text": ans,
+                        "match_type": "mongo_exact",
+                    }
+
         except Exception as e:
             logger.error("Oldindan tayyorlangan javobni qidirishda xatolik: %s", e)
         return None

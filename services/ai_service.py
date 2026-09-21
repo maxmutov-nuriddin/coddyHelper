@@ -2329,12 +2329,13 @@ class AIService:
                 memory_service.add_message(chat_id=chat_id, role="model", content=fast_faq)
                 return AIResult(fast_faq)
 
-            # 4-Miya (Avtonom Ong) oldindan tayyorlab keshga qo'ygan yechimni tekshirish (0.02s)
+            # 0-Bosqich: Miya 5 (Avtonom Ong) oldindan keshlab qo'ygan yechimni tekshirish (0.02s - Limit sarflanmaydi)
             precomputed = memory_service.find_precomputed_answer(user_message)
             if precomputed:
                 ans_text = precomputed.get("answer_text", "")
                 if ans_text:
-                    logger.info("⚡ Avtonom Miya (Pre-computation) tayyor javobi qo'llanildi [%s: %s]", chat_id, precomputed.get("topic"))
+                    match_type = precomputed.get("match_type", "kesh")
+                    logger.info("⚡ Miya 5 (Zero-Latency Cache Hit) qo'llanildi [%s: %s | %s]", chat_id, precomputed.get("topic"), match_type)
                     memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
                     memory_service.add_message(chat_id=chat_id, role="model", content=ans_text)
                     return AIResult(ans_text)
@@ -2752,34 +2753,71 @@ class AIService:
 
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
         """
-        Groq Whisper (whisper-large-v3) orqali ovozli xabarni o'zbek/rus tilida matnga o'giradi.
+        Ovozli xabarni matnga o'giradi (Multi-Tier Kaskad):
+        1-bosqich: Groq Whisper (Frontline klasteri - whisper-large-v3)
+        2-bosqich: Groq Whisper (Zaxira Qalqoni klasteri - whisper-large-v3)
+        3-bosqich: Google Gemini 2.0 Flash Audio transkripsiya (Temir zaxira)
         """
+        # 1-bosqich: Frontline klasteri orqali urinish
         pool = self._frontline_clients if self._frontline_clients else self._groq_clients
-        if not pool:
-            self._setup_clients()
-            pool = self._frontline_clients if self._frontline_clients else self._groq_clients
-            if not pool:
-                raise RuntimeError("Ovozni tahlil qilish uchun Groq klasteri mavjud emas.")
+        if pool:
+            for _ in range(min(5, len(pool))):
+                client = pool[self._frontline_idx % len(pool)]
+                self._frontline_idx = (self._frontline_idx + 1) % len(pool)
+                try:
+                    transcription = await client.audio.transcriptions.create(
+                        file=("voice.ogg", audio_bytes),
+                        model="whisper-large-v3",
+                        response_format="text",
+                    )
+                    text = str(transcription).strip()
+                    if text:
+                        logger.info("✅ Groq Whisper (Frontline) ovozli xabarni matnga aylantirdi: %s", text[:80])
+                        return text
+                except Exception as e:
+                    logger.warning("Groq Whisper (Frontline) xatolik, keyingi kalitga o'tilmoqda: %s", e)
 
-        last_error = None
-        for _ in range(len(pool)):
-            client = pool[self._frontline_idx % len(pool)]
-            self._frontline_idx = (self._frontline_idx + 1) % len(pool)
+        # 2-bosqich: Groq Zaxira Qalqoni orqali urinish
+        if self._reserve_clients:
+            for _ in range(min(3, len(self._reserve_clients))):
+                client = self._reserve_clients[self._reserve_idx % len(self._reserve_clients)]
+                self._reserve_idx = (self._reserve_idx + 1) % len(self._reserve_clients)
+                try:
+                    transcription = await client.audio.transcriptions.create(
+                        file=("voice.ogg", audio_bytes),
+                        model="whisper-large-v3",
+                        response_format="text",
+                    )
+                    text = str(transcription).strip()
+                    if text:
+                        logger.info("🛡️ Groq Whisper (Zaxira Qalqoni) ovozli xabarni matnga aylantirdi: %s", text[:80])
+                        return text
+                except Exception as e:
+                    logger.warning("Groq Whisper (Zaxira Qalqoni) xatolik: %s", e)
+
+        # 3-bosqich: Google Gemini Audio zaxirasi
+        if self._gemini_client:
             try:
-                transcription = await client.audio.transcriptions.create(
-                    file=("voice.ogg", audio_bytes),
-                    model="whisper-large-v3",
-                    response_format="text",
-                )
-                text = str(transcription).strip()
-                logger.info("Ovozli xabar matnga aylantirildi: %s", text[:80])
-                return text
-            except Exception as e:
-                logger.warning("Groq Whisper'da xatolik, zaxira kalitga o'tilmoqda: %s", e)
-                last_error = e
+                logger.info("⚡ Groq Whisper tugadi/band. Google Gemini audio transkripsiya zaxirasiga ulanmoqda...")
+                loop = asyncio.get_running_loop()
 
-        if last_error:
-            raise last_error
+                def _gemini_transcribe():
+                    resp = self._gemini_client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg"),
+                            "Iltimos, ushbu ovozli xabardagi barcha so'zlarni xatosiz to'liq matnga o'giring (faqat aytilgan gapni qaytaring, qo'shimcha so'z va izoh yozmang)."
+                        ],
+                    )
+                    return resp.text.strip() if resp and resp.text else ""
+
+                text = await asyncio.wait_for(loop.run_in_executor(None, _gemini_transcribe), timeout=18.0)
+                if text:
+                    logger.info("✅ Google Gemini orqali ovozli xabar transkripsiya qilindi: %s", text[:80])
+                    return text
+            except Exception as gem_err:
+                logger.warning("Google Gemini audio transkripsiyasida xatolik: %s", gem_err)
+
         return ""
 
     async def generate_mentor_report(self, questions: list[str]) -> str:

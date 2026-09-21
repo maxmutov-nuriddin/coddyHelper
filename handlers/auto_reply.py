@@ -147,6 +147,42 @@ def is_absence_message(text: str) -> bool:
     return any(re.search(pat, t, re.I) for pat in absence_triggers)
 
 
+def is_human_escalation_query(text: str) -> tuple[bool, str]:
+    """
+    Inson aralashuvi shart bo'lgan nozik masalalarni aniqlaydi:
+    - To'lov, shartnoma, kvitansiya, pul qaytarish (refund);
+    - Ma'muriyat, direktor, menejer bilan shaxsan bog'lanish;
+    - Shikoyat, e'tiroz yoki AI bilan emas, tirik inson bilan gaplashish talabi.
+    """
+    t = text.lower().strip()
+    if not t:
+        return False, ""
+
+    # 1. Moliyaviy / To'lov / Shartnoma masalalari
+    finance_patterns = [
+        (r"\b(?:pul\w*\s+qaytar\w*|pulimni\s+qaytar\w*|vozvrat\s+deneg|qaytarib\s+ber\w*)\b", "Pulni qaytarish (Refund) talabi"),
+        (r"\b(?:shartnoma|dogovor|kontrakt)\b", "Shartnoma / Hujjatlar masalasi"),
+        (r"\b(?:to['’`]?lov\s+qildim|tolov\s+qildim|oplachival|oplata\s+proshla|chek\w*\s+tashla\w*|to['’`]?lov\s+cheki)\b", "To'lov cheki yoki to'lovni tasdiqlash"),
+        (r"\b(?:kurs\s+narxi|qancha\s+turadi|skolko\s+stoit|narxlar|skidka|chegirma)\b", "Kurs narxi va moliyaviy ma'lumot"),
+    ]
+    for pat, desc in finance_patterns:
+        if re.search(pat, t, re.I):
+            return True, desc
+
+    # 2. Tirik inson / Menejer / Mentor bilan shaxsan gaplashish
+    human_patterns = [
+        (r"\b(?:odam\s+bormi|inson\s+bormi|bot\s+bilan\s+emas|botmisiz|живой\s+человек|позовите\s+человека)\b", "Foydalanuvchi inson bilan gaplashishni talab qildi"),
+        (r"\b(?:menejer|menedjer|administrator|admin\s+bilan|direktor|operator)\b", "Ma'muriyat / Menejer bilan bog'lanish so'rovi"),
+        (r"\b(?:ustoz\s+bilan\s+gaplash\w*|nuriddin\s+aka\s+bilan|ustozga\s+ulab\s+ber\w*|ustoz\s+telefon\w*|nomerini\s+ber\w*)\b", "Ustoz bilan shaxsiy muloqot yoki telefon so'rovi"),
+        (r"\b(?:shikoyat\w*|e['’`]?tiroz\w*|zhaloba|pretenziya|yomon\s+o['’`]?qit\w*)\b", "Shikoyat yoki e'tiroz bildirish"),
+    ]
+    for pat, desc in human_patterns:
+        if re.search(pat, t, re.I):
+            return True, desc
+
+    return False, ""
+
+
 PENDING_ABSENCE_STUDENTS: dict[int, dict[str, Any]] = {}
 RECENT_ABSENCE_NOTIFICATIONS: dict[int, float] = {}
 
@@ -2180,6 +2216,67 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     memory_service.add_message(chat_id=chat_id, role="user", content=input_text)
                     memory_service.add_message(chat_id=chat_id, role="model", content=report_text)
                     return
+
+                # 🚨 7-BOSQICH: INSON ARALASHUVI (HUMAN-IN-THE-LOOP ESCALATION)
+                # To'lov, shartnoma, ma'muriyat, shikoyat yoki inson bilan bog'lanish talabi
+                is_esc, esc_reason = is_human_escalation_query(input_text)
+                if is_esc and not is_admin_chat and not is_mentor_user:
+                    try:
+                        is_ru = is_russian_text(input_text)
+                        if is_ru:
+                            esc_student_reply = (
+                                "🤝 **Ваше обращение принято!**\n\n"
+                                "По данному вопросу в ближайшее время с вами лично свяжется учитель Нуриддин (@mentor_cc) "
+                                "или администрация CoddyCamp (@coddycamp_sergeli).\n\n"
+                                "Пожалуйста, ожидайте! 😊"
+                            )
+                        else:
+                            esc_student_reply = (
+                                "🤝 **Murojaatingiz qabul qilindi!**\n\n"
+                                "Ushbu masala bo'yicha tez orada ustozingiz Nuriddin aka (@mentor_cc) "
+                                "yoki CoddyCamp ma'muriyati (@coddycamp_sergeli) siz bilan shaxsan bog'lanishadi.\n\n"
+                                "Iltimos, ozgina kuting! 😊"
+                            )
+
+                        CURRENT_SENDING_CHATS.add(chat_id)
+                        try:
+                            sent_reply = await event.reply(esc_student_reply)
+                            if sent_reply:
+                                BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
+                        finally:
+                            CURRENT_SENDING_CHATS.discard(chat_id)
+
+                        sender_name = getattr(sender, "first_name", "") or "Noma'lum"
+                        if getattr(sender, "last_name", None):
+                            sender_name += f" {sender.last_name}"
+                        sender_user = f"@{sender.username}" if getattr(sender, "username", None) else "Mavjud emas"
+                        chat_source = "Shaxsiy xabar (Lichka)"
+                        if is_group:
+                            try:
+                                chat_entity = await event.get_chat()
+                                chat_source = f"Guruh: {getattr(chat_entity, 'title', 'Guruh')}"
+                            except Exception:
+                                chat_source = f"Guruh ID: `{event.chat_id}`"
+
+                        alert_text = (
+                            "🚨 **SHOSHILINCH: Inson Aralashuvi Talab Qilinadi (Human-in-the-loop)!**\n\n"
+                            f"📍 **Manba:** {chat_source}\n"
+                            f"👤 **O'quvchi:** [{sender_name}](tg://user?id={sender_id}) ({sender_user})\n"
+                            f"🆔 **ID:** `{sender_id}`\n\n"
+                            f"⚠️ **Aniqlangan sabab:** {esc_reason}\n\n"
+                            f"❓ **O'quvchi xabari:**\n\"{input_text}\"\n\n"
+                            "👉 *Iltimos, o'quvchi bilan bevosita bog'laning yoki shaxsiy chatida javob bering.*"
+                        )
+                        vazifalar_target = await get_vazifalar_chat_target(client)
+                        await client.send_message(vazifalar_target, alert_text)
+                        logger.info("🚨 Human-in-the-loop eskalatsiyasi Vazifalar guruhiga yetkazildi: %s", esc_reason)
+                        log_activity(f"🚨 Inson aralashuvi: {esc_reason} [{chat_id}]")
+
+                        memory_service.add_message(chat_id=chat_id, role="user", content=input_text)
+                        memory_service.add_message(chat_id=chat_id, role="model", content=esc_student_reply)
+                        return
+                    except Exception as esc_err:
+                        logger.error("Human-in-the-loop eskalatsiyasida xatolik: %s", esc_err)
 
                 # AI javobini generatsiya qilish (35s timeout bilan himoyalangan)
                 try:
