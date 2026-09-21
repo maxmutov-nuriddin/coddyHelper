@@ -19,7 +19,11 @@ from services.memory_service import memory_service
 
 logger = logging.getLogger(__name__)
 
-ESCALATE_PATTERN = re.compile(r"<<<ESCALATE>>>(.*?)<<<END_ESCALATE>>>", re.DOTALL)
+ESCALATE_PATTERN = re.compile(
+    r"<+ESCALATE>+([\s\S]*?)<+END_ESCALATE>+|"
+    r"<+ESCALATE>+([\s\S]*?)(?:\n\n|\Z)",
+    re.DOTALL | re.IGNORECASE
+)
 
 
 def is_russian_text(text: str) -> bool:
@@ -2508,8 +2512,12 @@ class AIService:
             escalation_info = None
             match = ESCALATE_PATTERN.search(answer)
             if match:
-                escalation_info = match.group(1).strip()
+                escalation_info = (match.group(1) or match.group(2) or "").strip()
                 answer = ESCALATE_PATTERN.sub("", answer).strip()
+
+            # Qolgan har qanday ochiq yoki buzilgan eskalatsiya teglari o'quvchiga ko'rinib qolmasligi uchun tozalash
+            answer = re.sub(r"<+/?(?:END_)?ESCALATE>+", "", answer, flags=re.IGNORECASE).strip()
+            answer = re.sub(r"(?:Sabab|Reason|Причина):\s*Dasturlashga aloqador bo'lmagan.*", "", answer, flags=re.IGNORECASE).strip()
 
             # Maxfiy ma'lumotlarni tozalash (Data Leak Prevention)
             answer = redact_sensitive_data(answer)
@@ -2533,6 +2541,22 @@ class AIService:
                             answer = f"{answer} Ushbu xabaringizni mentorimizga (Nuriddin akaga) ham yetkazdim."
                     if not escalation_info:
                         escalation_info = "Dasturlashga aloqador bo'lmagan yoki begona mavzuda murojaat"
+
+                # Agar model o'quvchiga ustozni ogohlantirdim degan bo'lsa (tag qo'yishni unutgan bo'lsa ham)
+                mention_mentor_phrases = [
+                    r"mentorimizga\s+.*?yetkazdim",
+                    r"ustozga\s+.*?yetkazdim",
+                    r"ustozni\s+ogohlantirdim",
+                    r"nuriddin\s+akaga\s+.*?yetkazdim",
+                    r"наставнику\s+.*?передал",
+                    r"передал\s+.*?учителю",
+                    r"передал\s+.*?наставнику",
+                    r"сообщил\s+.*?наставнику",
+                    r"сообщил\s+.*?учителю",
+                ]
+                if any(re.search(p, answer, re.IGNORECASE) for p in mention_mentor_phrases):
+                    if not escalation_info:
+                        escalation_info = "AI o'quvchiga ustozga xabar yetkazilganini bildirdi"
 
             # Faqatgina bir xil kunda, davom etayotgan suhbatda va foydalanuvchi o'zi salom bermagan bo'lsa:
             # Qayta-qayta sun'iy "Assalomu alaykum" yoki "Salom" deb salom berishni tozalash.

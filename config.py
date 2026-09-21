@@ -44,7 +44,7 @@ class Config:
     group_reply_enabled: bool = True
     command_prefix: str = "."
     memory_limit: int = 10
-    escalation_chat: str = "-1005388159517"
+    escalation_chat: str = "-5388159517"
     bot_token: str = ""
     bot_username: str = "coddyassistanstbot"
     session_name: str = "coddy_helper_session"
@@ -119,9 +119,9 @@ class Config:
         auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
         group_reply_enabled = str_to_bool(os.getenv("GROUP_REPLY_ENABLED", "true"), default=True)
         command_prefix = os.getenv("COMMAND_PREFIX", ".").strip()
-        raw_esc = os.getenv("ESCALATION_CHAT", "-1005388159517").strip()
+        raw_esc = os.getenv("ESCALATION_CHAT", "-5388159517").strip()
         if not raw_esc or raw_esc.lower() in ("me", "self", "8105823872"):
-            escalation_chat = "-1005388159517"
+            escalation_chat = "-5388159517"
         else:
             escalation_chat = raw_esc
         string_session = os.getenv("TELEGRAM_STRING_SESSION", "").strip()
@@ -229,11 +229,9 @@ def is_escalation_chat(chat_id: int | str) -> bool:
 
 
 def normalize_group_id(val: int | str) -> int | str:
-    """Telethon uchun superguruh ID larini to'g'ri (-100...) formatga keltiradi."""
+    """Telethon uchun guruh ID sini to'g'ri int formatga keltiradi (ortiqcha -100 prefiksini zo'rlab qo'shmaydi)."""
     s = str(val).strip()
-    if s.startswith("-") and not s.startswith("-100") and len(s.lstrip("-")) >= 9:
-        s = f"-100{s.lstrip('-')}"
-    return int(s) if s.lstrip("-").isdigit() else s
+    return int(s) if (s.startswith("-") and s.lstrip("-").isdigit()) or s.isdigit() else s
 
 
 async def get_vazifalar_chat_target(client=None) -> int | str:
@@ -267,7 +265,7 @@ async def get_vazifalar_chat_target(client=None) -> int | str:
         except Exception:
             pass
 
-    return -1005388159517
+    return -5388159517
 
 
 def get_vazifalar_chat_target_sync() -> int | str:
@@ -284,7 +282,7 @@ def get_vazifalar_chat_target_sync() -> int | str:
     if cfg and cfg.lower() not in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
         return normalize_group_id(cfg)
 
-    return -1005388159517
+    return -5388159517
 
 
 
