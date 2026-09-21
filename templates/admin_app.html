@@ -2162,18 +2162,40 @@
           </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px;">
-          <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 10px;">
-            <div style="font-size: 10px; color: var(--hint-color);">Jami Dosyeler:</div>
-            <div id="dossiers-total-stat" style="font-size: 16px; font-weight: 800; color: #4ade80;">0 ta</div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px;">
+          <!-- 1. Barcha Chatlar (Vazifalar guruhi chiqarilgan holda) -->
+          <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 9px 10px;">
+            <div style="font-size: 10px; color: var(--hint-color); display: flex; justify-content: space-between; align-items: center;">
+              <span>💬 Barcha Chatlar:</span>
+              <span style="color: #4ade80; font-size: 9px; font-weight: 600;" title="Vazifalar guruhi kiritilmagan">🛡️ Xavfsiz</span>
+            </div>
+            <div id="dossiers-total-chats-stat" style="font-size: 16px; font-weight: 800; color: #38bdf8; margin: 2px 0;">0 ta</div>
+            <div id="dossiers-chats-breakdown" style="font-size: 9px; color: var(--hint-color); line-height: 1.2;">
+              Shaxsiy: 0 • Guruh: 0 • Kanal: 0
+            </div>
           </div>
-          <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 10px;">
-            <div style="font-size: 10px; color: var(--hint-color);">Navbatda:</div>
-            <div id="dossiers-queue-stat" style="font-size: 16px; font-weight: 800; color: #fbbf24;">0 ta</div>
+
+          <!-- 2. Jami Dosyeler -->
+          <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 9px 10px;">
+            <div style="font-size: 10px; color: var(--hint-color);">🕵️‍♂️ Tahlil Qilingan:</div>
+            <div id="dossiers-total-stat" style="font-size: 16px; font-weight: 800; color: #4ade80; margin: 2px 0;">0 ta</div>
+            <div style="font-size: 9px; color: var(--hint-color);">Shaxsiy dosyelar</div>
           </div>
-          <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 10px;">
-            <div style="font-size: 10px; color: var(--hint-color);">Stories / Kanallar:</div>
-            <div id="dossiers-channels-stat" style="font-size: 16px; font-weight: 800; color: #38bdf8;">0 ta</div>
+
+          <!-- 3. Navbatda -->
+          <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 9px 10px;">
+            <div style="font-size: 10px; color: var(--hint-color);">⏳ Navbatda:</div>
+            <div id="dossiers-queue-stat" style="font-size: 16px; font-weight: 800; color: #fbbf24; margin: 2px 0;">0 ta</div>
+            <div id="dossiers-active-user-stat" style="font-size: 9px; color: var(--hint-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              Sokin (Kutilmoqda)
+            </div>
+          </div>
+
+          <!-- 4. Stories / Kanallar -->
+          <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 9px 10px;">
+            <div style="font-size: 10px; color: var(--hint-color);">⭐ Stories & Kanal:</div>
+            <div id="dossiers-channels-stat" style="font-size: 16px; font-weight: 800; color: #c084fc; margin: 2px 0;">0 ta</div>
+            <div style="font-size: 9px; color: var(--hint-color);">Aktiv profillar</div>
           </div>
         </div>
       </div>
@@ -2259,7 +2281,28 @@
         <!-- JS to'ldiradi -->
       </div>
       <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
-        <button class="btn btn-secondary" onclick="closeDossierModal()" style="padding: 7px 18px;">Yopish</button>
+        <button class="btn btn-secondary" onclick="closeDossierModal()" style="padding: 7px 18px; width: auto;">Yopish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PHOTO VIEWER LIGHTBOX MODAL -->
+  <div id="photo-viewer-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 10000; align-items: center; justify-content: center; padding: 10px; box-sizing: border-box; backdrop-filter: blur(8px);">
+    <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; width: 100%; max-width: 480px; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+        <div style="min-width: 0; flex: 1;">
+          <div id="photo-modal-name" style="font-size: 14px; font-weight: 700; color: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">📸 Profil Rasmlari</div>
+          <div id="photo-modal-counter" style="font-size: 11px; color: var(--hint-color); margin-top: 2px;">1 / 1</div>
+        </div>
+        <button onclick="closePhotoModal()" style="background: rgba(255,255,255,0.08); border: none; border-radius: 50%; width: 32px; height: 32px; color: #cbd5e1; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-left: 8px;">✕</button>
+      </div>
+      <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 12px; position: relative; min-height: 280px; background: rgba(0,0,0,0.55);">
+        <img id="photo-modal-img" src="" alt="User photo" style="max-width: 100%; max-height: 52vh; border-radius: 10px; object-fit: contain; box-shadow: 0 6px 24px rgba(0,0,0,0.5);" />
+        <button id="photo-prev-btn" onclick="prevPhoto()" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.65); color: white; border: 1px solid rgba(255,255,255,0.25); width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;">‹</button>
+        <button id="photo-next-btn" onclick="nextPhoto()" style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.65); color: white; border: 1px solid rgba(255,255,255,0.25); width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;">›</button>
+      </div>
+      <div id="photo-thumbnails" style="display: flex; gap: 8px; padding: 10px 14px; overflow-x: auto; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.3); min-height: 50px;">
+        <!-- JS fills thumbnails -->
       </div>
     </div>
   </div>
@@ -3221,6 +3264,19 @@
 
         const pCur = document.getElementById('profiler-current-target');
         if (pCur) pCur.innerText = st.profiler.is_crawling ? 'Skanerlanmoqda...' : (st.profiler.current_user || 'Sokin');
+
+        const activeUserEl = document.getElementById('dossiers-active-user-stat');
+        if (activeUserEl) activeUserEl.innerText = st.profiler.is_crawling ? 'Skanerlanmoqda...' : (st.profiler.current_user || 'Sokin (Kutilmoqda)');
+
+        if (st.profiler.chat_stats) {
+          const cs = st.profiler.chat_stats;
+          const totalChatsEl = document.getElementById('dossiers-total-chats-stat');
+          if (totalChatsEl && cs.total_chats) totalChatsEl.innerText = `${cs.total_chats} ta`;
+          const breakdownEl = document.getElementById('dossiers-chats-breakdown');
+          if (breakdownEl && cs.total_chats) {
+            breakdownEl.innerText = `Shaxsiy: ${cs.private_chats || 0} • Guruh: ${cs.group_chats || 0} • Kanal: ${cs.channel_chats || 0}`;
+          }
+        }
       }
 
       // Render live activity logs
@@ -3417,11 +3473,12 @@
       const btn = document.getElementById('btn-scan-dialogs');
       if (btn) btn.disabled = true;
       haptic();
-      showToast("🔍 Eski chatlar skanerlanmoqda (bitta-bitta navbatga qo'shilmoqda)...");
+      showToast("🔍 Barcha chatlar o'rganilmoqda (Vazifalar guruhi chiqarilgan holda)...");
       try {
-        const res = await apiRequest('/api/autonomous-brain/scan-dialogs', 'POST', { limit: 200 });
+        const res = await apiRequest('/api/autonomous-brain/scan-dialogs', 'POST', { limit: 500 });
         if (res && res.ok) {
           showToast(`✅ ${res.message || 'Skanerlash yakunlandi'}`);
+          await loadUserDossiers();
           await refreshAutonomousBrainStatus();
         } else {
           showToast('⚠️ ' + (res?.message || res?.error || 'Xatolik yuz berdi'), true);
@@ -3452,18 +3509,43 @@
         if (res && res.ok && res.items) {
           allDossiersCache = res.items;
 
+          // 1. Jami tahlil qilingan dosyeler
           const totalStat = document.getElementById('dossiers-total-stat');
           if (totalStat) totalStat.innerText = `${res.count || res.items.length} ta`;
 
-          // Stories & channels count
+          // 2. Stories & kanallar soni
           const chCount = res.items.filter(d => d.channel_username || d.has_stories).length;
           const chStat = document.getElementById('dossiers-channels-stat');
           if (chStat) chStat.innerText = `${chCount} ta`;
 
-          // Queue stat
+          // 3. Navbat statistikasi
           const qStat = document.getElementById('dossiers-queue-stat');
           const pQ = document.getElementById('profiler-queue-count');
-          if (qStat && pQ) qStat.innerText = pQ.innerText;
+          if (qStat) {
+            if (res.profiler && typeof res.profiler.queue_length !== 'undefined') {
+              qStat.innerText = `${res.profiler.queue_length} ta`;
+            } else if (pQ) {
+              qStat.innerText = pQ.innerText;
+            }
+          }
+
+          const activeUserEl = document.getElementById('dossiers-active-user-stat');
+          if (activeUserEl && res.profiler) {
+            activeUserEl.innerText = res.profiler.is_crawling ? 'Skanerlanmoqda...' : (res.profiler.current_user || 'Sokin (Kutilmoqda)');
+          }
+
+          // 4. Barcha Chatlar statistikasi (Vazifalar guruhi chiqarilgan)
+          if (res.chat_stats) {
+            const cs = res.chat_stats;
+            const totalChatsEl = document.getElementById('dossiers-total-chats-stat');
+            if (totalChatsEl && typeof cs.total_chats !== 'undefined') {
+              totalChatsEl.innerText = `${cs.total_chats} ta`;
+            }
+            const breakdownEl = document.getElementById('dossiers-chats-breakdown');
+            if (breakdownEl) {
+              breakdownEl.innerText = `Shaxsiy: ${cs.private_chats || 0} • Guruh: ${cs.group_chats || 0} • Kanal: ${cs.channel_chats || 0}`;
+            }
+          }
 
           renderDossiersList();
         }
@@ -3495,6 +3577,96 @@
       renderDossiersList();
     }
 
+    let currentGalleryPhotos = [];
+    let currentPhotoIndex = 0;
+
+    async function viewUserPhotos(userId, name) {
+      haptic();
+      const modal = document.getElementById('photo-viewer-modal');
+      const nameEl = document.getElementById('photo-modal-name');
+      const imgEl = document.getElementById('photo-modal-img');
+      const counterEl = document.getElementById('photo-modal-counter');
+      const thumbsEl = document.getElementById('photo-thumbnails');
+      if (!modal || !imgEl) return;
+
+      if (nameEl) nameEl.innerText = `📸 ${name || "Foydalanuvchi"} rasmlari`;
+      imgEl.src = `/api/user-photo/${userId}/0`;
+      if (counterEl) counterEl.innerText = "Yuklanmoqda...";
+      if (thumbsEl) thumbsEl.innerHTML = "";
+      modal.style.display = 'flex';
+
+      try {
+        const res = await apiRequest(`/api/user-photos-info/${userId}`);
+        if (res && res.ok && res.photos && res.photos.length) {
+          currentGalleryPhotos = res.photos;
+        } else {
+          currentGalleryPhotos = [`/api/user-photo/${userId}/0`];
+        }
+      } catch (e) {
+        currentGalleryPhotos = [`/api/user-photo/${userId}/0`];
+      }
+
+      currentPhotoIndex = 0;
+      updatePhotoViewer();
+    }
+
+    function updatePhotoViewer() {
+      const imgEl = document.getElementById('photo-modal-img');
+      const counterEl = document.getElementById('photo-modal-counter');
+      const thumbsEl = document.getElementById('photo-thumbnails');
+      const prevBtn = document.getElementById('photo-prev-btn');
+      const nextBtn = document.getElementById('photo-next-btn');
+
+      if (!currentGalleryPhotos.length) return;
+      if (currentPhotoIndex < 0) currentPhotoIndex = 0;
+      if (currentPhotoIndex >= currentGalleryPhotos.length) currentPhotoIndex = currentGalleryPhotos.length - 1;
+
+      if (imgEl) imgEl.src = currentGalleryPhotos[currentPhotoIndex];
+      if (counterEl) counterEl.innerText = `${currentPhotoIndex + 1} / ${currentGalleryPhotos.length}`;
+
+      if (prevBtn) prevBtn.style.display = currentGalleryPhotos.length > 1 ? 'flex' : 'none';
+      if (nextBtn) nextBtn.style.display = currentGalleryPhotos.length > 1 ? 'flex' : 'none';
+
+      if (thumbsEl && currentGalleryPhotos.length > 1) {
+        thumbsEl.innerHTML = currentGalleryPhotos.map((url, idx) => `
+          <img src="${url}" onclick="selectPhoto(${idx})" style="width: 44px; height: 44px; border-radius: 6px; object-fit: cover; cursor: pointer; border: 2px solid ${idx === currentPhotoIndex ? '#a855f7' : 'transparent'}; opacity: ${idx === currentPhotoIndex ? '1' : '0.6'}; transition: all 0.2s; flex-shrink: 0;" />
+        `).join('');
+      } else if (thumbsEl) {
+        thumbsEl.innerHTML = '';
+      }
+    }
+
+    function prevPhoto() {
+      if (currentPhotoIndex > 0) {
+        currentPhotoIndex--;
+        updatePhotoViewer();
+      } else {
+        currentPhotoIndex = currentGalleryPhotos.length - 1;
+        updatePhotoViewer();
+      }
+    }
+
+    function nextPhoto() {
+      if (currentPhotoIndex < currentGalleryPhotos.length - 1) {
+        currentPhotoIndex++;
+        updatePhotoViewer();
+      } else {
+        currentPhotoIndex = 0;
+        updatePhotoViewer();
+      }
+    }
+
+    function selectPhoto(idx) {
+      currentPhotoIndex = idx;
+      updatePhotoViewer();
+    }
+
+    function closePhotoModal() {
+      haptic();
+      const modal = document.getElementById('photo-viewer-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
     function renderDossiersList() {
       const container = document.getElementById('dossiers-list-container');
       if (!container) return;
@@ -3520,36 +3692,86 @@
 
       container.innerHTML = items.map(d => {
         const fullName = [d.first_name, d.last_name].filter(Boolean).join(' ') || "Noma'lum";
-        const uname = d.username ? `@${d.username}` : `ID: ${d.user_id}`;
-        const phone = d.phone ? `📞 ${escapeHtml(d.phone)}` : '';
-        const photosBadge = d.photo_count > 0 ? `<span style="background: rgba(59,130,246,0.18); color: #93c5fd; padding: 2px 6px; border-radius: 4px; font-size: 10px;">📸 ${d.photo_count} ta rasm</span>` : '';
-        const storiesBadge = d.has_stories ? `<span style="background: rgba(234,179,8,0.18); color: #fde047; padding: 2px 6px; border-radius: 4px; font-size: 10px;">⭐ Stories</span>` : '';
-        const channelBadge = d.channel_username ? `<span style="background: rgba(168,85,247,0.18); color: #e9d5ff; padding: 2px 6px; border-radius: 4px; font-size: 10px;">📢 @${escapeHtml(d.channel_username)}</span>` : '';
+        const cleanUname = d.username ? d.username.replace('@', '').trim() : '';
+        const phoneClean = d.phone ? d.phone.replace(/[^0-9+]/g, '') : '';
+        const safeName = escapeHtml(fullName).replace(/'/g, "\\'");
 
-        let preview = d.bio ? `📝 <i>"${escapeHtml(d.bio.slice(0, 120))}${d.bio.length > 120 ? '...' : ''}"</i>` : `<span style="color: var(--hint-color);">Bio ko'rsatilmagan</span>`;
+        const unameLink = cleanUname ? `
+          <a href="https://t.me/${escapeHtml(cleanUname)}" target="_blank" onclick="event.stopPropagation();" title="Telegramda ochish" style="display: inline-flex; align-items: center; gap: 4px; color: #38bdf8; background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 6px; text-decoration: none; font-size: 11.5px; font-weight: 700;">
+            ✈️ @${escapeHtml(cleanUname)}
+          </a>
+        ` : `
+          <a href="tg://user?id=${d.user_id}" onclick="event.stopPropagation();" title="Telegram profil" style="display: inline-flex; align-items: center; gap: 4px; color: #38bdf8; background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 6px; text-decoration: none; font-size: 11.5px; font-weight: 600;">
+            🆔 ${d.user_id}
+          </a>
+        `;
+
+        const phoneLink = phoneClean ? `
+          <a href="tel:${escapeHtml(phoneClean)}" onclick="event.stopPropagation();" title="Qo'ng'iroq qilish" style="display: inline-flex; align-items: center; gap: 4px; color: #a7f3d0; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 2px 8px; border-radius: 6px; text-decoration: none; font-size: 11.5px; font-weight: 600;">
+            📞 ${escapeHtml(d.phone)}
+          </a>
+        ` : '';
+
+        const photosBadge = d.photo_count > 0 ? `
+          <button type="button" onclick="event.stopPropagation(); viewUserPhotos(${d.user_id}, '${safeName}')" title="Barcha rasmlarni ochish" style="background: rgba(59,130,246,0.22); color: #93c5fd; border: 1px solid rgba(59,130,246,0.4); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+            📸 ${d.photo_count} ta rasm 👁️
+          </button>
+        ` : '';
+
+        const storiesBadge = d.has_stories ? `<span style="background: rgba(234,179,8,0.18); color: #fde047; padding: 3px 8px; border-radius: 6px; font-size: 10.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">⭐ Stories</span>` : '';
+
+        const channelBadge = d.channel_username ? `
+          <a href="https://t.me/${escapeHtml(d.channel_username)}" target="_blank" onclick="event.stopPropagation();" title="Kanalni ochish" style="background: rgba(168,85,247,0.2); color: #e9d5ff; border: 1px solid rgba(168,85,247,0.4); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+            📢 @${escapeHtml(d.channel_username)}
+          </a>
+        ` : '';
+
+        let preview = d.bio ? `📝 <i>"${escapeHtml(d.bio.slice(0, 140))}${d.bio.length > 140 ? '...' : ''}"</i>` : `<span style="color: var(--hint-color);">Bio ma'lumoti kiritilmagan</span>`;
 
         return `
-          <div class="card" style="margin-bottom: 10px; border-left: 3px solid #a855f7;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+          <div class="card" onclick="openDossierModal(${d.user_id})" style="margin-bottom: 12px; border-left: 4px solid #a855f7; padding: 12px 14px; box-sizing: border-box; cursor: pointer; transition: transform 0.15s ease, background 0.15s ease;">
+            <!-- Header: Avatar + Full name & Username & Phone -->
+            <div style="display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px;">
+              <img src="/api/user-photo/${d.user_id}/0" onclick="event.stopPropagation(); viewUserPhotos(${d.user_id}, '${safeName}')" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid #a855f7; cursor: pointer; flex-shrink: 0; background: rgba(0,0,0,0.3);" onerror="this.src='/app-icon.svg'" title="Rasmlarni ko'rish" />
               <div style="min-width: 0; flex: 1;">
-                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
-                  <strong style="font-size: 13.5px; color: #f8fafc;">${escapeHtml(fullName)}</strong>
-                  <span style="font-size: 11px; color: #38bdf8;">${escapeHtml(uname)}</span>
-                  ${phone ? `<span style="font-size: 11px; color: #a7f3d0;">${phone}</span>` : ''}
+                <div style="font-size: 15px; font-weight: 800; color: #f8fafc; line-height: 1.3;">
+                  ${escapeHtml(fullName)}
                 </div>
-                <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 7px;">
-                  ${photosBadge}
-                  ${storiesBadge}
-                  ${channelBadge}
-                  <span style="font-size: 10px; color: var(--hint-color); align-self: center;">📅 ${escapeHtml(d.analyzed_at || '')}</span>
-                </div>
-                <div style="font-size: 11.5px; color: #cbd5e1; line-height: 1.4; margin-bottom: 4px;">
-                  ${preview}
+                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 3px;">
+                  ${unameLink}
+                  ${phoneLink}
                 </div>
               </div>
-              <button class="btn btn-secondary" onclick="openDossierModal(${d.user_id})" style="padding: 5px 10px; font-size: 11px; white-space: nowrap; flex-shrink: 0; background: rgba(168,85,247,0.18); border-color: rgba(168,85,247,0.4); color: #e9d5ff; font-weight: 600;">
-                👁️ Ko'rish
+            </div>
+
+            <!-- Badges row -->
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px;">
+              ${photosBadge}
+              ${storiesBadge}
+              ${channelBadge}
+              <span style="font-size: 10px; color: var(--hint-color); margin-left: auto;">📅 ${escapeHtml(d.analyzed_at || '')}</span>
+            </div>
+
+            <!-- Bio / Excerpt preview -->
+            <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 7px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; color: #cbd5e1; line-height: 1.45;">
+              ${preview}
+            </div>
+
+            <!-- Action buttons -->
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button class="btn btn-secondary" onclick="event.stopPropagation(); openDossierModal(${d.user_id})" style="flex: 1; padding: 8px 12px; font-size: 12px; font-weight: 700; background: linear-gradient(135deg, rgba(168,85,247,0.2), rgba(59,130,246,0.15)); border: 1px solid rgba(168,85,247,0.4); color: #f3e8ff; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                👁️ To'liq Dosye
               </button>
+              ${cleanUname ? `
+                <a href="https://t.me/${escapeHtml(cleanUname)}" target="_blank" onclick="event.stopPropagation();" class="btn btn-secondary" style="width: auto; padding: 8px 12px; font-size: 12px; font-weight: 600; background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.4); color: #38bdf8; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                  ✈️ Chat
+                </a>
+              ` : ''}
+              ${d.photo_count > 0 ? `
+                <button type="button" onclick="event.stopPropagation(); viewUserPhotos(${d.user_id}, '${safeName}')" class="btn btn-secondary" style="width: auto; padding: 8px 12px; font-size: 12px; font-weight: 600; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.4); color: #93c5fd; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px;">
+                  📸 Rasmlar
+                </button>
+              ` : ''}
             </div>
           </div>
         `;
@@ -3567,22 +3789,56 @@
       if (!modal || !body) return;
 
       const fullName = [d.first_name, d.last_name].filter(Boolean).join(' ') || "Noma'lum";
+      const cleanUname = d.username ? d.username.replace('@', '').trim() : '';
+      const phoneClean = d.phone ? d.phone.replace(/[^0-9+]/g, '') : '';
+      const safeName = escapeHtml(fullName).replace(/'/g, "\\'");
+
       if (title) title.innerText = `🕵️‍♂️ Dosye: ${fullName}`;
 
       body.innerHTML = `
         <div style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; font-size: 11.5px;">
-            <div>👤 <b>Ism:</b> ${escapeHtml(fullName)}</div>
-            <div>🆔 <b>User ID:</b> ${d.user_id}</div>
-            <div>🌐 <b>Username:</b> ${d.username ? `@${escapeHtml(d.username)}` : 'Mavjud emas'}</div>
-            <div>📞 <b>Telefon:</b> ${escapeHtml(d.phone || 'Yashirin')}</div>
-            <div>📸 <b>Profil rasmlari:</b> ${d.photo_count || 0} ta</div>
-            <div>⭐ <b>Stories:</b> ${d.has_stories ? 'Mavjud' : 'Yo\'q'}</div>
+          <!-- Top row with Avatar and Quick Links -->
+          <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px;">
+            <img src="/api/user-photo/${d.user_id}/0" onclick="viewUserPhotos(${d.user_id}, '${safeName}')" style="width: 56px; height: 56px; border-radius: 50%; object-fit: cover; border: 2px solid #a855f7; cursor: pointer; flex-shrink: 0;" onerror="this.src='/app-icon.svg'" title="Rasmlarni ochish" />
+            <div style="min-width: 0; flex: 1;">
+              <div style="font-size: 16px; font-weight: 800; color: #f8fafc;">${escapeHtml(fullName)}</div>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+                ${cleanUname ? `
+                  <a href="https://t.me/${escapeHtml(cleanUname)}" target="_blank" style="font-size: 11.5px; color: #38bdf8; font-weight: 700; text-decoration: none; background: rgba(56,189,248,0.12); padding: 2px 8px; border-radius: 5px; border: 1px solid rgba(56,189,248,0.3);">
+                    ✈️ @${escapeHtml(cleanUname)}
+                  </a>
+                ` : `<span style="font-size: 11px; color: var(--hint-color);">ID: ${d.user_id}</span>`}
+                ${phoneClean ? `
+                  <a href="tel:${escapeHtml(phoneClean)}" style="font-size: 11.5px; color: #a7f3d0; font-weight: 600; text-decoration: none; background: rgba(16,185,129,0.12); padding: 2px 8px; border-radius: 5px; border: 1px solid rgba(16,185,129,0.3);">
+                    📞 ${escapeHtml(d.phone)}
+                  </a>
+                ` : ''}
+              </div>
+            </div>
           </div>
-          ${d.bio ? `<div style="font-size: 11.5px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);"><b>Bio:</b> ${escapeHtml(d.bio)}</div>` : ''}
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; font-size: 12px;">
+            <div>🆔 <b>User ID:</b> ${d.user_id}</div>
+            <div>
+              📸 <b>Profil rasmlari:</b> 
+              ${d.photo_count > 0 ? `
+                <a href="javascript:void(0)" onclick="viewUserPhotos(${d.user_id}, '${safeName}')" style="color: #93c5fd; font-weight: 700; text-decoration: underline;">
+                  ${d.photo_count} ta (Ko'rish)
+                </a>
+              ` : '0 ta'}
+            </div>
+            <div>⭐ <b>Stories:</b> ${d.has_stories ? '<span style="color: #fde047;">Mavjud ⭐</span>' : 'Yo\'q'}</div>
+            <div>📅 <b>Sana:</b> ${escapeHtml(d.analyzed_at || 'Yangi')}</div>
+          </div>
+
+          ${d.bio ? `<div style="font-size: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); word-break: break-word;"><b>Bio:</b> ${escapeHtml(d.bio)}</div>` : ''}
+
           ${d.channel_username ? `
-            <div style="font-size: 11.5px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); color: #c084fc;">
-              📢 <b>Bog'langan kanal:</b> @${escapeHtml(d.channel_username)}<br>
+            <div style="font-size: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); color: #c084fc;">
+              📢 <b>Bog'langan kanal:</b> 
+              <a href="https://t.me/${escapeHtml(d.channel_username)}" target="_blank" style="color: #e9d5ff; font-weight: 700; text-decoration: underline;">
+                @${escapeHtml(d.channel_username)}
+              </a><br>
               ${d.channel_summary ? `<div style="color: #cbd5e1; font-size: 11px; margin-top: 3px;"><i>${escapeHtml(d.channel_summary)}</i></div>` : ''}
             </div>
           ` : ''}
@@ -3591,8 +3847,22 @@
         <div style="font-size: 11px; font-weight: 700; color: #38bdf8; margin-bottom: 6px; text-transform: uppercase;">
           ⚡ AI Xulosasi va Shaxsiy Xarakteristika:
         </div>
-        <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(56,189,248,0.25); border-radius: 8px; padding: 12px; font-size: 12px; white-space: pre-wrap; font-family: inherit; line-height: 1.5; color: #f8fafc; max-height: 300px; overflow-y: auto;">
+        <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(56,189,248,0.25); border-radius: 8px; padding: 12px; font-size: 12.5px; white-space: pre-wrap; font-family: inherit; line-height: 1.55; color: #f8fafc; max-height: 320px; overflow-y: auto; word-break: break-word;">
 ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
+        </div>
+
+        <!-- Direct Actions row -->
+        <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+          ${cleanUname ? `
+            <a href="https://t.me/${escapeHtml(cleanUname)}" target="_blank" class="btn btn-primary" style="flex: 1; text-decoration: none; padding: 8px 12px; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+              ✈️ Telegramda Chat Ochish
+            </a>
+          ` : ''}
+          ${d.photo_count > 0 ? `
+            <button class="btn btn-secondary" onclick="viewUserPhotos(${d.user_id}, '${safeName}')" style="width: auto; padding: 8px 12px; font-size: 12px; color: #93c5fd; border-color: rgba(59,130,246,0.4);">
+              📸 Rasmlar (${d.photo_count})
+            </button>
+          ` : ''}
         </div>
       `;
 
@@ -4227,7 +4497,16 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
           statusText = "🔴 Past (E'tibor zarur)";
         }
 
-        const usernameDisplay = s.username ? `<span style="color: var(--accent); font-size: 12px;">@${escapeHtml(s.username.replace('@',''))}</span>` : '';
+        const cleanUname = s.username ? s.username.replace('@', '').trim() : '';
+        const safeStudentName = escapeHtml(s.full_name || "O'quvchi").replace(/'/g, "\\'");
+        const avatarTarget = cleanUname || s.id;
+
+        const usernameDisplay = cleanUname ? `
+          <a href="https://t.me/${escapeHtml(cleanUname)}" target="_blank" onclick="event.stopPropagation();" title="Telegramda ochish" style="display: inline-flex; align-items: center; gap: 4px; color: #38bdf8; background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 6px; text-decoration: none; font-size: 11.5px; font-weight: 700;">
+            ✈️ @${escapeHtml(cleanUname)}
+          </a>
+        ` : '';
+
         const groupDisplay = s.group_name ? `<span style="font-size: 11px; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px;">${escapeHtml(s.group_name)}</span>` : '';
         const strengthsDisplay = s.strengths ? `<div style="font-size: 12px; color: var(--text-color);"><span style="color: var(--success); font-weight: 600;">+ Kuchli:</span> ${escapeHtml(s.strengths)}</div>` : '';
         const weaknessesDisplay = s.weaknesses ? `<div style="font-size: 12px; color: var(--text-color);"><span style="color: var(--warning); font-weight: 600;">- Qiynaladi:</span> ${escapeHtml(s.weaknesses)}</div>` : '';
@@ -4236,19 +4515,22 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         const qCount = s.questions_count !== undefined && s.questions_count !== null ? s.questions_count : 0;
 
         return `
-          <div class="student-card">
-            <div class="student-header">
-              <div>
-                <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 2px;">${escapeHtml(s.full_name || "O'quvchi")}</h4>
-                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+          <div class="student-card" style="padding: 12px 14px; margin-bottom: 10px;">
+            <div class="student-header" style="display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px;">
+              <img src="/api/user-avatar/${escapeHtml(avatarTarget)}" onclick="viewUserPhotos('${escapeHtml(avatarTarget)}', '${safeStudentName}')" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 2px solid var(--accent); cursor: pointer; flex-shrink: 0; background: rgba(0,0,0,0.3);" onerror="this.src='/app-icon.svg'" title="Rasmini ko'rish" />
+              <div style="min-width: 0; flex: 1;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; flex-wrap: wrap;">
+                  <h4 style="font-size: 15px; font-weight: 700; margin: 0 0 3px 0; color: #f8fafc;">${escapeHtml(s.full_name || "O'quvchi")}</h4>
+                  <span class="student-badge ${badgeClass}" style="margin: 0;">${statusText}</span>
+                </div>
+                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 2px;">
                   ${usernameDisplay}
                   ${groupDisplay}
                 </div>
               </div>
-              <span class="student-badge ${badgeClass}">${statusText}</span>
             </div>
             
-            <div style="font-size: 12px; color: var(--hint-color); display: flex; gap: 12px; flex-wrap: wrap;">
+            <div style="font-size: 12px; color: var(--hint-color); display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 6px;">
               <span>❓ Savollar: <b>${qCount} ta</b></span>
               <span>🕒 Oxirgi faollik: <b>${lastActiveStr}</b></span>
             </div>
@@ -4257,11 +4539,19 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
             ${weaknessesDisplay}
             ${notesDisplay}
 
-            <div style="display: flex; gap: 8px; margin-top: 4px;">
-              <button class="btn btn-secondary" onclick="openStudentModal(${s.id})" style="padding: 6px 12px; font-size: 12px; flex: 1;">
-                ✏️ Tahrirlash / Izoh
+            <div style="display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;">
+              ${cleanUname ? `
+                <a href="https://t.me/${escapeHtml(cleanUname)}" target="_blank" class="btn btn-secondary" style="padding: 7px 12px; font-size: 11.5px; width: auto; color: #38bdf8; border-color: rgba(56,189,248,0.4); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; font-weight: 600;">
+                  ✈️ Telegram
+                </a>
+              ` : ''}
+              <button class="btn btn-secondary" onclick="viewUserPhotos('${escapeHtml(avatarTarget)}', '${safeStudentName}')" style="padding: 7px 12px; font-size: 11.5px; width: auto; color: #93c5fd; border-color: rgba(59,130,246,0.4); display: inline-flex; align-items: center; gap: 4px; font-weight: 600;">
+                📸 Rasm
               </button>
-              <button class="btn btn-secondary" onclick="deleteStudent(${s.id})" style="padding: 6px 12px; font-size: 12px; color: var(--danger); width: auto;">
+              <button class="btn btn-secondary" onclick="openStudentModal(${s.id})" style="padding: 7px 12px; font-size: 11.5px; flex: 1; font-weight: 600;">
+                ✏️ Izoh
+              </button>
+              <button class="btn btn-secondary" onclick="deleteStudent(${s.id})" style="padding: 7px 10px; font-size: 11.5px; color: var(--danger); width: auto;">
                 🗑
               </button>
             </div>

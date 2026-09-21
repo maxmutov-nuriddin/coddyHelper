@@ -1316,12 +1316,17 @@ self.addEventListener('fetch', (event) => {
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
         try:
+            from services.profile_intelligence_service import profile_intelligence_service
             client = get_client_func() if callable(get_client_func) else None
-            added = await autonomous_brain_service.trigger_dialog_scan(client=client, limit=200)
+            res = await autonomous_brain_service.trigger_dialog_scan(client=client, limit=500)
+            added = res.get("added", 0) if isinstance(res, dict) else (res or 0)
+            chat_stats = profile_intelligence_service.get_chat_stats()
+            total_c = chat_stats.get("total_chats", 0)
             return web.json_response({
                 "ok": True,
                 "added": added,
-                "message": f"{added} ta yangi foydalanuvchi navbatga olindi!",
+                "chat_stats": chat_stats,
+                "message": f"{added} ta yangi shaxs navbatga olindi. Jami {total_c} ta chat mavjud (Vazifalar guruhi chiqarilgan).",
                 "status": autonomous_brain_service.get_status(),
             })
         except Exception as e:
@@ -1331,9 +1336,122 @@ self.addEventListener('fetch', (event) => {
     async def handle_api_get_user_dossiers(request: web.Request):
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
-        query = request.query.get("q", "").strip()
-        items = memory_service.get_all_user_dossiers(query=query, limit=100)
-        return web.json_response({"ok": True, "items": items, "count": memory_service.get_dossier_count()})
+        try:
+            from services.profile_intelligence_service import profile_intelligence_service
+            query = request.query.get("q", "").strip()
+            items = memory_service.get_all_user_dossiers(query=query, limit=100)
+            chat_stats = profile_intelligence_service.get_chat_stats()
+
+            # Agar chat_stats hali bo'sh bo'lsa va client mavjud bo'lsa, fon sifatida sanab qo'yish
+            if chat_stats.get("total_chats", 0) == 0:
+                client = get_client_func() if callable(get_client_func) else None
+                if client:
+                    asyncio.create_task(profile_intelligence_service.count_all_dialogs(client=client))
+
+            return web.json_response({
+                "ok": True,
+                "items": items,
+                "count": memory_service.get_dossier_count(),
+                "chat_stats": chat_stats,
+                "profiler": profile_intelligence_service.get_status(),
+            })
+        except Exception as e:
+            logger.error("handle_api_get_user_dossiers xatolik: %s", e)
+    _AVATAR_CACHE: dict[str, bytes] = {}
+
+    def _generate_svg_avatar(name: str) -> bytes:
+        initial = (name[:1] if name else "?").upper()
+        svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+          <defs>
+            <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#7c3aed"/>
+              <stop offset="100%" stop-color="#3b82f6"/>
+            </linearGradient>
+          </defs>
+          <rect width="120" height="120" rx="60" fill="url(#g)"/>
+          <text x="50%" y="54%" font-family="system-ui, -apple-system, sans-serif" font-size="52" font-weight="800" fill="#ffffff" dominant-baseline="middle" text-anchor="middle">{initial}</text>
+        </svg>"""
+        return svg.encode("utf-8")
+
+    async def handle_api_user_photo(request: web.Request):
+        user_id_str = request.match_info.get("user_id", "").strip().lstrip("@")
+        idx_str = request.match_info.get("index", "0")
+        try:
+            user_id = int(user_id_str) if user_id_str.lstrip("-").isdigit() else user_id_str
+            idx = int(idx_str)
+        except Exception:
+            return web.Response(body=_generate_svg_avatar("?"), content_type="image/svg+xml")
+
+        cache_key = f"{user_id}_{idx}"
+        if cache_key in _AVATAR_CACHE:
+            return web.Response(
+                body=_AVATAR_CACHE[cache_key],
+                content_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+
+        client = get_client_func() if callable(get_client_func) else None
+        if not client:
+            try:
+                import main
+                client = getattr(main, "CURRENT_CLIENT", None)
+            except Exception:
+                pass
+
+        if client:
+            try:
+                entity = await client.get_entity(user_id)
+                photos = await client.get_profile_photos(entity, limit=10)
+                if photos and idx < len(photos):
+                    img_bytes = await client.download_media(photos[idx], file=bytes)
+                    if img_bytes:
+                        if len(_AVATAR_CACHE) > 200:
+                            _AVATAR_CACHE.clear()
+                        _AVATAR_CACHE[cache_key] = img_bytes
+                        return web.Response(
+                            body=img_bytes,
+                            content_type="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=86400"},
+                        )
+            except Exception as pe:
+                logger.debug("handle_api_user_photo xatolik [%s]: %s", user_id, pe)
+
+        return web.Response(
+            body=_generate_svg_avatar(str(user_id_str)),
+            content_type="image/svg+xml",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    async def handle_api_user_photos_info(request: web.Request):
+        user_id_str = request.match_info.get("user_id", "").strip().lstrip("@")
+        try:
+            user_id = int(user_id_str) if user_id_str.lstrip("-").isdigit() else user_id_str
+        except Exception:
+            return web.json_response({"ok": False, "photos": []})
+
+        client = get_client_func() if callable(get_client_func) else None
+        if not client:
+            try:
+                import main
+                client = getattr(main, "CURRENT_CLIENT", None)
+            except Exception:
+                pass
+
+        photo_urls = []
+        if client:
+            try:
+                entity = await client.get_entity(user_id)
+                photos = await client.get_profile_photos(entity, limit=10)
+                if photos:
+                    for i in range(len(photos)):
+                        photo_urls.append(f"/api/user-photo/{user_id}/{i}")
+            except Exception as pe:
+                logger.debug("handle_api_user_photos_info xatolik: %s", pe)
+
+        if not photo_urls:
+            photo_urls.append(f"/api/user-photo/{user_id}/0")
+
+        return web.json_response({"ok": True, "photos": photo_urls, "count": len(photo_urls)})
 
     async def handle_api_get_precomputed_answers(request: web.Request):
         if not is_authenticated(request):
@@ -1469,6 +1587,9 @@ self.addEventListener('fetch', (event) => {
     app.router.add_post("/api/autonomous-brain/settings", handle_api_autonomous_brain_settings)
     app.router.add_post("/api/autonomous-brain/scan-dialogs", handle_api_autonomous_brain_scan_dialogs)
     app.router.add_get("/api/autonomous-brain/dossiers", handle_api_get_user_dossiers)
+    app.router.add_get("/api/user-photo/{user_id}/{index}", handle_api_user_photo)
+    app.router.add_get("/api/user-avatar/{user_id}", handle_api_user_photo)
+    app.router.add_get("/api/user-photos-info/{user_id}", handle_api_user_photos_info)
     app.router.add_get("/api/precomputed-answers", handle_api_get_precomputed_answers)
     app.router.add_post("/api/precomputed-answers/delete", handle_api_delete_precomputed_answer)
     app.router.add_get("/api/mentor-lexicon", handle_api_get_mentor_lexicon)

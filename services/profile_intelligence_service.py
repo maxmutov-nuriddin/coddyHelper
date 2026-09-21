@@ -31,6 +31,121 @@ class ProfileIntelligenceService:
         self._worker_task: asyncio.Task | None = None
         self._current_user: str | None = None
         self._total_analyzed_session: int = 0
+        self._chat_stats: dict[str, int] = {}
+
+    def is_vazifalar_group(self, chat_id: Any, title: str = "") -> bool:
+        """
+        Vazifalar (Boshqaruv markazi) guruhini tekshiradi.
+        Ushbu guruh MUTLAQO tahlil qilinmaydi va umumiy chatlar soniga ham kiritilmaydi!
+        """
+        try:
+            from config import get_vazifalar_chat_target_sync, normalize_group_id
+            v_id = get_vazifalar_chat_target_sync()
+            clean_str = str(chat_id).strip()
+            norm_str = str(normalize_group_id(clean_str)) if clean_str else ""
+            excluded_ids = {
+                "-5388159517", "-1005388159517", "5388159517", "1005388159517",
+                str(v_id), str(normalize_group_id(v_id)),
+                str(memory_service.get_setting("vazifalar_group_id", "")),
+                str(memory_service.get_setting("tasks_group_id", "")),
+            }
+            if clean_str in excluded_ids or norm_str in excluded_ids:
+                return True
+        except Exception:
+            pass
+
+        t_lower = (title or "").lower()
+        if "vazifa" in t_lower or "boshqaruv" in t_lower:
+            return True
+
+        return False
+
+    def get_chat_stats(self) -> dict[str, int]:
+        """Barcha chatlar (Vazifalar guruhi chiqarilgan) statistikasini qaytaradi."""
+        if self._chat_stats and self._chat_stats.get("total_chats", 0) > 0:
+            return self._chat_stats
+        try:
+            import json
+            raw = memory_service.get_setting("profiler_chat_stats", "")
+            if raw:
+                loaded = json.loads(raw)
+                if isinstance(loaded, dict):
+                    self._chat_stats = loaded
+                    return loaded
+        except Exception:
+            pass
+        return {
+            "total_chats": 0,
+            "private_chats": 0,
+            "group_chats": 0,
+            "channel_chats": 0,
+            "bots_chats": 0,
+        }
+
+    async def count_all_dialogs(self, client=None, limit: int = 500) -> dict[str, int]:
+        """
+        Barcha mavjud chatlar (shaxsiy, guruhlar, kanallar) sonini sanaydi.
+        Vazifalar guruhi va Mentor hisobga olinmaydi va tahlil qilinmaydi!
+        """
+        cl = client or self._client
+        if not cl:
+            try:
+                import main
+                cl = getattr(main, "CURRENT_CLIENT", None)
+            except Exception:
+                pass
+        if not cl:
+            return self.get_chat_stats()
+
+        private_count = 0
+        groups_count = 0
+        channels_count = 0
+        bots_count = 0
+
+        try:
+            async for dialog in cl.iter_dialogs(limit=limit):
+                d_id = dialog.id
+                d_name = getattr(dialog, "name", "") or ""
+
+                # 1. Vazifalar guruhini MUTLAQO chiqarib tashlash
+                if self.is_vazifalar_group(d_id, d_name):
+                    continue
+
+                entity = getattr(dialog, "entity", None)
+                if getattr(entity, "is_self", False):
+                    continue
+
+                uid = d_id or getattr(entity, "id", None)
+                if uid in (config.mentor_user_id, 8105823872):
+                    continue
+
+                if dialog.is_user:
+                    if getattr(entity, "bot", False):
+                        bots_count += 1
+                    else:
+                        private_count += 1
+                elif dialog.is_group:
+                    groups_count += 1
+                elif dialog.is_channel:
+                    channels_count += 1
+
+            total = private_count + groups_count + channels_count
+            self._chat_stats = {
+                "total_chats": total,
+                "private_chats": private_count,
+                "group_chats": groups_count,
+                "channel_chats": channels_count,
+                "bots_chats": bots_count,
+            }
+            try:
+                import json
+                memory_service.set_setting("profiler_chat_stats", json.dumps(self._chat_stats))
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error("count_all_dialogs xatolik: %s", e)
+
+        return self.get_chat_stats()
 
     def start(self, client=None) -> None:
         """Profiler ishchi fon daemonini ishga tushiradi."""
@@ -108,10 +223,11 @@ class ProfileIntelligenceService:
         logger.debug("📥 Profiler navbatiga qo'shildi: user_id=%s (Navbat hajmi: %d)", user_id, self._queue.qsize())
         return True
 
-    async def scan_historic_dialogs(self, client=None, limit: int = 300) -> int:
+    async def scan_historic_dialogs(self, client=None, limit: int = 500) -> dict[str, Any]:
         """
-        Mavjud barcha shaxsiy dialoglarni birma-bir skaner qilib,
-        tahlil qilinmagan foydalanuvchilarni navbatga terib chiqadi.
+        Mavjud barcha dialoglarni skanerlab, umumiy statistika to'playdi
+        va tahlil qilinmagan foydalanuvchilarni navbatga terib chiqadi.
+        FAKAT: Vazifalar guruhi MUTLAQO analiz qilinmaydi va hisobga olinmaydi!
         """
         cl = client or self._client
         if not cl:
@@ -129,35 +245,80 @@ class ProfileIntelligenceService:
 
         if not cl:
             logger.warning("Historic Dialog Scan: Telethon client mavjud emas.")
-            return 0
+            return {"added": 0, "chat_stats": self.get_chat_stats()}
 
         if self._is_crawling:
             logger.info("Historic Dialog Scan allaqachon davom etmoqda.")
-            return self._queue.qsize()
+            return {"added": self._queue.qsize(), "chat_stats": self.get_chat_stats()}
 
         self._is_crawling = True
         added_count = 0
+        private_count = 0
+        groups_count = 0
+        channels_count = 0
+        bots_count = 0
+
         try:
             logger.info("🔍 Tarixiy chatlarni skanerlash boshlandi (Limit: %d)...", limit)
             async for dialog in cl.iter_dialogs(limit=limit):
-                # Faqat shaxsiy yozishmalar (guruh va kanallar emas)
+                d_id = dialog.id
+                d_name = getattr(dialog, "name", "") or ""
+
+                # 1. Vazifalar guruhini MUTLAQO chiqarib tashlash (analiz qilinmaydi, hisobga olinmaydi)
+                if self.is_vazifalar_group(d_id, d_name):
+                    logger.debug("🛡️ Vazifalar guruhi chiqarib tashlandi: %s (%s)", d_name, d_id)
+                    continue
+
+                entity = getattr(dialog, "entity", None)
+                if getattr(entity, "is_self", False):
+                    continue
+
+                uid = d_id or getattr(entity, "id", None)
+                if uid in (config.mentor_user_id, 8105823872):
+                    continue
+
                 if dialog.is_user:
-                    entity = getattr(dialog, "entity", None)
-                    if getattr(entity, "bot", False) or getattr(entity, "is_self", False):
-                        continue
-                    uid = dialog.id or getattr(entity, "id", None)
-                    if uid and uid > 0 and uid not in (config.mentor_user_id, 8105823872):
-                        if not memory_service.is_user_dossier_exists(uid) and uid not in self._enqueued_ids:
-                            self._enqueued_ids.add(uid)
-                            self._queue.put_nowait(uid)
-                            added_count += 1
-            logger.info("✅ Tarixiy chatlar skanerlandi: %d ta yangi shaxs navbatga qo'shildi.", added_count)
+                    if getattr(entity, "bot", False):
+                        bots_count += 1
+                    else:
+                        private_count += 1
+                        if uid and uid > 0:
+                            if not memory_service.is_user_dossier_exists(uid) and uid not in self._enqueued_ids:
+                                self._enqueued_ids.add(uid)
+                                self._queue.put_nowait(uid)
+                                added_count += 1
+                elif dialog.is_group:
+                    groups_count += 1
+                elif dialog.is_channel:
+                    channels_count += 1
+
+            total_chats = private_count + groups_count + channels_count
+            self._chat_stats = {
+                "total_chats": total_chats,
+                "private_chats": private_count,
+                "group_chats": groups_count,
+                "channel_chats": channels_count,
+                "bots_chats": bots_count,
+            }
+            try:
+                import json
+                memory_service.set_setting("profiler_chat_stats", json.dumps(self._chat_stats))
+            except Exception:
+                pass
+
+            logger.info(
+                "✅ Tarixiy chatlar skanerlandi: Jami %d ta chat (Shaxsiy: %d, Guruh: %d, Kanal: %d). %d ta yangi shaxs navbatga qo'shildi.",
+                total_chats, private_count, groups_count, channels_count, added_count
+            )
         except Exception as e:
             logger.error("scan_historic_dialogs xatolik: %s", e)
         finally:
             self._is_crawling = False
 
-        return added_count
+        return {
+            "added": added_count,
+            "chat_stats": self.get_chat_stats(),
+        }
 
     async def _inspect_single_user(self, client: Any, user_id: int) -> dict[str, Any] | None:
         """
@@ -416,6 +577,12 @@ class ProfileIntelligenceService:
         try:
             if not message or not getattr(message, "sender", None):
                 return
+
+            # Vazifalar guruhi MUTLAQO tekshirilmaydi
+            chat_id = getattr(message, "chat_id", None)
+            if chat_id and self.is_vazifalar_group(chat_id):
+                return
+
             sender = message.sender
             if not getattr(sender, "bot", False):
                 return
@@ -456,6 +623,7 @@ class ProfileIntelligenceService:
             "delay_seconds": self.get_delay_seconds(),
             "destination": self.get_destination(),
             "current_user": self._current_user or "Sokin (Kutilmoqda)",
+            "chat_stats": self.get_chat_stats(),
         }
 
 
