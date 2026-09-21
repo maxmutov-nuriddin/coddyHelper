@@ -417,6 +417,8 @@ self.addEventListener('fetch', (event) => {
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
                 "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
+                "gemini_scope": memory_service.get_setting("gemini_scope", "all"),
+                "gemini_trigger_after": memory_service.get_setting("gemini_trigger_after", "after_reserve"),
                 "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",
                 "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "5")),
                 "ai_persona": memory_service.get_setting("ai_persona", "socratic"),
@@ -512,6 +514,20 @@ self.addEventListener('fetch', (event) => {
         elif feature in ("gemini_backup", "miya3", "miya_3", "gemini"):
             memory_service.set_setting("gemini_backup_enabled", "true" if enabled else "false")
             logger.info("Admin Panel orqali gemini_backup_enabled o'zgartirildi: %s", enabled)
+        elif feature == "gemini_scope":
+            val = str(data.get("value", "all")).strip()
+            if val not in ("all", "vip_only", "students_only", "vision_only"):
+                val = "all"
+            memory_service.set_setting("gemini_scope", val)
+            logger.info("Admin Panel orqali gemini_scope o'zgartirildi: %s", val)
+            return web.json_response({"ok": True, "gemini_scope": val})
+        elif feature == "gemini_trigger_after":
+            val = str(data.get("value", "after_reserve")).strip()
+            if val not in ("after_reserve", "after_primary", "vision_first"):
+                val = "after_reserve"
+            memory_service.set_setting("gemini_trigger_after", val)
+            logger.info("Admin Panel orqali gemini_trigger_after o'zgartirildi: %s", val)
+            return web.json_response({"ok": True, "gemini_trigger_after": val})
         elif feature == "silent_mode":
             memory_service.set_setting("silent_mode_enabled", "true" if enabled else "false")
             logger.info("Admin Panel orqali silent_mode_enabled o'zgartirildi: %s", enabled)
@@ -556,9 +572,39 @@ self.addEventListener('fetch', (event) => {
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
                 "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
+                "gemini_scope": memory_service.get_setting("gemini_scope", "all"),
+                "gemini_trigger_after": memory_service.get_setting("gemini_trigger_after", "after_reserve"),
                 "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",
             }
         )
+
+    async def handle_api_gemini_settings(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        if request.method == "POST":
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            if "enabled" in data:
+                memory_service.set_setting("gemini_backup_enabled", "true" if data["enabled"] else "false")
+                logger.info("Gemini settings API orqali enabled: %s", data["enabled"])
+            if "scope" in data:
+                val = str(data["scope"]).strip()
+                if val in ("all", "vip_only", "students_only", "vision_only"):
+                    memory_service.set_setting("gemini_scope", val)
+                    logger.info("Gemini settings API orqali scope: %s", val)
+            if "trigger_after" in data:
+                val = str(data["trigger_after"]).strip()
+                if val in ("after_reserve", "after_primary", "vision_first"):
+                    memory_service.set_setting("gemini_trigger_after", val)
+                    logger.info("Gemini settings API orqali trigger_after: %s", val)
+        return web.json_response({
+            "ok": True,
+            "enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
+            "scope": memory_service.get_setting("gemini_scope", "all"),
+            "trigger_after": memory_service.get_setting("gemini_trigger_after", "after_reserve"),
+        })
 
     # -----------------------------------------------------------
     # 5. Eslatmalar (Reminders) API
@@ -1378,6 +1424,8 @@ self.addEventListener('fetch', (event) => {
     app.router.add_get("/api/mentor-lexicon", handle_api_get_mentor_lexicon)
     app.router.add_post("/api/mentor-lexicon/delete", handle_api_delete_mentor_lexicon)
     app.router.add_get("/api/self-mistakes", handle_api_get_self_mistakes)
+    app.router.add_get("/api/gemini/settings", handle_api_gemini_settings)
+    app.router.add_post("/api/gemini/settings", handle_api_gemini_settings)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

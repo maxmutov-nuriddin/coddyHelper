@@ -1298,6 +1298,8 @@ class AIService:
                     "limit_tpm": 1000000,
                     "minute_tokens_pct": round(min(100.0, _res_mt / 1000000 * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("reserve", 0),
+                    "scope": memory_service.get_setting("gemini_scope", "all"),
+                    "trigger_after": memory_service.get_setting("gemini_trigger_after", "after_reserve"),
                 },
                 "miya_5_autonomous": {
                     "title": "Miya 5: Avtonom Tafakkur Ongi (Daemon)",
@@ -2252,6 +2254,50 @@ class AIService:
             raise last_err
         return ""
 
+    async def _generate_gemini_reply(
+        self,
+        chat_id: int,
+        effective_prompt: str,
+        is_admin_mode: bool = False,
+        image_bytes: bytes | None = None,
+        brain_tag: str = "reserve",
+    ) -> str | None:
+        """Google Gemini zaxira miyasi orqali javob shakllantiradi va token metrikalarini qayd etadi."""
+        if not self._gemini_client:
+            return None
+        try:
+            logger.info("⚡ Google Gemini zaxira tizimi ishga tushirildi (vision=%s)...", bool(image_bytes))
+            self._recalculate_cascade_states(active_override="Google Gemini")
+            history = memory_service.get_history(chat_id)
+            recent_history = history[-6:] if not is_admin_mode else history[-8:]
+            history_lines = [
+                f"{'Foydalanuvchi' if m.role == 'user' else 'AI'}: {m.content[:500]}"
+                for m in recent_history
+            ]
+            history_context = "\n".join(history_lines)
+
+            loop = asyncio.get_running_loop()
+            t_gem = time.time()
+            answer = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode, image_bytes
+                ),
+                timeout=20.0,
+            )
+            if answer and answer.strip():
+                d_ms = int((time.time() - t_gem) * 1000)
+                self._record_gemini_metrics(
+                    len(effective_prompt) + len(history_context),
+                    len(answer),
+                    duration_ms=d_ms,
+                    brain_tag=brain_tag,
+                )
+                logger.info("✅ Google Gemini zaxira tizimi orqali muvaffaqiyatli javob olindi.")
+                return answer.strip()
+        except Exception as gemini_err:
+            logger.error("Gemini zaxira tizimida xatolik: %s", gemini_err)
+        return None
+
     async def generate_reply(
         self,
         chat_id: int,
@@ -2340,8 +2386,34 @@ class AIService:
 
         try:
             answer = None
+
+            # Gemini sozlamalari (Kim uchun va nimadan keyin ishlashi)
+            gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
+            gemini_scope = memory_service.get_setting("gemini_scope", "all")  # "all", "vip_only", "students_only", "vision_only"
+            gemini_trigger_after = memory_service.get_setting("gemini_trigger_after", "after_reserve")  # "after_reserve", "after_primary", "vision_first"
+
+            def _is_gemini_allowed_for_request() -> bool:
+                if not self._gemini_client or not gemini_backup_enabled:
+                    return False
+                if image_bytes:
+                    return True  # Rasm uchun har doim zaxira yoki birlamchi bo'lib xizmat qiladi
+                if gemini_scope == "vip_only" and not is_admin_mode:
+                    return False
+                if gemini_scope == "students_only" and is_admin_mode:
+                    return False
+                if gemini_scope == "vision_only" and not bool(image_bytes):
+                    return False
+                return True
+
+            # 0-ustuvorlik: Agar "vision_first" tanlangan bo'lsa va xabarda rasm bo'lsa, 1-o'rinda Google Gemini Vision ishlaydi
+            if not answer and image_bytes and gemini_trigger_after == "vision_first" and _is_gemini_allowed_for_request():
+                logger.info("🖼️ [vision_first] Rasm tahlili uchun to'g'ridan-to'g'ri 1-o'rinda Google Gemini Vision ishga tushirildi...")
+                answer = await self._generate_gemini_reply(
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                )
+
             # 1-ustuvorlik: Groq Birlamchi Miya (Miya 1: Frontline yoki Miya 2: VIP)
-            if self._groq_clients:
+            if not answer and self._groq_clients:
                 try:
                     answer = await asyncio.wait_for(
                         self._generate_with_groq(
@@ -2351,14 +2423,21 @@ class AIService:
                     )
                 except Exception as groq_err:
                     logger.warning(
-                        "⚠️ Groq asosiy miyasi (%s) limitga uchradi yoki xatolik: %s. Miya 3 (Groq Zaxira Qalqoni)ga o'tilmoqda...",
+                        "⚠️ Groq asosiy miyasi (%s) limitga uchradi yoki xatolik: %s",
                         "VIP" if is_admin_mode else "Frontline",
                         groq_err,
                     )
                     answer = None
 
-            # 2-ustuvorlik: Miya 3: Groq Zaxira Qalqoni (12 ta kalit, Jamoalar #9-#12 - Gemini'dan oldingi bufer)
-            # Faqat Vazifalar guruhi va o'quvchilar savollarida asosiy miya to'lib qolsa ishga tushadi
+            # 2-ustuvorlik: Agar "after_primary" sozlamasi yoqilgan bo'lsa, asosiy miya to'lishi bilan darhol Gemini ishlaydi
+            if not answer and gemini_trigger_after == "after_primary" and _is_gemini_allowed_for_request():
+                logger.info("⚡ [after_primary] Asosiy miya to'ldi. Gemini'ga darhol o'tilmoqda (Groq Zaxira kutib o'tirilmaydi)...")
+                answer = await self._generate_gemini_reply(
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                )
+
+            # 3-ustuvorlik: Miya 3: Groq Zaxira Qalqoni (12 ta kalit, Jamoalar #9-#12)
+            # Agar "after_reserve" bo'lsa yoki "after_primary" da Gemini xato bergan bo'lsa zaxira Groq ulanadi
             if not answer and self._reserve_clients and not image_bytes:
                 try:
                     logger.info("🛡️ Miya 3: Groq Zaxira Qalqoni (12 ta kalit) yordamga ulandi...")
@@ -2377,45 +2456,18 @@ class AIService:
                         logger.info("✅ Groq Zaxira Qalqoni orqali muvaffaqiyatli javob olindi.")
                 except Exception as res_err:
                     logger.warning(
-                        "⚠️ Groq Zaxira Qalqoni ham to'ldi yoki xatolik: %s. So'nggi istehkom — Google Gemini'ga o'tilmoqda...",
+                        "⚠️ Groq Zaxira Qalqoni ham to'ldi yoki xatolik: %s",
                         res_err,
                     )
                     answer = None
 
-            # 3-ustuvorlik: Google Gemini (Temir Zaxira - 1 million token limit, agar yoqilgan bo'lsa)
-            gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
-            # Agar rasm (vision) bo'lsa va Groq javob bera olmagan bo'lsa, Gemini Vision har doim zaxira sifatida ishlaydi
-            allow_gemini = gemini_backup_enabled or bool(image_bytes)
-            if not answer and self._gemini_client and allow_gemini:
-                try:
-                    logger.info("⚡ Google Gemini zaxira tizimi ishga tushirildi (vision=%s)...", bool(image_bytes))
-                    self._recalculate_cascade_states(active_override="Google Gemini")
-                    history = memory_service.get_history(chat_id)
-                    recent_history = history[-6:] if not is_admin_mode else history[-8:]
-                    history_lines = [
-                        f"{'Foydalanuvchi' if m.role == 'user' else 'AI'}: {m.content[:500]}"
-                        for m in recent_history
-                    ]
-                    history_context = "\n".join(history_lines)
-
-                    loop = asyncio.get_running_loop()
-                    t_gem = time.time()
-                    answer = await asyncio.wait_for(
-                        loop.run_in_executor(
-                            None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode, image_bytes
-                        ),
-                        timeout=15.0,
-                    )
-                    d_ms = int((time.time() - t_gem) * 1000)
-                    self._record_gemini_metrics(
-                        len(effective_prompt) + len(history_context),
-                        len(answer) if answer else 0,
-                        duration_ms=d_ms,
-                        brain_tag=brain_type,
-                    )
-                    logger.info("✅ Google Gemini zaxira tizimi orqali muvaffaqiyatli javob olindi.")
-                except Exception as gemini_err:
-                    logger.error("Gemini zaxira tizimida ham xatolik: %s", gemini_err)
+            # 4-ustuvorlik: Google Gemini (Temir Zaxira - 1 million token limit)
+            # Standart "after_reserve" rejimida barcha Groq to'lgandan so'ng so'nggi istehkom bo'lib ishlaydi
+            if not answer and _is_gemini_allowed_for_request():
+                logger.info("⚡ So'nggi istehkom: Google Gemini zaxira tizimi ulanmoqda (scope=%s)...", gemini_scope)
+                answer = await self._generate_gemini_reply(
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag=brain_type
+                )
 
             if not answer:
                 answer = "Hozirda tizimda yuklama yuqori bo'lgani sababli javob bera olmadim. Iltimos, 1 daqiqadan so'ng qayta urinib ko'ring! ⏳"

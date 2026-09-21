@@ -1502,15 +1502,51 @@
           </label>
         </div>
 
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <h3>🛡️ Miya 4: Temir Zaxira (Google Gemini)</h3>
-            <p>Barcha Groq miyalari limitga uchraganda Gemini so'nggi zaxira sifatida ishlatilsinmi</p>
+        <!-- GEMINI CONTROL HUB -->
+        <div style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.28); border-radius: 10px; padding: 12px 14px; margin-top: 4px; display: flex; flex-direction: column; gap: 10px;">
+          <!-- Top Row: Title + Status + Main Switch -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <div style="font-size: 13px; font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
+                <span>🛡️</span> Miya 4: Temir Zaxira (Google Gemini - 1M Context)
+              </div>
+              <div style="font-size: 11px; color: var(--hint-color); margin-top: 2px;">
+                Zaxira miyaning qamrovi (kim uchun) va kaskad tartibini (nimadan keyin) to'liq boshqaring.
+              </div>
+            </div>
+            <label class="switch" style="flex-shrink: 0;">
+              <input type="checkbox" id="switch-gemini-backup" onchange="toggleFeature('gemini_backup', this.checked)">
+              <span class="slider"></span>
+            </label>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="switch-gemini-backup" onchange="toggleFeature('gemini_backup', this.checked)">
-            <span class="slider"></span>
-          </label>
+
+          <!-- Controls Sub-grid -->
+          <div id="gemini-detailed-controls" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; padding-top: 8px; border-top: 1px dashed rgba(245, 158, 11, 0.25);">
+            <!-- Control 1: Kim uchun ishlasin (Scope) -->
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 11px; font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 5px;">
+                <span>👥</span> Kim uchun ishlasin (Qamrov):
+              </label>
+              <select id="select-gemini-scope" onchange="updateGeminiControl('scope', this.value)" style="background: rgba(0,0,0,0.4); color: #fff; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 6px 8px; font-size: 11.5px; outline: none; cursor: pointer;">
+                <option value="all">🌐 Barchasi uchun (O'quvchilar + VIP + Mentor)</option>
+                <option value="vip_only">👑 Faqat Vazifalar Guruhi & Mentor (VIP)</option>
+                <option value="students_only">👨‍🎓 Faqat O'quvchilar & Chatlar</option>
+                <option value="vision_only">📸 Faqat Rasmlar (Vision)</option>
+              </select>
+            </div>
+
+            <!-- Control 2: Nimadan keyin ishlasin (Trigger order) -->
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 11px; font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 5px;">
+                <span>⚡</span> Nimadan keyin ishlasin (Kaskad):
+              </label>
+              <select id="select-gemini-trigger" onchange="updateGeminiControl('trigger_after', this.value)" style="background: rgba(0,0,0,0.4); color: #fff; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 6px 8px; font-size: 11.5px; outline: none; cursor: pointer;">
+                <option value="after_reserve">🛡️ Barcha Groq to'lganda (Zaxira Qalqonidan keyin - Standart)</option>
+                <option value="after_primary">⏩ Asosiy miyadan keyin darhol (Zaxira Qalqonini kutmasdan)</option>
+                <option value="vision_first">🖼️ Rasm bo'lsa darhol 1-o'rinda, matnda Groq'dan keyin</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div class="toggle-row" style="background: rgba(239, 83, 80, 0.08); margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px; border-radius: 8px; border: 1px dashed rgba(239, 83, 80, 0.3);">
@@ -2390,6 +2426,12 @@
       const gbSwitch = document.getElementById("switch-gemini-backup");
       if (gbSwitch) gbSwitch.checked = data.gemini_backup_enabled !== false;
 
+      const gScopeSel = document.getElementById("select-gemini-scope");
+      if (gScopeSel && data.gemini_scope) gScopeSel.value = data.gemini_scope;
+
+      const gTrigSel = document.getElementById("select-gemini-trigger");
+      if (gTrigSel && data.gemini_trigger_after) gTrigSel.value = data.gemini_trigger_after;
+
       const smSwitch = document.getElementById("switch-silent-mode");
       if (smSwitch) smSwitch.checked = data.silent_mode_enabled === true;
 
@@ -2633,7 +2675,9 @@
             status: brainsData.miya_4_reserve?.enabled === false ? '🔴 O\'chirilgan' : (brainsData.miya_4_reserve?.status === 'active' ? '🟢 Faol' : '🟡 Standby'),
             activeModel: 'Google Gemini',
             cascade: {},
-            desc: brainsData.miya_4_reserve?.enabled === false ? 'Ushbu zaxira miya o\'chirilgan (faqat Groq ishlatiladi).' : 'Favqulodda vaziyatlar va barcha Groq limitlari uchun zaxira.',
+            desc: brainsData.miya_4_reserve?.enabled === false 
+              ? 'Ushbu zaxira miya o\'chirilgan (faqat Groq ishlatiladi).' 
+              : `Qamrov: ${{ all: '🌐 Barchasi', vip_only: '👑 VIP/Mentor', students_only: '👨‍🎓 O\'quvchilar', vision_only: '📸 Faqat Vision' }[brainsData.miya_4_reserve?.scope || 'all'] || '🌐 Barchasi'} | Tartib: ${{ after_reserve: '🛡️ Groq to\'lganda', after_primary: '⏩ Asosiy miyadan keyin', vision_first: '🖼️ Rasm 1-o\'rinda' }[brainsData.miya_4_reserve?.trigger_after || 'after_reserve'] || '🛡️ Groq to\'lganda'}`,
             icon: '⚡',
             minuteTokens: brainsData.miya_4_reserve?.minute_tokens || 0,
             limitTpm: brainsData.miya_4_reserve?.limit_tpm || 1000000,
@@ -3536,7 +3580,7 @@
         else if (feature === "web_search") name = "Web Search & IT Dokumentatsiya";
         else if (feature === "smart_reactions") name = "Aqlli reaksiyalar";
         else if (feature === "vazifalar_status") name = "Vazifalar status indikatori";
-        else if (feature === "gemini_backup") name = "Miya 3: Temir Zaxira (Gemini)";
+        else if (feature === "gemini_backup") name = "Miya 4: Temir Zaxira (Gemini)";
         else if (feature === "silent_mode") name = "Favqulodda Silent Mode";
         showToast(name + " " + (enabled ? "yoqildi ✅" : "to'xtatildi ⏸"));
         
@@ -3547,6 +3591,24 @@
         const el = getSwitchElement(feature);
         if (el) el.checked = !enabled;
         showToast("⚠️ Saqlanmadi, internet yoki server xatoligi!");
+      }
+    }
+
+    async function updateGeminiControl(key, val) {
+      haptic();
+      const payload = {};
+      payload[key] = val;
+      showToast("⚡ Gemini sozlamasi saqlanmoqda...");
+      try {
+        const res = await apiRequest('/api/gemini/settings', 'POST', payload);
+        if (res && res.ok) {
+          showToast("✅ Gemini sozlamasi saqlandi!");
+          if (typeof refreshAiMetrics === 'function') refreshAiMetrics();
+        } else {
+          showToast("❌ Xatolik yuz berdi", true);
+        }
+      } catch (e) {
+        showToast("Xatolik: " + e.message, true);
       }
     }
 
