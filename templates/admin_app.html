@@ -1203,9 +1203,9 @@
         <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 4px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
             <div style="font-size: 12px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
-              <span>🧠</span> 4-Miya Arxitekturasi (Mustaqil Zanjirlar & Limitlar):
+              <span>🧠</span> 5-Miya Arxitekturasi (Mustaqil Zanjirlar & Limitlar):
             </div>
-            <span id="ai-brains-count-badge" class="badge badge-success" style="font-size: 10px; padding: 2px 8px; white-space: nowrap !important; flex-shrink: 0;">4 ta mustaqil miya</span>
+            <span id="ai-brains-count-badge" class="badge badge-success" style="font-size: 10px; padding: 2px 8px; white-space: nowrap !important; flex-shrink: 0;">5 ta mustaqil miya</span>
           </div>
           <div id="ai-brains-container" style="display: flex; flex-direction: column; gap: 8px;">
             <!-- JS to'ldiradi -->
@@ -1239,9 +1239,9 @@
         </div>
       </div>
 
-      <!-- ==================== SAHIFA 1 - BO'LIM 2: MIYA 4: AVTONOM ONG & TAFAKKUR MARKAZI ==================== -->
+      <!-- ==================== SAHIFA 1 - BO'LIM 2: MIYA 5: AVTONOM ONG & TAFAKKUR MARKAZI ==================== -->
       <div class="section-header-badge" style="background: rgba(168, 85, 247, 0.12); color: #c084fc; border-color: rgba(168, 85, 247, 0.3);">
-        🧬 Miya 4: Avtonom Ong & Tafakkur Markazi
+        🧬 Miya 5: Avtonom Ong & Tafakkur Markazi
       </div>
 
       <div class="card" id="auto-brain-card" style="border: 1px solid rgba(168, 85, 247, 0.4); background: linear-gradient(180deg, rgba(168, 85, 247, 0.1) 0%, var(--card-bg) 100%);">
@@ -1375,7 +1375,7 @@
         <!-- CONTENT 1: PRECOMPUTED CACHED ANSWERS -->
         <div id="brain-subtab-precomputed-content">
           <div style="font-size: 11px; color: var(--hint-color); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-            <span>Miya 4 o'quvchilar tez-tez beradigan savollariga oldindan tayyorlab qo'ygan javoblari:</span>
+            <span>Miya 5 o'quvchilar tez-tez beradigan savollariga oldindan tayyorlab qo'ygan javoblari:</span>
             <button onclick="loadPrecomputedAnswers()" style="background: none; border: none; color: #2ea6ff; font-size: 11px; cursor: pointer; padding: 0;">🔄 Yangilash</button>
           </div>
           <div id="precomputed-answers-container" style="display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; padding-right: 2px;">
@@ -1386,7 +1386,7 @@
         <!-- CONTENT 2: LIVE ACTIVITY LOGS -->
         <div id="brain-subtab-logs-content" style="display: none;">
           <div style="font-size: 11px; color: var(--hint-color); margin-bottom: 6px;">
-            Miya 4 ning real vaqt rejimidagi fikrlash, o'rganish va sintez faoliyati:
+            Miya 5 ning real vaqt rejimidagi fikrlash, o'rganish va sintez faoliyati:
           </div>
           <div id="brain-activity-logs-container" style="display: flex; flex-direction: column; gap: 5px; max-height: 240px; overflow-y: auto; font-family: monospace; font-size: 11px; padding-right: 2px;">
             <div style="font-size: 11px; color: var(--hint-color); padding: 8px; text-align: center;">Loglar yuklanmoqda...</div>
@@ -1504,8 +1504,8 @@
 
         <div class="toggle-row">
           <div class="toggle-info">
-            <h3>🛡️ Miya 3: Temir Zaxira (Google Gemini)</h3>
-            <p>Groq limitga uchraganda Gemini zaxira sifatida ishlatilsinmi</p>
+            <h3>🛡️ Miya 4: Temir Zaxira (Google Gemini)</h3>
+            <p>Barcha Groq miyalari limitga uchraganda Gemini so'nggi zaxira sifatida ishlatilsinmi</p>
           </div>
           <label class="switch">
             <input type="checkbox" id="switch-gemini-backup" onchange="toggleFeature('gemini_backup', this.checked)">
@@ -2597,7 +2597,7 @@
           },
           {
             title: 'Miya 2: VIP Vazifalar',
-            badge: `${metrics.vip_keys_count || 9} kalit (Jamoa #5-#7)`,
+            badge: `${metrics.vip_keys_count || 12} kalit (Jamoa #5-#8)`,
             badgeColor: '#22c55e',
             reqCount: bStats.vip || (brainsData.miya_2_vip?.requests || 0),
             status: brainsData.miya_2_vip?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
@@ -2606,41 +2606,56 @@
             desc: "Vazifalar guruhi & Mentor. 100% himoyalangan mustaqil limit!",
             icon: '👑',
             minuteTokens: brainsData.miya_2_vip?.minute_tokens || 0,
-            limitTpm: brainsData.miya_2_vip?.limit_tpm || 72000,
+            limitTpm: brainsData.miya_2_vip?.limit_tpm || 96000,
             minutePct: brainsData.miya_2_vip?.minute_tokens_pct || 0,
             totalTokens: brainsData.miya_2_vip?.total_tokens || 0,
           },
           {
-            title: 'Miya 3: Temir Zaxira',
-            badge: 'Gemini (1M context)',
-            badgeColor: '#f59e0b',
-            reqCount: bStats.reserve || (brainsData.miya_3_reserve?.requests || 0),
-            status: brainsData.miya_3_reserve?.enabled === false ? '🔴 O\'chirilgan' : (brainsData.miya_3_reserve?.status === 'active' ? '🟢 Faol' : '🟡 Standby'),
-            activeModel: 'Google Gemini',
-            cascade: {},
-            desc: brainsData.miya_3_reserve?.enabled === false ? 'Ushbu zaxira miya o\'chirilgan (faqat Groq ishlatiladi).' : 'Favqulodda vaziyatlar va Groq limitlari uchun zaxira.',
+            title: 'Miya 3: Groq Zaxira Qalqoni',
+            badge: `${metrics.reserve_groq_keys_count || 12} kalit (Jamoa #9-#12)`,
+            badgeColor: '#06b6d4',
+            reqCount: bStats.groq_reserve || (brainsData.miya_3_groq_reserve?.requests || 0),
+            status: brainsData.miya_3_groq_reserve?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
+            activeModel: brainsData.miya_3_groq_reserve?.active_model || 'openai/gpt-oss-120b',
+            cascade: brainsData.miya_3_groq_reserve?.cascade || {},
+            desc: "Frontline va VIP to'lganda Gemini'dan oldin yordamga keluvchi bufer.",
             icon: '🛡️',
-            minuteTokens: brainsData.miya_3_reserve?.minute_tokens || 0,
-            limitTpm: brainsData.miya_3_reserve?.limit_tpm || 1000000,
-            minutePct: brainsData.miya_3_reserve?.minute_tokens_pct || 0,
-            totalTokens: brainsData.miya_3_reserve?.total_tokens || 0,
-            isMiya3: true,
-            enabled: brainsData.miya_3_reserve?.enabled !== false,
+            minuteTokens: brainsData.miya_3_groq_reserve?.minute_tokens || 0,
+            limitTpm: brainsData.miya_3_groq_reserve?.limit_tpm || 96000,
+            minutePct: brainsData.miya_3_groq_reserve?.minute_tokens_pct || 0,
+            totalTokens: brainsData.miya_3_groq_reserve?.total_tokens || 0,
           },
           {
-            title: 'Miya 4: Avtonom Ong',
-            badge: `${metrics.autonomous_keys_count || 9} kalit (Jamoa #8-#10)`,
+            title: 'Miya 4: Temir Zaxira',
+            badge: 'Gemini (1M context)',
+            badgeColor: '#f59e0b',
+            reqCount: bStats.reserve || (brainsData.miya_4_reserve?.requests || 0),
+            status: brainsData.miya_4_reserve?.enabled === false ? '🔴 O\'chirilgan' : (brainsData.miya_4_reserve?.status === 'active' ? '🟢 Faol' : '🟡 Standby'),
+            activeModel: 'Google Gemini',
+            cascade: {},
+            desc: brainsData.miya_4_reserve?.enabled === false ? 'Ushbu zaxira miya o\'chirilgan (faqat Groq ishlatiladi).' : 'Favqulodda vaziyatlar va barcha Groq limitlari uchun zaxira.',
+            icon: '⚡',
+            minuteTokens: brainsData.miya_4_reserve?.minute_tokens || 0,
+            limitTpm: brainsData.miya_4_reserve?.limit_tpm || 1000000,
+            minutePct: brainsData.miya_4_reserve?.minute_tokens_pct || 0,
+            totalTokens: brainsData.miya_4_reserve?.total_tokens || 0,
+            isGemini: true,
+            enabled: brainsData.miya_4_reserve?.enabled !== false,
+          },
+          {
+            title: 'Miya 5: Avtonom Ong',
+            badge: `${metrics.autonomous_keys_count || 12} kalit (Jamoa #13-#16)`,
             badgeColor: '#a855f7',
-            reqCount: bStats.autonomous || (brainsData.miya_4_autonomous?.requests || 0),
-            status: brainsData.miya_4_autonomous?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
-            activeModel: brainsData.miya_4_autonomous?.active_model || 'openai/gpt-oss-120b',
-            cascade: brainsData.miya_4_autonomous?.cascade || {},
+            reqCount: bStats.autonomous || (brainsData.miya_5_autonomous?.requests || 0),
+            status: brainsData.miya_5_autonomous?.status === 'active' ? '🟢 Faol' : '🟡 Standby',
+            activeModel: brainsData.miya_5_autonomous?.active_model || 'openai/gpt-oss-120b',
+            cascade: brainsData.miya_5_autonomous?.cascade || {},
             desc: "Daemon: o'rganish, saboqlar va oldindan kesh yechimlar.",
             icon: '🧬',
-            minuteTokens: brainsData.miya_4_autonomous?.minute_tokens || 0,
-            limitTpm: brainsData.miya_4_autonomous?.limit_tpm || 72000,
-            minutePct: brainsData.miya_4_autonomous?.minute_tokens_pct || 0,
-            totalTokens: brainsData.miya_4_autonomous?.total_tokens || 0,
+            minuteTokens: brainsData.miya_5_autonomous?.minute_tokens || 0,
+            limitTpm: brainsData.miya_5_autonomous?.limit_tpm || 96000,
+            minutePct: brainsData.miya_5_autonomous?.minute_tokens_pct || 0,
+            totalTokens: brainsData.miya_5_autonomous?.total_tokens || 0,
           }
         ];
 
@@ -2689,7 +2704,7 @@
                 <span style="font-size: 10px; font-weight: 600;">${b.status}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 5px;">
-                ${b.isMiya3 ? `<button onclick="toggleFeature('gemini_backup', ${!b.enabled}); event.stopPropagation();" style="background: ${b.enabled ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)'}; color: ${b.enabled ? '#ef4444' : '#22c55e'}; border: 1px solid ${b.enabled ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.4)'}; border-radius: 4px; padding: 2px 8px; font-size: 9.5px; font-weight: 700; cursor: pointer;">${b.enabled ? "O'chirish ✕" : "Yoqish ✓"}</button>` : ''}
+                ${b.isGemini ? `<button onclick="toggleFeature('gemini_backup', ${!b.enabled}); event.stopPropagation();" style="background: ${b.enabled ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)'}; color: ${b.enabled ? '#ef4444' : '#22c55e'}; border: 1px solid ${b.enabled ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.4)'}; border-radius: 4px; padding: 2px 8px; font-size: 9.5px; font-weight: 700; cursor: pointer;">${b.enabled ? "O'chirish ✕" : "Yoqish ✓"}</button>` : ''}
                 <span style="background: ${b.badgeColor}22; color: ${b.badgeColor}; border: 1px solid ${b.badgeColor}55; font-size: 9.5px; padding: 2px 7px; border-radius: 4px; font-weight: 700;">${b.badge}</span>
               </div>
             </div>
@@ -2875,7 +2890,7 @@
             showToast('✅ AI metrikalari yangilandi');
           }
         }
-        // Miya 4 statusini ham birga yangilash
+        // Miya 5 statusini ham birga yangilash
         refreshAutonomousBrainStatus();
       } catch (e) {
         console.error('refreshAiMetrics xatosi:', e);
@@ -2883,7 +2898,7 @@
     }
 
     // ===========================================================
-    // MIYA 4: AVTONOM ONG & TAFAKKUR MARKAZI JAVASCRIPT LOGIKASI
+    // MIYA 5: AVTONOM ONG & TAFAKKUR MARKAZI JAVASCRIPT LOGIKASI
     // ===========================================================
     let currentBrainSubtab = 'precomputed';
 
@@ -3023,7 +3038,7 @@
       haptic();
       const label = document.getElementById('auto-brain-power-label');
       if (label) label.innerText = enabled ? '🟢 Yoqilgan' : "🔴 To'xtatilgan";
-      showToast(enabled ? '🟢 Miya 4 faollashtirildi' : "⏸️ Miya 4 to'xtatildi");
+      showToast(enabled ? '🟢 Miya 5 faollashtirildi' : "⏸️ Miya 5 to'xtatildi");
 
       try {
         const res = await apiRequest('/api/autonomous-brain/settings', 'POST', { enabled: enabled });
@@ -3041,7 +3056,7 @@
       updateModeButtonsUI(mode);
       const minMap = { 'ultra': '1', 'tezkor': '2.5', 'optimal': '5', 'sokin': '10' };
       const min = minMap[mode] || '2.5';
-      showToast(`⚡ Miya 4 rejimi: ${mode.toUpperCase()} (${min} daqiqa) ga o'tkazilmoqda...`);
+      showToast(`⚡ Miya 5 rejimi: ${mode.toUpperCase()} (${min} daqiqa) ga o'tkazilmoqda...`);
 
       try {
         const res = await apiRequest('/api/autonomous-brain/settings', 'POST', { mode: mode });
@@ -3084,7 +3099,7 @@
         'self_reflection': 'O\'zini Takomillashtirish',
       };
       const label = labels[focus] || focus;
-      showToast(`🎯 Miya 4 fokusi: ${label} ga o'tkazilmoqda...`);
+      showToast(`🎯 Miya 5 fokusi: ${label} ga o'tkazilmoqda...`);
 
       try {
         const res = await apiRequest('/api/autonomous-brain/settings', 'POST', { focus: focus });
@@ -3145,7 +3160,7 @@
       if (btn) btn.disabled = true;
       if (icon) icon.innerText = '⏳';
       haptic();
-      showToast('🧠 Miya 4 tafakkur sikli boshlandi...');
+      showToast('🧠 Miya 5 tafakkur sikli boshlandi...');
 
       try {
         const res = await apiRequest('/api/autonomous-brain/trigger', 'POST');
@@ -3178,7 +3193,7 @@
           if (!items.length) {
             cont.innerHTML = `
               <div style="background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 8px; padding: 14px; text-align: center; color: var(--hint-color); font-size: 11.5px;">
-                Miya 4 hali yechimlarni keshlamagan.<br>
+                Miya 5 hali yechimlarni keshlamagan.<br>
                 Yuqoridagi <b>"Hozir Fikrlash"</b> tugmasini bosib, o'quv dasturi bo'yicha birinchi yechimlarni hosil qilishingiz mumkin!
               </div>
             `;

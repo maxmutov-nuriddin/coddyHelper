@@ -692,10 +692,12 @@ class AIService:
         # 3 ta mustaqil va limitlari ajratilgan kalitlar hovuzi:
         self._frontline_clients: list[Any] = []   # Miya 1: O'quvchilar va umumiy chatlar
         self._vip_clients: list[Any] = []         # Miya 2: VIP Vazifalar guruhi & Mentor
-        self._autonomous_clients: list[Any] = []  # Miya 4: Avtonom O'rganuvchi Ong (Daemon)
+        self._reserve_clients: list[Any] = []     # Miya 3: Groq Zaxira Qalqoni (Buffer)
+        self._autonomous_clients: list[Any] = []  # Miya 5: Avtonom O'rganuvchi Ong (Daemon)
         self._groq_idx: int = 0
         self._frontline_idx: int = 0
         self._vip_idx: int = 0
+        self._reserve_idx: int = 0
         self._autonomous_idx: int = 0
         self._last_active_key_idx: int = 0
         self._last_active_team_idx: int = 1
@@ -704,18 +706,21 @@ class AIService:
         self._brain_stats: dict[str, int] = {
             "frontline": 0,
             "vip": 0,
+            "groq_reserve": 0,
             "reserve": 0,
             "autonomous": 0,
         }
         self._brain_token_windows: dict[str, list[tuple[float, int]]] = {
             "frontline": [],
             "vip": [],
+            "groq_reserve": [],
             "reserve": [],
             "autonomous": [],
         }
         self._brain_tokens_total: dict[str, int] = {
             "frontline": 0,
             "vip": 0,
+            "groq_reserve": 0,
             "reserve": 0,
             "autonomous": 0,
         }
@@ -723,6 +728,7 @@ class AIService:
         self._brain_cascades: dict[str, dict[str, dict[str, Any]]] = {
             "frontline": _create_default_cascade(),
             "vip": _create_default_cascade(),
+            "groq_reserve": _create_default_cascade(),
             "autonomous": _create_default_cascade(),
         }
         self._metrics: dict[str, Any] = {
@@ -758,11 +764,12 @@ class AIService:
         self._groq_idx = 0
         self._frontline_idx = 0
         self._vip_idx = 0
+        self._reserve_idx = 0
         self._autonomous_idx = 0
         self._last_active_key_idx = 0
         self._last_active_team_idx = 1
         self._key_stats = {}
-        for b in ("frontline", "vip", "autonomous"):
+        for b in ("frontline", "vip", "groq_reserve", "autonomous"):
             self._brain_cascades[b] = _create_default_cascade()
         self._metrics["cascade_status"] = self._brain_cascades["vip"]
         self._metrics["brain_cascades"] = self._brain_cascades
@@ -777,14 +784,19 @@ class AIService:
                 return "frontline"
             elif c in self._vip_clients:
                 return "vip"
+            elif c in self._reserve_clients:
+                return "groq_reserve"
             elif c in self._autonomous_clients:
                 return "autonomous"
         fl = len(self._frontline_clients)
         vl = fl + len(self._vip_clients)
+        rl = vl + len(self._reserve_clients)
         if k_idx < fl:
             return "frontline"
         elif k_idx < vl:
             return "vip"
+        elif k_idx < rl:
+            return "groq_reserve"
         return "autonomous"
 
     def _record_brain_tokens(self, brain: str, tokens: int) -> None:
@@ -1111,8 +1123,10 @@ class AIService:
                 return "Miya 1: Frontline", "frontline"
             elif tag == "vip":
                 return "Miya 2: VIP Vazifalar", "vip"
+            elif tag == "groq_reserve":
+                return "Miya 3: Groq Zaxira Qalqoni", "groq_reserve"
             else:
-                return "Miya 4: Avtonom Ong", "autonomous"
+                return "Miya 5: Avtonom Ong", "autonomous"
 
         keys_pool = []
         for i, k in enumerate(self._groq_keys):
@@ -1148,10 +1162,12 @@ class AIService:
             key_indices = [kp["index"] for kp in team_keys]
             if t <= 4:
                 t_brain = "Miya 1: Frontline (Talabalar)"
-            elif t <= 7:
+            elif t <= 8:
                 t_brain = "Miya 2: VIP Vazifalar (Mentor)"
+            elif t <= 12:
+                t_brain = "Miya 3: Groq Zaxira Qalqoni (Buffer)"
             else:
-                t_brain = "Miya 4: Avtonom Ong (Pre-Cognition)"
+                t_brain = "Miya 5: Avtonom Ong (Pre-Cognition)"
 
             teams.append({
                 "team_id": t,
@@ -1201,11 +1217,13 @@ class AIService:
 
         _fl_mt = self._get_brain_minute_tokens("frontline")
         _vip_mt = self._get_brain_minute_tokens("vip")
+        _groq_res_mt = self._get_brain_minute_tokens("groq_reserve")
         _res_mt = self._get_brain_minute_tokens("reserve")
         _aut_mt = self._get_brain_minute_tokens("autonomous")
 
         _fl_lim = max(8000, len(self._frontline_clients) * 8000)
         _vip_lim = max(8000, len(self._vip_clients) * 8000)
+        _groq_res_lim = max(8000, len(self._reserve_clients) * 8000)
         _aut_lim = max(8000, len(self._autonomous_clients) * 8000)
 
         return {
@@ -1223,6 +1241,7 @@ class AIService:
             "available_groq_keys": len(self._groq_clients),
             "frontline_keys_count": len(self._frontline_clients),
             "vip_keys_count": len(self._vip_clients),
+            "reserve_groq_keys_count": len(self._reserve_clients),
             "autonomous_keys_count": len(self._autonomous_clients),
             "active_key_index": (self._last_active_key_idx + 1) if self._groq_clients else 0,
             "active_team_id": self._last_active_team_idx if self._groq_clients else 0,
@@ -1247,33 +1266,46 @@ class AIService:
                     "status": "active" if self._vip_clients else "standby",
                     "active_model": next((m for m, inf in self._brain_cascades.get("vip", {}).items() if inf.get("state") == "active"), config.groq_model),
                     "cascade": self._brain_cascades.get("vip", {}),
-                    "role": "Vazifalar guruhi va Mentor buyruqlari uchun 100% ajratilgan mustaqil limit (Jamoalar #5-#7)",
+                    "role": "Vazifalar guruhi va Mentor buyruqlari uchun 100% ajratilgan mustaqil limit (Jamoalar #5-#8)",
                     "requests": self._brain_stats.get("vip", 0),
                     "minute_tokens": _vip_mt,
                     "limit_tpm": _vip_lim,
                     "minute_tokens_pct": round(min(100.0, _vip_mt / _vip_lim * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("vip", 0),
                 },
-                "miya_3_reserve": {
-                    "title": "Miya 3: Temir Zaxira (Google Gemini)",
+                "miya_3_groq_reserve": {
+                    "title": "Miya 3: Groq Zaxira Qalqoni (Buffer)",
+                    "keys_count": len(self._reserve_clients),
+                    "status": "active" if self._reserve_clients else "standby",
+                    "active_model": next((m for m, inf in self._brain_cascades.get("groq_reserve", {}).items() if inf.get("state") == "active"), config.groq_model),
+                    "cascade": self._brain_cascades.get("groq_reserve", {}),
+                    "role": "Frontline va VIP miyalar limitga uchraganda Gemini'dan oldin yordamga keluvchi bufer (Jamoalar #9-#12)",
+                    "requests": self._brain_stats.get("groq_reserve", 0),
+                    "minute_tokens": _groq_res_mt,
+                    "limit_tpm": _groq_res_lim,
+                    "minute_tokens_pct": round(min(100.0, _groq_res_mt / _groq_res_lim * 100), 1),
+                    "total_tokens": self._brain_tokens_total.get("groq_reserve", 0),
+                },
+                "miya_4_reserve": {
+                    "title": "Miya 4: Temir Zaxira (Google Gemini)",
                     "enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
                     "keys_count": 1 if self._gemini_client else 0,
                     "status": ("active" if self._gemini_client else "standby") if memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true" else "disabled",
                     "active_model": "Google Gemini",
-                    "role": "Favqulodda vaziyatlar va Groq limitlari uchun zaxira (1M context)",
+                    "role": "Favqulodda vaziyatlar va barcha Groq limitlari tugaganda so'nggi istehkom (1M context)",
                     "requests": self._brain_stats.get("reserve", 0),
                     "minute_tokens": _res_mt,
                     "limit_tpm": 1000000,
                     "minute_tokens_pct": round(min(100.0, _res_mt / 1000000 * 100), 1),
                     "total_tokens": self._brain_tokens_total.get("reserve", 0),
                 },
-                "miya_4_autonomous": {
-                    "title": "Miya 4: Avtonom Tafakkur Ongi (Daemon)",
+                "miya_5_autonomous": {
+                    "title": "Miya 5: Avtonom Tafakkur Ongi (Daemon)",
                     "keys_count": len(self._autonomous_clients),
                     "status": "active" if self._autonomous_clients else "standby",
                     "active_model": next((m for m, inf in self._brain_cascades.get("autonomous", {}).items() if inf.get("state") == "active"), config.groq_model),
                     "cascade": self._brain_cascades.get("autonomous", {}),
-                    "role": "Orqa fonda to'xtovsiz tafakkur qiladi, o'rganadi va yechimlarni oldindan tayyorlaydi (Jamoalar #8-#10)",
+                    "role": "Orqa fonda to'xtovsiz tafakkur qiladi, o'rganadi va yechimlarni oldindan tayyorlaydi (Jamoalar #13-#16)",
                     "requests": self._brain_stats.get("autonomous", 0),
                     "minute_tokens": _aut_mt,
                     "limit_tpm": _aut_lim,
@@ -1377,55 +1409,68 @@ class AIService:
             except Exception:
                 pass
 
-        # 3. 3 ta mustaqil miyaga kalitlar taqsimoti (Limitlar va TPM/RPM mutlaq izolyatsiya qilingan):
+        # 3. 4 ta mustaqil Groq miyasiga kalitlar taqsimoti (Limitlar va TPM/RPM mutlaq izolyatsiya qilingan):
         total = len(self._groq_clients)
-        has_explicit = bool(config.groq_frontline_keys or config.groq_vip_keys or config.groq_autonomous_keys)
+        has_explicit = bool(config.groq_frontline_keys or config.groq_vip_keys or config.groq_reserve_keys or config.groq_autonomous_keys)
         if has_explicit:
             f_keys = config.groq_frontline_keys or []
             v_keys = config.groq_vip_keys or []
+            r_keys = config.groq_reserve_keys or []
             a_keys = config.groq_autonomous_keys or []
             self._frontline_clients = [c for c in self._groq_clients if self._groq_keys[self._client_to_idx.get(id(c), 0)] in f_keys]
             self._vip_clients = [c for c in self._groq_clients if self._groq_keys[self._client_to_idx.get(id(c), 0)] in v_keys]
+            self._reserve_clients = [c for c in self._groq_clients if self._groq_keys[self._client_to_idx.get(id(c), 0)] in r_keys]
             self._autonomous_clients = [c for c in self._groq_clients if self._groq_keys[self._client_to_idx.get(id(c), 0)] in a_keys]
             if not self._frontline_clients:
                 self._frontline_clients = list(self._groq_clients[:12]) if total >= 12 else list(self._groq_clients)
             if not self._vip_clients:
-                self._vip_clients = list(self._groq_clients[12:21]) if total >= 21 else list(self._groq_clients)
+                self._vip_clients = list(self._groq_clients[12:24]) if total >= 24 else list(self._groq_clients)
+            if not self._reserve_clients:
+                self._reserve_clients = list(self._groq_clients[24:36]) if total >= 36 else list(self._groq_clients)
             if not self._autonomous_clients:
-                self._autonomous_clients = list(self._groq_clients[21:]) if total >= 22 else list(self._groq_clients)
+                self._autonomous_clients = list(self._groq_clients[36:]) if total >= 37 else list(self._groq_clients)
+        elif total >= 48:
+            self._frontline_clients = self._groq_clients[:12]
+            self._vip_clients = self._groq_clients[12:24]
+            self._reserve_clients = self._groq_clients[24:36]
+            self._autonomous_clients = self._groq_clients[36:48]
         elif total >= 30:
             # 30 ta kalit (10 ta 3 kishilik Pod komanda):
-            # Miya 1: Frontline (Talabalar & Umumiy) -> 12 ta kalit (Jamoalar #1-#4)
-            # Miya 2: VIP Vazifalar Guruhi -> 9 ta kalit (Jamoalar #5-#7)
-            # Miya 4: Avtonom O'rganuvchi Ong (Daemon) -> 9 ta kalit (Jamoalar #8-#10)
             self._frontline_clients = self._groq_clients[:12]
             self._vip_clients = self._groq_clients[12:21]
-            self._autonomous_clients = self._groq_clients[21:30]
+            self._reserve_clients = self._groq_clients[21:26]
+            self._autonomous_clients = self._groq_clients[26:30]
         elif total >= 20:
             # 20 ta kalit:
-            self._frontline_clients = self._groq_clients[:12]
-            self._vip_clients = self._groq_clients[12:18]
+            self._frontline_clients = self._groq_clients[:10]
+            self._vip_clients = self._groq_clients[10:15]
+            self._reserve_clients = self._groq_clients[15:18]
             self._autonomous_clients = self._groq_clients[18:total]
         elif total >= 9:
-            f_end = (total * 4) // 10
+            f_end = (total * 3) // 10
             v_end = f_end + (total * 3) // 10
+            r_end = v_end + (total * 2) // 10
             self._frontline_clients = self._groq_clients[:f_end]
             self._vip_clients = self._groq_clients[f_end:v_end]
-            self._autonomous_clients = self._groq_clients[v_end:]
-        elif total >= 3:
+            self._reserve_clients = self._groq_clients[v_end:r_end]
+            self._autonomous_clients = self._groq_clients[r_end:]
+        elif total >= 4:
             self._frontline_clients = [self._groq_clients[0]]
             self._vip_clients = [self._groq_clients[1]]
-            self._autonomous_clients = self._groq_clients[2:]
+            self._reserve_clients = [self._groq_clients[2]]
+            self._autonomous_clients = self._groq_clients[3:]
         else:
             self._frontline_clients = list(self._groq_clients)
             self._vip_clients = list(self._groq_clients)
+            self._reserve_clients = list(self._groq_clients)
             self._autonomous_clients = list(self._groq_clients)
 
         logger.info(
-            "🧠 Miyalararo Resurs Taqsimoti (Total: %d): Frontline=%d kalit, VIP Vazifalar=%d kalit, Avtonom Ong=%d kalit",
+            "🧠 Miyalararo Resurs Taqsimoti (Total: %d): Frontline=%d kalit, VIP Vazifalar=%d kalit, Groq Zaxira=%d kalit, Avtonom Ong=%d kalit",
             total,
             len(self._frontline_clients),
             len(self._vip_clients),
+            len(self._reserve_clients),
             len(self._autonomous_clients),
         )
 
@@ -1787,6 +1832,8 @@ class AIService:
         effective_prompt: str,
         image_bytes: bytes | None = None,
         is_admin_mode: bool = False,
+        pool_override: list[Any] | None = None,
+        brain_type_override: str | None = None,
     ) -> str:
         history = memory_service.get_history(chat_id)
         if image_bytes:
@@ -1838,12 +1885,12 @@ class AIService:
             messages.append({"role": "user", "content": effective_prompt})
 
         # Adaptive Cognitive Gating (System 1 vs System 2):
-        # 1. Tezkor refleks (System 1): Standart so'rovlar, suhbatlar, kod yozish va maslahatlarda to'g'ridan-to'g'ri 1 ta kuchli model orqali chaqmoqdek tez javob (~0.4s).
-        pool, brain_type = self._get_active_pool(is_admin_mode)
-        if brain_type == "vip":
-            self._brain_stats["vip"] = self._brain_stats.get("vip", 0) + 1
+        if pool_override:
+            pool = pool_override
+            brain_type = brain_type_override or "groq_reserve"
         else:
-            self._brain_stats["frontline"] = self._brain_stats.get("frontline", 0) + 1
+            pool, brain_type = self._get_active_pool(is_admin_mode)
+        self._brain_stats[brain_type] = self._brain_stats.get(brain_type, 0) + 1
         is_student_group = (chat_id < 0 and not is_escalation_chat(chat_id))
         is_simple_query = (
             len(effective_prompt.split()) <= 4
@@ -1931,6 +1978,11 @@ class AIService:
                     idx2 = (self._vip_idx + 1) % len(pool)
                     idx3 = (self._vip_idx + 2) % len(pool)
                     self._vip_idx = (self._vip_idx + 3) % len(pool)
+                elif brain_type == "groq_reserve":
+                    idx1 = self._reserve_idx % len(pool)
+                    idx2 = (self._reserve_idx + 1) % len(pool)
+                    idx3 = (self._reserve_idx + 2) % len(pool)
+                    self._reserve_idx = (self._reserve_idx + 3) % len(pool)
                 else:
                     idx1 = self._frontline_idx % len(pool)
                     idx2 = (self._frontline_idx + 1) % len(pool)
@@ -1983,6 +2035,9 @@ class AIService:
                 if brain_type == "vip":
                     curr_local_idx = self._vip_idx % len(pool)
                     self._vip_idx = (self._vip_idx + 1) % len(pool)
+                elif brain_type == "groq_reserve":
+                    curr_local_idx = self._reserve_idx % len(pool)
+                    self._reserve_idx = (self._reserve_idx + 1) % len(pool)
                 else:
                     curr_local_idx = self._frontline_idx % len(pool)
                     self._frontline_idx = (self._frontline_idx + 1) % len(pool)
@@ -2285,7 +2340,7 @@ class AIService:
 
         try:
             answer = None
-            # 1-ustuvorlik: Groq (Multi-key Cluster)
+            # 1-ustuvorlik: Groq Birlamchi Miya (Miya 1: Frontline yoki Miya 2: VIP)
             if self._groq_clients:
                 try:
                     answer = await asyncio.wait_for(
@@ -2296,12 +2351,38 @@ class AIService:
                     )
                 except Exception as groq_err:
                     logger.warning(
-                        "⚠️ Groq klasterida xatolik yoki limit oshdi (%s). Google Gemini zaxira tizimiga o'tilmoqda...",
+                        "⚠️ Groq asosiy miyasi (%s) limitga uchradi yoki xatolik: %s. Miya 3 (Groq Zaxira Qalqoni)ga o'tilmoqda...",
+                        "VIP" if is_admin_mode else "Frontline",
                         groq_err,
                     )
                     answer = None
 
-            # 2-ustuvorlik: Google Gemini (Zaxira tizim - 1 million token limit, agar yoqilgan bo'lsa)
+            # 2-ustuvorlik: Miya 3: Groq Zaxira Qalqoni (12 ta kalit, Jamoalar #9-#12 - Gemini'dan oldingi bufer)
+            # Faqat Vazifalar guruhi va o'quvchilar savollarida asosiy miya to'lib qolsa ishga tushadi
+            if not answer and self._reserve_clients and not image_bytes:
+                try:
+                    logger.info("🛡️ Miya 3: Groq Zaxira Qalqoni (12 ta kalit) yordamga ulandi...")
+                    answer = await asyncio.wait_for(
+                        self._generate_with_groq(
+                            chat_id,
+                            effective_prompt,
+                            image_bytes=image_bytes,
+                            is_admin_mode=is_admin_mode,
+                            pool_override=self._reserve_clients,
+                            brain_type_override="groq_reserve",
+                        ),
+                        timeout=30.0,
+                    )
+                    if answer:
+                        logger.info("✅ Groq Zaxira Qalqoni orqali muvaffaqiyatli javob olindi.")
+                except Exception as res_err:
+                    logger.warning(
+                        "⚠️ Groq Zaxira Qalqoni ham to'ldi yoki xatolik: %s. So'nggi istehkom — Google Gemini'ga o'tilmoqda...",
+                        res_err,
+                    )
+                    answer = None
+
+            # 3-ustuvorlik: Google Gemini (Temir Zaxira - 1 million token limit, agar yoqilgan bo'lsa)
             gemini_backup_enabled = memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true"
             # Agar rasm (vision) bo'lsa va Groq javob bera olmagan bo'lsa, Gemini Vision har doim zaxira sifatida ishlaydi
             allow_gemini = gemini_backup_enabled or bool(image_bytes)

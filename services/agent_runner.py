@@ -56,9 +56,11 @@ async def run_autonomous_agent_loop(
 
     # 1. VIP yoki frontline Groq mijozlarini olish
     pool = getattr(ai_service, "_vip_clients", None) or getattr(ai_service, "_groq_clients", None)
+    reserve_pool = getattr(ai_service, "_reserve_clients", None)
     if not pool:
         ai_service._setup_clients()
         pool = getattr(ai_service, "_vip_clients", None) or getattr(ai_service, "_groq_clients", None)
+        reserve_pool = getattr(ai_service, "_reserve_clients", None)
 
     if not pool:
         logger.warning("Agent Runner: Groq mijozlari mavjud emas, an'anaviy yo'lga o'tiladi.")
@@ -87,14 +89,30 @@ async def run_autonomous_agent_loop(
 
         try:
             logger.info("🤖 ReAct Tsikl: %d-qadam boshlandi (Model: %s)", step, chosen_model)
-            response = await groq_client.chat.completions.create(
-                model=chosen_model,
-                messages=messages,
-                tools=AGENT_TOOL_SCHEMAS,
-                tool_choice="auto",
-                temperature=0.1,
-                max_tokens=900,
-            )
+            try:
+                response = await groq_client.chat.completions.create(
+                    model=chosen_model,
+                    messages=messages,
+                    tools=AGENT_TOOL_SCHEMAS,
+                    tool_choice="auto",
+                    temperature=0.1,
+                    max_tokens=900,
+                )
+            except Exception as step_err:
+                if ("429" in str(step_err) or "rate_limit" in str(step_err)) and reserve_pool:
+                    logger.warning("⚡ ReAct %d-qadamda VIP limitga uchradi, Groq Zaxira Qalqoni hovuzidan foydalanilmoqda...", step)
+                    r_client = reserve_pool[ai_service._reserve_idx % len(reserve_pool)]
+                    ai_service._reserve_idx = (ai_service._reserve_idx + 1) % len(reserve_pool)
+                    response = await r_client.chat.completions.create(
+                        model=chosen_model,
+                        messages=messages,
+                        tools=AGENT_TOOL_SCHEMAS,
+                        tool_choice="auto",
+                        temperature=0.1,
+                        max_tokens=900,
+                    )
+                else:
+                    raise step_err
 
             choice = response.choices[0]
             msg = choice.message
@@ -107,7 +125,6 @@ async def run_autonomous_agent_loop(
                     logger.info("✅ ReAct Tsikl %d-qadamda yakunlandi. Jami asboblar: %d", step, total_tool_calls_executed)
                     return final_content
                 else:
-                    # Bo'sh javob bo'lsa, davom etamiz
                     continue
 
             # Model asbob(lar)ni chaqirdi:
@@ -167,7 +184,6 @@ async def run_autonomous_agent_loop(
 
         except Exception as step_err:
             logger.error("ReAct tsikli %d-qadamida xatolik: %s", step, step_err, exc_info=True)
-            # Bir martalik xatoda to'xtamay, zaxira yoki keyingi qadamga o'tamiz
             break
 
     # Agar barcha qadamlardan so'ng model hali yakuniy hisobot bermagan bo'lsa,
@@ -175,13 +191,26 @@ async def run_autonomous_agent_loop(
     if total_tool_calls_executed > 0:
         try:
             groq_client = pool[ai_service._vip_idx % len(pool)]
-            summary_resp = await groq_client.chat.completions.create(
-                model=chosen_model,
-                messages=messages,
-                tool_choice="none",
-                temperature=0.2,
-                max_tokens=800,
-            )
+            try:
+                summary_resp = await groq_client.chat.completions.create(
+                    model=chosen_model,
+                    messages=messages,
+                    tool_choice="none",
+                    temperature=0.2,
+                    max_tokens=800,
+                )
+            except Exception as sum_err:
+                if ("429" in str(sum_err) or "rate_limit" in str(sum_err)) and reserve_pool:
+                    r_client = reserve_pool[ai_service._reserve_idx % len(reserve_pool)]
+                    summary_resp = await r_client.chat.completions.create(
+                        model=chosen_model,
+                        messages=messages,
+                        tool_choice="none",
+                        temperature=0.2,
+                        max_tokens=800,
+                    )
+                else:
+                    raise sum_err
             final_text = (summary_resp.choices[0].message.content or "").strip()
             if final_text:
                 return final_text

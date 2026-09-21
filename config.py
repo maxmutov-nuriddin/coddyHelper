@@ -36,6 +36,7 @@ class Config:
     groq_api_keys: list[str] = None
     groq_frontline_keys: list[str] = None
     groq_vip_keys: list[str] = None
+    groq_reserve_keys: list[str] = None
     groq_autonomous_keys: list[str] = None
     groq_model: str = "openai/gpt-oss-120b"
     groq_vision_model: str = "qwen/qwen3.8-27b"
@@ -73,17 +74,19 @@ class Config:
         
         raw_frontline = os.getenv("GROQ_FRONTLINE_KEYS", "").strip()
         raw_vip = os.getenv("GROQ_VIP_KEYS", "").strip()
+        raw_reserve = os.getenv("GROQ_RESERVE_KEYS", "").strip()
         raw_auto = os.getenv("GROQ_AUTONOMOUS_KEYS", "").strip() or os.getenv("GROQ_EXTRA_KEYS", "").strip()
 
         groq_frontline_keys = [k.strip() for k in raw_frontline.split(",") if k.strip()]
         groq_vip_keys = [k.strip() for k in raw_vip.split(",") if k.strip()]
+        groq_reserve_keys = [k.strip() for k in raw_reserve.split(",") if k.strip()]
         groq_autonomous_keys = [k.strip() for k in raw_auto.split(",") if k.strip()]
 
         raw_groq_keys = os.getenv("GROQ_API_KEYS", "").strip() or os.getenv("GROQ_API_KEY", "").strip()
         all_keys_list = [k.strip() for k in raw_groq_keys.split(",") if k.strip()]
 
         combined_keys = []
-        for k in (groq_frontline_keys + groq_vip_keys + groq_autonomous_keys + all_keys_list):
+        for k in (groq_frontline_keys + groq_vip_keys + groq_reserve_keys + groq_autonomous_keys + all_keys_list):
             if k and k not in combined_keys:
                 combined_keys.append(k)
         groq_api_keys = combined_keys
@@ -158,6 +161,7 @@ class Config:
             groq_api_keys=groq_api_keys,
             groq_frontline_keys=groq_frontline_keys,
             groq_vip_keys=groq_vip_keys,
+            groq_reserve_keys=groq_reserve_keys,
             groq_autonomous_keys=groq_autonomous_keys,
             groq_model=groq_model,
             groq_vision_model=groq_vision_model,
