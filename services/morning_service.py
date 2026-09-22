@@ -172,14 +172,25 @@ async def send_morning_briefing(client, bot=None) -> bool:
         "escalated": False,
     }
 
-    asyncio.create_task(_monitor_wakeup_escalation(client, today_str))
+    if memory_service.get_setting("emergency_wakeup_enabled", "true").lower() == "true":
+        asyncio.create_task(_monitor_wakeup_escalation(client, today_str))
+    else:
+        logger.info("ℹ️ Favqulodda uyg'otish funksiyasi sozlamalarda o'chirilgan (emergency_wakeup_enabled=false).")
     return True
 
 
 async def _monitor_wakeup_escalation(client, date_str: str, wait_seconds: float = 600.0):
     """10 daqiqa (yoki belgilangan soniya) kutadi. Agar Nuriddin tasdiqlamasa, favqulodda kontaktga yozadi."""
+    if memory_service.get_setting("emergency_wakeup_enabled", "true").lower() != "true":
+        logger.info("ℹ️ Favqulodda uyg'otish o'chirilgan (emergency_wakeup_enabled=false). Nazorat taymeri to'xtatildi.")
+        return
+
     logger.info("⏰ Uyg'onish nazorati boshlandi (%.1f soniyalik taymer).", wait_seconds)
     await asyncio.sleep(wait_seconds)
+
+    if memory_service.get_setting("emergency_wakeup_enabled", "true").lower() != "true":
+        logger.info("ℹ️ Favqulodda uyg'otish taymer davomida o'chirilgan. Hech kimga xabar yuborilmadi.")
+        return
 
     global PENDING_WAKEUP
     if PENDING_WAKEUP.get("date") == date_str and not PENDING_WAKEUP.get("confirmed") and not PENDING_WAKEUP.get("escalated"):

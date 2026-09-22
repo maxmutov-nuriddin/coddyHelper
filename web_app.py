@@ -1213,6 +1213,7 @@ self.addEventListener('fetch', (event) => {
                 "next_level_xp": stats.get("next_level_xp", 250),
                 "progress_pct": stats.get("progress_pct", 0),
                 "emergency_contact_id": stats.get("emergency_contact_id", ""),
+                "emergency_wakeup_enabled": stats.get("emergency_wakeup_enabled", True),
                 "stats": {
                     "saved_locations": len(saved_locations),
                     "today_plans": len(today_plans),
@@ -1241,7 +1242,15 @@ self.addEventListener('fetch', (event) => {
                 raw_id = str(data.get("emergency_contact_id", "") or "").strip()
                 memory_service.set_setting("emergency_contact_id", raw_id)
                 logger.info("Favqulodda kontaktlar sozlamasi yangilandi/o'chirildi: '%s'", raw_id)
-            return web.json_response({"ok": True, "emergency_contact_id": memory_service.get_setting("emergency_contact_id", "")})
+            if "emergency_wakeup_enabled" in data:
+                val = bool(data["emergency_wakeup_enabled"])
+                memory_service.set_setting("emergency_wakeup_enabled", "true" if val else "false")
+                logger.info("Favqulodda uyg'otish holati o'zgartirildi: %s", val)
+            return web.json_response({
+                "ok": True,
+                "emergency_contact_id": memory_service.get_setting("emergency_contact_id", ""),
+                "emergency_wakeup_enabled": memory_service.get_setting("emergency_wakeup_enabled", "true").lower() == "true",
+            })
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 

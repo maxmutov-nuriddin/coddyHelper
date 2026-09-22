@@ -2052,10 +2052,16 @@
       <div class="card">
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
           <span class="card-title" style="margin: 0; font-size: 14px; font-weight: 700;">🚨 Favqulodda Uyg'otish Kontaktlari</span>
-          <span id="emergency-contacts-badge" class="badge badge-success" style="white-space: nowrap; flex-shrink: 0; margin-left: 8px;">Faol</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label class="switch" style="margin: 0;">
+              <input type="checkbox" id="switch-emergency-wakeup" onchange="toggleEmergencyWakeup(this.checked)" checked>
+              <span class="slider"></span>
+            </label>
+            <span id="emergency-contacts-badge" class="badge badge-success" style="white-space: nowrap; flex-shrink: 0;">Faol</span>
+          </div>
         </div>
         <p style="font-size: 12px; color: var(--hint-color); margin: 6px 0 10px 0; line-height: 1.4;">
-          Ertalab soat 08:00 dagi brifingga 10 daqiqa (08:10 gacha) "Turdim" deb javob berilmasa, agent kiritilgan kontaktlarga sizni uyg'otib qo'yishni iltimos qilib xabar yuboradi. Agar favqulodda uyg'otish kerak bo'lmasa, kontaktlarni <strong>to'liq o'chirib qo'yishingiz</strong> mumkin.
+          Ertalab soat 08:00 dagi brifingga 10 daqiqa (08:10 gacha) "Turdim" deb javob berilmasa, agent kiritilgan kontaktlarga sizni uyg'otib qo'yishni iltimos qilib xabar yuboradi. Agar favqulodda uyg'otish kerak bo'lmasa, uni <strong>o'chirib qo'yishingiz</strong> (svitch orqali) yoki kontaktlarni bo'shatishingiz mumkin.
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px;">
           <input type="text" id="agent-emergency-contact-input" class="form-input" placeholder="Telegram ID lar (masalan: 5023430798, 123456789 yoki bo'sh qoldiring)" style="width: 100%; font-size: 13px; padding: 10px 12px;" />
@@ -5129,21 +5135,32 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
           document.getElementById("agent-stat-messages").innerText = st.total_messages || 0;
         }
 
-        // Emergency Contact & Badge
+        // Emergency Contact & Badge & Switch
         const emInput = document.getElementById("agent-emergency-contact-input");
         const emBadge = document.getElementById("emergency-contacts-badge");
+        const emSwitch = document.getElementById("switch-emergency-wakeup");
+        const isWakeupEnabled = res.emergency_wakeup_enabled !== false;
+        if (emSwitch) {
+          emSwitch.checked = isWakeupEnabled;
+        }
         if (emInput && !emInput.matches(":focus")) {
           const val = (res.emergency_contact_id !== undefined && res.emergency_contact_id !== null) ? String(res.emergency_contact_id).trim() : "";
           emInput.value = val;
           if (emBadge) {
-            if (val && !["none", "off", "0", "yo'q", "disabled"].includes(val.toLowerCase())) {
+            const hasContacts = val && !["none", "off", "0", "yo'q", "disabled"].includes(val.toLowerCase());
+            if (!isWakeupEnabled) {
+              emBadge.className = "badge";
+              emBadge.innerText = "O'chirilgan";
+              emBadge.style.background = "rgba(239, 68, 68, 0.2)";
+              emBadge.style.color = "#f87171";
+            } else if (hasContacts) {
               emBadge.className = "badge badge-success";
               emBadge.innerText = "Faol";
               emBadge.style.background = "";
               emBadge.style.color = "";
             } else {
               emBadge.className = "badge";
-              emBadge.innerText = "O'chirilgan";
+              emBadge.innerText = "Kontakt kiritilmagan";
               emBadge.style.background = "rgba(148, 163, 184, 0.2)";
               emBadge.style.color = "#94a3b8";
             }
@@ -5353,6 +5370,23 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         }
       } catch (e) {
         showToast("O'chirishda xatolik yuz berdi", true);
+      }
+    }
+
+    async function toggleEmergencyWakeup(enabled) {
+      haptic();
+      try {
+        const res = await apiRequest("/api/agent/settings", "POST", { emergency_wakeup_enabled: enabled });
+        if (res && res.ok) {
+          showToast(enabled ? "Favqulodda uyg'otish faollashtirildi 🟢" : "Favqulodda uyg'otish o'chirildi (hech kimga yozilmaydi) 🔴");
+          loadAgentStats();
+        } else {
+          showToast("Xatolik: " + (res?.error || "O'zgartirib bo'lmadi"), true);
+          loadAgentStats();
+        }
+      } catch (e) {
+        showToast("Sozlamani o'zgartirishda xatolik", true);
+        loadAgentStats();
       }
     }
 

@@ -2476,6 +2476,7 @@ class SQLiteMemoryService:
                     title = "Master Avtonom AI Hamkor (Master Autonomous AI)"
 
                 emergency_id = self.get_setting("emergency_contact_id", "")
+                emergency_wakeup_enabled = self.get_setting("emergency_wakeup_enabled", "true").lower() == "true"
 
                 return {
                     "level": level,
@@ -2494,6 +2495,7 @@ class SQLiteMemoryService:
                     "total_learned_facts": total_learned,
                     "completed_plans": completed_plans,
                     "emergency_contact_id": emergency_id,
+                    "emergency_wakeup_enabled": emergency_wakeup_enabled,
                 }
         except Exception as e:
             logger.error("Agent statistikasini hisoblashda xatolik: %s", e)
@@ -2503,6 +2505,7 @@ class SQLiteMemoryService:
                 "total_xp": 0,
                 "progress_pct": 0,
                 "emergency_contact_id": "",
+                "emergency_wakeup_enabled": True,
             }
 
     # -----------------------------------------------------------
