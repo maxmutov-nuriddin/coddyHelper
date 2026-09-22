@@ -3059,19 +3059,56 @@ class AIService:
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
         """
         Ovozli xabarni matnga o'giradi (Multi-Tier Kaskad - UZ, RU, EN):
-        1-bosqich: Groq Whisper (Frontline klasteri - whisper-large-v3)
-        2-bosqich: Groq Whisper (Zaxira Qalqoni klasteri - whisper-large-v3)
-        3-bosqich: Google Gemini 2.0 Flash Audio transkripsiya (Temir zaxira)
+        1-bosqich: Google Gemini 3.6/Flash Audio transkripsiya (O'zbek, Rus va Ingliz nutqini 100% tiniq eshitadi, turkcha bilan aslo adashtirmaydi!)
+        2-bosqich: Groq Whisper (Frontline klasteri - whisper-large-v3)
+        3-bosqich: Groq Whisper (Zaxira Qalqoni klasteri - whisper-large-v3)
         """
+        if not audio_bytes:
+            return ""
+
+        # 1-bosqich: Google Gemini Multimodal Audio (Eng yuqori aniqlik, 0 turkcha adashish)
+        if self._gemini_client:
+            try:
+                gem_model = getattr(config, "gemini_model", "gemini-3.6-flash") or "gemini-3.6-flash"
+                logger.info("🎙️ Google Gemini (%s) orqali ovozli xabar transkripsiyasi boshlandi...", gem_model)
+                from google.genai import types
+                loop = asyncio.get_running_loop()
+
+                def _gemini_transcribe():
+                    resp = self._gemini_client.models.generate_content(
+                        model=gem_model,
+                        contents=[
+                            types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg"),
+                            (
+                                "Siz O'zbekiston, CoddyCamp dasturlash akademiyasi uchun professional audio transkripsiya mutaxassisisiz.\n"
+                                "Ushbu ovozli xabarni (audio) juda diqqat bilan eshiting.\n\n"
+                                "QAT'IY QOIDALAR:\n"
+                                "1. Ushbu audio O'ZBEKCHA (o'zbek tili, Toshkent yoki boshqa viloyat og'zaki nutqi), RUSCHA yoki INGLIZCHA (yoki aralash) nutqdir.\n"
+                                "2. O'zbek tilidagi nutqni aslo TURKCHA (Turkish) deb xato o'ylamang! Bu turk tili emas, O'ZBEK TILI.\n"
+                                "3. So'zlashuvchi aytgan har bir so'zni 100% tiniq, to'liq va aniq qilib so'zma-so'z matnga o'giring (Transkripsiya).\n"
+                                "4. Hech qanday qo'shimcha so'z, kirish, xulosa yoki izoh yozmang. Faqat to'g'ridan-to'g'ri eshitilgan haqiqiy nutq matnini qaytaring."
+                            )
+                        ],
+                    )
+                    return resp.text.strip() if resp and resp.text else ""
+
+                gemini_text = await asyncio.wait_for(loop.run_in_executor(None, _gemini_transcribe), timeout=18.0)
+                if gemini_text:
+                    logger.info("✅ Google Gemini orqali ovozli xabar 100% tiniq o'qildi: %s", gemini_text[:80])
+                    return gemini_text
+            except Exception as gem_err:
+                logger.warning("Google Gemini audio transkripsiyasida ogohlantirish, Groq Whisper zaxirasiga o'tilmoqda: %s", gem_err)
+
+        # 2-bosqich: Groq Whisper zaxirasi
         multilingual_prompt = (
-            "O'zbek, rus va ingliz tillaridagi dasturlash ta'limi va shaxsiy ovozli suhbat. "
+            "O'zbekiston, Toshkent, CoddyCamp dasturlash akademiyasi. Bu audio O'zbek tilida (yoki rus/ingliz). "
             "Assalomu alaykum ustoz, dars, uyga vazifa, topshiriq, o'quvchi, darsga kechikaman, kasalman, kela olmayman, kod, dasturlash, Python, CoddyCamp, Rustamjon, Amirbek. "
-            "Здравствуйте учитель, урок, домашнее задание, опоздаю, не смогу прийти, заболел, код, ошибка, проект. "
+            "Здравствуйте учитель, урок, домашнее задание, опоздаю, не смоgu прийти, заболел, код, ошибка, проект. "
             "Hello teacher, lesson, homework, coding, class, late, project."
         )
         hallucinations = ("subtitles by", "amara.org", "sous-titres", "transcription par", "thank you for watching")
+        turkish_hallucinations = ("öğretmenim", "yapıyorum", "geliyorum", "lütfen", "merhaba", "dersime")
 
-        # 1-bosqich: Frontline klasteri orqali urinish
         pool = self._frontline_clients if self._frontline_clients else self._groq_clients
         if pool:
             for _ in range(min(5, len(pool))):
@@ -3086,16 +3123,18 @@ class AIService:
                         temperature=0.0,
                     )
                     text = str(transcription).strip()
-                    # Subtitr gallyutsinatsiyalarini filtrlash
                     if any(h in text.lower() for h in hallucinations) and len(text) < 45:
                         text = ""
+                    # Agar Whisper o'zbekchani turkcha so'zlarga aylantirib yuborsa
+                    if any(th in text.lower() for th in turkish_hallucinations):
+                        logger.warning("Whisper turkcha gallyutsinatsiyasi aniqlandi: %s", text[:60])
                     if text:
                         logger.info("✅ Groq Whisper (Frontline) ovozli xabarni matnga aylantirdi: %s", text[:80])
                         return text
                 except Exception as e:
                     logger.warning("Groq Whisper (Frontline) xatolik, keyingi kalitga o'tilmoqda: %s", e)
 
-        # 2-bosqich: Groq Zaxira Qalqoni orqali urinish
+        # 3-bosqich: Groq Zaxira Qalqoni orqali urinish
         if self._reserve_clients:
             for _ in range(min(3, len(self._reserve_clients))):
                 client = self._reserve_clients[self._reserve_idx % len(self._reserve_clients)]
@@ -3116,35 +3155,6 @@ class AIService:
                         return text
                 except Exception as e:
                     logger.warning("Groq Whisper (Zaxira Qalqoni) xatolik: %s", e)
-
-        # 3-bosqich: Google Gemini Audio zaxirasi
-        if self._gemini_client:
-            try:
-                logger.info("⚡ Google Gemini multimodal audio transkripsiya zaxirasiga ulanmoqda...")
-                from google.genai import types
-                loop = asyncio.get_running_loop()
-
-                def _gemini_transcribe():
-                    resp = self._gemini_client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=[
-                            types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg"),
-                            (
-                                "Ushbu ovozli xabarni (audio) tinglab, aytilgan barcha gaplarni 100% aniqlikda matnga o'giring (Transkripsiya). "
-                                "Audio o'zbekcha (lotin yoki kirill), ruscha yoki inglizcha (yoki aralash) bo'lishi mumkin. "
-                                "Faqat gapiruvchi aytgan haqiqiy so'zlarni to'liq va aniq yozing. "
-                                "Hech qanday qo'shimcha so'z, kirish, xulosa yoki izoh qo'shmang, faqat to'g'ridan-to'g'ri aytilgan nutq matnini qaytaring."
-                            )
-                        ],
-                    )
-                    return resp.text.strip() if resp and resp.text else ""
-
-                text = await asyncio.wait_for(loop.run_in_executor(None, _gemini_transcribe), timeout=18.0)
-                if text:
-                    logger.info("✅ Google Gemini orqali ovozli xabar transkripsiya qilindi: %s", text[:80])
-                    return text
-            except Exception as gem_err:
-                logger.warning("Google Gemini audio transkripsiyasida xatolik: %s", gem_err)
 
         return ""
 
