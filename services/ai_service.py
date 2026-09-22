@@ -3058,11 +3058,19 @@ class AIService:
 
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
         """
-        Ovozli xabarni matnga o'giradi (Multi-Tier Kaskad):
+        Ovozli xabarni matnga o'giradi (Multi-Tier Kaskad - UZ, RU, EN):
         1-bosqich: Groq Whisper (Frontline klasteri - whisper-large-v3)
         2-bosqich: Groq Whisper (Zaxira Qalqoni klasteri - whisper-large-v3)
         3-bosqich: Google Gemini 2.0 Flash Audio transkripsiya (Temir zaxira)
         """
+        multilingual_prompt = (
+            "O'zbek, rus va ingliz tillaridagi dasturlash ta'limi va shaxsiy ovozli suhbat. "
+            "Assalomu alaykum ustoz, dars, uyga vazifa, topshiriq, o'quvchi, darsga kechikaman, kasalman, kela olmayman, kod, dasturlash, Python, CoddyCamp, Rustamjon, Amirbek. "
+            "Здравствуйте учитель, урок, домашнее задание, опоздаю, не смогу прийти, заболел, код, ошибка, проект. "
+            "Hello teacher, lesson, homework, coding, class, late, project."
+        )
+        hallucinations = ("subtitles by", "amara.org", "sous-titres", "transcription par", "thank you for watching")
+
         # 1-bosqich: Frontline klasteri orqali urinish
         pool = self._frontline_clients if self._frontline_clients else self._groq_clients
         if pool:
@@ -3074,8 +3082,13 @@ class AIService:
                         file=("voice.ogg", audio_bytes),
                         model="whisper-large-v3",
                         response_format="text",
+                        prompt=multilingual_prompt,
+                        temperature=0.0,
                     )
                     text = str(transcription).strip()
+                    # Subtitr gallyutsinatsiyalarini filtrlash
+                    if any(h in text.lower() for h in hallucinations) and len(text) < 45:
+                        text = ""
                     if text:
                         logger.info("✅ Groq Whisper (Frontline) ovozli xabarni matnga aylantirdi: %s", text[:80])
                         return text
@@ -3092,8 +3105,12 @@ class AIService:
                         file=("voice.ogg", audio_bytes),
                         model="whisper-large-v3",
                         response_format="text",
+                        prompt=multilingual_prompt,
+                        temperature=0.0,
                     )
                     text = str(transcription).strip()
+                    if any(h in text.lower() for h in hallucinations) and len(text) < 45:
+                        text = ""
                     if text:
                         logger.info("🛡️ Groq Whisper (Zaxira Qalqoni) ovozli xabarni matnga aylantirdi: %s", text[:80])
                         return text
@@ -3103,7 +3120,8 @@ class AIService:
         # 3-bosqich: Google Gemini Audio zaxirasi
         if self._gemini_client:
             try:
-                logger.info("⚡ Groq Whisper tugadi/band. Google Gemini audio transkripsiya zaxirasiga ulanmoqda...")
+                logger.info("⚡ Google Gemini multimodal audio transkripsiya zaxirasiga ulanmoqda...")
+                from google.genai import types
                 loop = asyncio.get_running_loop()
 
                 def _gemini_transcribe():
@@ -3111,7 +3129,12 @@ class AIService:
                         model="gemini-2.0-flash",
                         contents=[
                             types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg"),
-                            "Iltimos, ushbu ovozli xabardagi barcha so'zlarni xatosiz to'liq matnga o'giring (faqat aytilgan gapni qaytaring, qo'shimcha so'z va izoh yozmang)."
+                            (
+                                "Ushbu ovozli xabarni (audio) tinglab, aytilgan barcha gaplarni 100% aniqlikda matnga o'giring (Transkripsiya). "
+                                "Audio o'zbekcha (lotin yoki kirill), ruscha yoki inglizcha (yoki aralash) bo'lishi mumkin. "
+                                "Faqat gapiruvchi aytgan haqiqiy so'zlarni to'liq va aniq yozing. "
+                                "Hech qanday qo'shimcha so'z, kirish, xulosa yoki izoh qo'shmang, faqat to'g'ridan-to'g'ri aytilgan nutq matnini qaytaring."
+                            )
                         ],
                     )
                     return resp.text.strip() if resp and resp.text else ""
