@@ -2331,12 +2331,24 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     format_audit_report,
                 )
                 web_audit_url = extract_inspection_url(input_text)
+                # Agar foydalanuvchi oldingi sayt auditi bo'yicha "tavsiya ber", "xatolarini ayt" deb so'ragan bo'lsa
+                is_asking_advice = bool(re.search(r"\b(?:tavsiya|sovet|maslahat|kamchilik|xato|qanday\s+qilsam|nima\s+qilay|что\s+исправить|совет)\b", (input_text or "").lower()))
+                if not web_audit_url and is_asking_advice:
+                    # Reply qilingan xabardan yoki chat xotirasidan oxirgi sayt havolasini qidiramiz
+                    candidate_text = reply_context or ""
+                    if not candidate_text:
+                        for h in reversed(memory_service.get_history(chat_id)[-5:]):
+                            if "renderforest" in h.content or "http" in h.content:
+                                candidate_text = h.content
+                                break
+                    web_audit_url = extract_inspection_url(candidate_text)
+
                 if web_audit_url and not file_text and not has_photo and not is_dangerous:
                     logger.info("🌐 0-Token Veb-Inspektor ishga tushirildi [%s]: %s", chat_id, web_audit_url)
                     log_activity(f"🌐 Veb-audit: {web_audit_url[:30]}")
                     audit_data = await audit_website(web_audit_url)
-                    report_text = format_audit_report(audit_data, web_audit_url)
-                    ss_bytes = await get_website_screenshot(web_audit_url)
+                    report_text = format_audit_report(audit_data, web_audit_url, is_detailed=is_asking_advice)
+                    ss_bytes = await get_website_screenshot(web_audit_url) if not is_asking_advice else None
 
                     CURRENT_SENDING_CHATS.add(chat_id)
                     try:

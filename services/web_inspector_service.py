@@ -27,7 +27,9 @@ STUDENT_DEPLOY_DOMAINS = (
     "web.app",
     "firebaseapp.com",
     "repl.co",
-    "replit.app",
+    "renderforestsites.com",
+    "renderforest.com",
+    "wixsite.com",
     "codepen.io",
     "glitch.me",
 )
@@ -388,37 +390,58 @@ async def get_website_screenshot(url: str) -> bytes | None:
     return None
 
 
-def format_audit_report(audit: dict[str, Any], url: str) -> str:
+def format_audit_report(audit: dict[str, Any], url: str, is_detailed: bool = False) -> str:
     """
-    O'quvchi uchun tushunarli, aniq va professional mentorlik audit hisobotini tuzadi.
+    O'quvchi uchun lo'nda (ixcham) yoki batafsil mentorlik audit hisobotini tuzadi.
+    Guruhda xabarlar ko'payib shovqin bo'lmasligi uchun standart holatda 3-4 qatorda ixcham beriladi.
+    Tavsiyalar faqat o'quvchi so'raganida (is_detailed=True) to'liq chiqariladi.
     """
     score = audit.get("score", 0)
     score_emoji = "🟢" if score >= 85 else ("🟡" if score >= 65 else "🔴")
 
+    title_str = f" («{audit['title']}»)" if audit.get("title") else ""
+
+    # 1. Standart ixcham (lo'nda) ko'rinish: Guruhni to'ldirib yubormaydi!
+    if not is_detailed:
+        status_note = "Ajoyib holatda! 🎉" if score >= 85 else "Yaxshi, lekin ayrim tuzatishlar bor 🛠"
+        lines = [
+            f"🌐 **Loyiha Auditi:** {title_str.strip() or 'Veb-sayt'}",
+            f"🔗 `{url}`",
+            f"📊 **Baho:** {score_emoji} **{score}/100 ball** | ⚡ **Tezlik:** `{audit.get('latency_sec', 0.0)}s` ({status_note})",
+            "💡 *Tavsiyalar va xatolarni ko'rish uchun: «tavsiya ber» deb yozing.*",
+        ]
+        return "\n".join(lines)
+
+    # 2. Batafsil ko'rinish (faqat o'quvchi tavsiya so'raganda):
     lines = [
-        "🌐 **CODDY Veb-Inspektor: Sayt Auditi**",
+        f"🌐 **CODDY Veb-Inspektor: Loyiha Auditi va Baholash**{title_str}",
         f"🔗 **Manzil:** `{url}`",
-        f"📊 **Audit Bahosi:** {score_emoji} **{score}/100 ball**",
-        f"⚡ **Tezlik:** `{audit.get('latency_sec', 0.0)}s` | **Holati:** `{audit.get('status_code', 0)} OK`",
+        f"📊 **Umumiy Baho:** {score_emoji} **{score}/100 ball**",
+        f"⚡ **Yuklanish tezligi:** `{audit.get('latency_sec', 0.0)}s` | **Server holati:** `{audit.get('status_code', 0)} OK`",
     ]
 
     stacks = audit.get("detected_stacks", [])
     if stacks:
-        lines.append(f"🛠 **Aniqlangan texnologiyalar:** {', '.join(stacks)}")
+        lines.append(f"🛠 **Ishlatilgan texnologiyalar:** {', '.join(stacks)}")
 
-    good_points = audit.get("good_points", [])
-    if good_points:
-        lines.append("\n✅ **Yutuqlar va to'g'ri qilingan qismlar:**")
-        for gp in good_points[:3]:
-            lines.append(f"• {gp}")
+    lines.append("\n🎨 **Ko'rinish, Ishlash va Sifat Tahlili:**")
+    if audit.get("has_viewport"):
+        lines.append("• 📱 **Ko'rinish & Moslashuv:** Sayt mobil qurilmalarga to'g'ri moslashgan (Responsive).")
+    else:
+        lines.append("• 📱 **Ko'rinish & Moslashuv:** Mobil moslashuv to'liq emas, telefonda bloklar siljishi mumkin.")
+
+    empty_links = audit.get("empty_links", 0)
+    if empty_links == 0:
+        lines.append("• 🔗 **Ishlashi va Bog'liqlik:** Barcha tugma va havolalar to'g'ri ulangan.")
+    else:
+        lines.append(f"• 🔗 **Ishlashi va Bog'liqlik:** {empty_links} ta tugmada `href='#'` qolgan (havola ulanmagan).")
 
     issues = audit.get("issues", [])
     if issues:
-        lines.append("\n⚠️ **Tuzatilishi tavsiya etiladigan kamchiliklar:**")
+        lines.append("\n🛠 **Yaxshilash uchun mentor tavsiyalari:**")
         for idx, iss in enumerate(issues[:5], 1):
             lines.append(f"{idx}. {iss}")
     else:
-        lines.append("\n🎉 **Ajoyib!** Hech qanday jiddiy kamchilik topilmadi.")
+        lines.append("\n🎉 **Barakalla!** Hech qanday kamchilik topilmadi, sayt juda yaxshi tayyorlangan.")
 
-    lines.append("\n💡 *Saytning vizual ko'rinishi yuqoridagi skrinshotda taqdim etildi.*")
     return "\n".join(lines)
