@@ -1016,6 +1016,15 @@ async def find_student_or_contact(client, name_or_query: str) -> dict[str, Any]:
     if not raw_q:
         return {"crm_students": [], "telegram_chats": [], "group_members": []}
 
+    # Keraksiz so'zlarni tozalab, haqiqiy ism-familiyani ajratish
+    clean_q = re.sub(
+        r"\b(?:uydagilar\w*|uydigilar\w*|ota-ona\w*|ota\s+ona\w*|onasi\w*|otasi\w*|dadasi\w*|oyisi\w*|raqam\w*|nomer\w*|telefon\w*|kontakt\w*|qidir\w*|top\w*|kel\w*|haqida|ma['’`]?lumot\w*|qayerda\w*|bo['’`]?lmasin|bolmasin|agar|topolmasang|sora|so['’`]?ra|mamuryat\w*|ma['’`]?muriyat\w*)\b",
+        "",
+        raw_q,
+        flags=re.I
+    ).strip()
+    target_q = clean_q if len(clean_q) >= 2 else raw_q
+
     # 1. CRM bazasidan o'quvchilarni qidirish (kengaytirilgan filtr bilan)
     all_crm_students = memory_service.get_students(limit=200)
     crm_matches = []
@@ -1023,7 +1032,11 @@ async def find_student_or_contact(client, name_or_query: str) -> dict[str, Any]:
         fname = s.get("full_name", "")
         uname = s.get("username", "")
         gname = s.get("group_name", "")
-        if match_text(raw_q, fname) or match_text(raw_q, uname) or match_text(raw_q, gname):
+        if (
+            match_text(raw_q, fname) or match_text(target_q, fname)
+            or match_text(raw_q, uname) or match_text(target_q, uname)
+            or match_text(raw_q, gname) or match_text(target_q, gname)
+        ):
             crm_matches.append(s)
             if len(crm_matches) >= 10:
                 break
@@ -1047,13 +1060,13 @@ async def find_student_or_contact(client, name_or_query: str) -> dict[str, Any]:
                 p_digits = re.sub(r"\D", "", phone) if phone else ""
 
                 matched = False
-                if match_text(raw_q, d_name) or match_text(raw_q, username):
+                if match_text(raw_q, d_name) or match_text(target_q, d_name) or match_text(raw_q, username) or match_text(target_q, username):
                     matched = True
                 elif p_digits and q_digits and (q_digits in p_digits or (len(q_digits) >= 7 and p_digits.endswith(q_digits))):
                     matched = True
                 else:
                     for kw in family_keywords:
-                        if kw in q_norm and match_text(kw, d_name):
+                        if kw in q_norm and (match_text(kw, d_name) or match_text(target_q, d_name)):
                             matched = True
                             break
 
@@ -1094,7 +1107,10 @@ async def find_student_or_contact(client, name_or_query: str) -> dict[str, Any]:
                         p_full = f"{p_first} {p_last}".strip()
                         p_uname = getattr(p, "username", None) or ""
 
-                        if match_text(raw_q, p_full) or match_text(raw_q, p_uname):
+                        if (
+                            match_text(raw_q, p_full) or match_text(target_q, p_full)
+                            or match_text(raw_q, p_uname) or match_text(target_q, p_uname)
+                        ):
                             seen_user_ids.add(p.id)
                             group_members.append({
                                 "user_id": p.id,

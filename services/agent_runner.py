@@ -31,7 +31,12 @@ TEMIR QOIDALAR:
 7. Agar mentor "ignor qil" yoki "e'tiborsiz qoldir" desa — `mute_user` toolini chaqiring (Telegramda bloklamasdan).
 8. Agar mentor "blokla" yoki "blokla va ignor qil" desa — `block_user` toolini chaqiring (Telegramda ham bloklaydi).
 9. Agar mentor "falonchidan so'rab bilchi", "darsga keladimi bilib kel", "aniqlashtirib kel", "so'rab kel" kabi vazifa bersa — `ask_and_clarify_task(target="...", question="...", expected_info="...")` toolini chaqiring. Bu tool orqali agent unga savol yuboradi va uning javobini kutish holatiga oladi.
-10. Barcha kerakli asboblar bajarilib bo'lgach, Mentorga to'liq, chiroyli va professional hisobot qaytaring.
+10. Agar mentor biror o'quvchi yoki uning ota-onasi / uydagilarining raqamini qidirib topishni, agar topilmasa ma'muriyatdan (@coddycamp_sergeli) so'rashni buyursa:
+   - 1-qadam: `find_contact(name_or_query="o'quvchi ismi")` orqali CRM bazasi, Telegram chatlar va guruhlar orasidan qidiring.
+   - 2-qadam: Agar o'quvchi yoki uydagilarining telefon raqami topilmasa, va mentor "topolmasang ma'muriyatdan so'ra" degan bo'lsa:
+     DARHOL `send_telegram_message(recipient="@coddycamp_sergeli", message="Assalomu alaykum! Nuriddin ustoz [O'quvchi ismi]ning (yoki uydagilarining) telefon raqamini so'ramoqdalar. Iltimos raqamni bera olasizmi?")` toolini chaqirib ma'muriyatga xabar yuboring.
+   - 3-qadam: Mentorga to'liq hisobot bering (qidiruv natijasi va ma'muriyatga qanday xabar yo'llangani haqida).
+11. Barcha kerakli asboblar bajarilib bo'lgach, Mentorga to'liq, chiroyli va professional hisobot qaytaring.
 """.strip()
 
 

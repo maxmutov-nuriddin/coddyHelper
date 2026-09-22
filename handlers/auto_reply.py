@@ -866,7 +866,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             # Agar saqlangan lokatsiyalardan birini so'rayotgan bo'lsa:
             loc_query = extract_location_query(message_text)
             if not geo and loc_query:
-                loc_find_reply = await handle_find_location_request(client, chat_id, loc_query)
+                loc_find_reply = await handle_find_location_request(client, chat_id, loc_query, full_text=message_text)
                 if loc_find_reply:
                     sent_msg = await event.reply(loc_find_reply)
                     if sent_msg:

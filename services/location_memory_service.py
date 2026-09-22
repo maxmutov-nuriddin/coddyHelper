@@ -77,19 +77,40 @@ async def save_pending_location(chat_id: int, name_reply: str, client: TelegramC
 def extract_location_query(text: str) -> str | None:
     """Matnda lokatsiyani so'rash talabi borligini aniqlaydi va qidirilayotgan joy nomini ajratadi."""
     t = text.lower().strip().rstrip("?!. ")
-    if not any(k in t for k in ("lokatsiya", "joylashuv", "manzil", "qayerda", "qayer", "qattaligi", "koordinata")):
+
+    # 1. Aloqa, o'quvchi, telefon, oila yoki umumiy topshiriq so'zlari bo'lsa, bu LOKATSIYA EMAS:
+    non_loc_pattern = re.compile(
+        r"\b(?:raqam\w*|nomer\w*|telefon\w*|kontakt\w*|tel|kod\w*|sms\w*|"
+        r"uydagilar\w*|uydigilar\w*|ota-ona\w*|ota\s+ona\w*|onasi\b|otasi\b|dadasi\b|oyisi\b|"
+        r"qidir\w*|topib\b|so['’`]?ra\w*|bilchi\b|aniqla\w*|"
+        r"ma['’`]?muriyat\w*|mamuryat\w*|admin\w*|"
+        r"o['’`]?quvchi\w*|oquvchi\w*|student\w*|talaba\w*|"
+        r"dars\w*|vazifa\w*|skrinshot\w*|xato\w*|xatolik\w*|bug\w*)\b",
+        re.I
+    )
+    if non_loc_pattern.search(t):
+        return None
+
+    # "qayerda" bilan keladigan iboralar yoki grammatik savollar:
+    idiom_phrases = (
+        "qayerda bo'lmasin", "qayerda bolmasin", "qayerda bo'lsa", "qayerda bosa",
+        "qayerdadir", "qayerdandir", "qayerda xato", "qayerda yozilgan", "qayerida",
+    )
+    if any(ip in t for ip in idiom_phrases):
+        return None
+
+    if not any(k in t for k in ("lokatsiya", "joylashuv", "manzil", "geopozitsiya", "gps", "koordinata", "xarita", "qayerda", "qayer", "qattaligi")):
         return None
 
     # Qidiruv namunalari - eng aniqlaridan boshlab
     patterns = [
-        # 1. "ofis lokatsiyasini tashla", "ishxona manzilini ber"
-        r"(.+?)\s+(?:lokatsiya\w*|joylashuv\w*|manzil\w*)\b.*?(?:qayerda|qayer|tashla|yubor|ber|ko['’`]?rsat)?",
-        # 2. "ishxona qayerda edi", "sport zal qayerda"
-        r"(.+?)\s+(?:qayerda\s+edi|qayerda|qayerdaligini|qayerda\s+joylashgan)",
+        # 1. "ofis lokatsiyasini tashla", "ishxona manzilini ber", "filial lokatsiyasi"
+        r"^(.+?)\s+(?:lokatsiya\w*|joylashuv\w*|manzil\w*|geopozitsiya\w*)\b.*?(?:qayerda|qayer|tashla|yubor|ber|ko['’`]?rsat)?$",
+        r"(?:lokatsiya\w*|joylashuv\w*|manzil\w*)\s+(?:nomi\s+)?([a-zA-Z0-9_'\s]{2,30})",
+        # 2. "ishxona qayerda edi", "sport zal qayerda?" (jumla oxirida yoki edi/joylashgan bilan)
+        r"^(.+?)\s+(?:qayerda\s+edi|qayerda\s+joylashgan|qayerda\s*\?*$)",
         # 3. "qayerda edi ishxona", "qayerda sport zal"
-        r"(?:qayerda\s+edi|qayerda\s+joylashgan|qayerda)\s+(.+)",
-        # 4. "lokatsiyasi ishxona"
-        r"(?:lokatsiya\w*|joylashuv\w*|manzil\w*)\s+(?:nomi\s+)?(.+)",
+        r"^(?:qayerda\s+edi|qayerda\s+joylashgan|qayerda)\s+([a-zA-Z0-9_'\s]{2,30})\?*$",
     ]
     for p in patterns:
         m = re.search(p, t)
@@ -104,17 +125,27 @@ def extract_location_query(text: str) -> str | None:
                 elif q.endswith("im") or q.endswith("um"):
                     q = q[:-2]
             q = q.strip("?!. ")
-            if len(q) >= 2 and q not in ("shu", "joy", "lokatsiya", "edi"):
+            # Agar ajratilgan matn juda uzun (gap yoki ko'rsatma) bo'lsa, bu lokatsiya emas!
+            if len(q.split()) > 4 or len(q) > 30:
+                continue
+            if len(q) >= 2 and q not in ("shu", "joy", "lokatsiya", "edi", "xarita"):
                 return q
 
     return None
 
 
-async def handle_find_location_request(client: TelegramClient, chat_id: int, query: str) -> str | None:
+async def handle_find_location_request(client: TelegramClient, chat_id: int, query: str, full_text: str = "") -> str | None:
     """Qidirilgan nom bo'yicha lokatsiyani topib, rasmiy xarita pin xabari bilan yuboradi."""
     loc = memory_service.get_saved_location(query)
     if not loc:
-        # Barcha mavjud lokatsiyalar ro'yxatini chiqarish
+        # Agar foydalanuvchi EXPLICIT (aniq) lokatsiya so'zlarini ishlatmagan bo'lsa,
+        # va bunday nomli lokatsiya saqlanmagan bo'lsa, boshqa xizmatlar / AI ishlashi uchun None qaytaramiz!
+        explicit_location_keywords = ("lokatsiya", "joylashuv", "manzil", "geopozitsiya", "gps", "koordinata", "xarita")
+        has_explicit_kw = any(k in (full_text or query).lower() for k in explicit_location_keywords)
+        if not has_explicit_kw:
+            return None
+
+        # Faqat foydalanuvchi aniq lokatsiya/manzil deb so'ragandagina topilmadi deb ro'yxatni ko'rsatamiz:
         all_locs = memory_service.list_saved_locations(limit=10)
         if all_locs:
             names = [f"• «{l['name']}»" for l in all_locs]
