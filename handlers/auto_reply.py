@@ -1580,13 +1580,14 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
         # Ovozli xabar bo'lsa darhol yuklab o'girish
         input_text = message_text
-        if has_voice and not input_text.strip():
+        if has_voice:
             try:
                 audio_bytes = await event.message.download_media(bytes)
                 if audio_bytes:
                     transcribed = await ai_service.transcribe_audio(audio_bytes)
                     if transcribed:
-                        input_text = f"[Ovozli xabar]: {transcribed}"
+                        v_note = f"[Ovozli xabar (STT)]: {transcribed}"
+                        input_text = f"{input_text}\n\n{v_note}".strip() if input_text else v_note
             except Exception as v_err:
                 logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
 
@@ -2009,13 +2010,14 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                 # Agar ovozli xabar bo'lsa, Whisper orqali matnga o'girish
                 input_text = message_text
-                if has_voice and not input_text.strip():
+                if has_voice:
                     try:
                         audio_bytes = await event.message.download_media(bytes)
                         if audio_bytes:
                             transcribed = await ai_service.transcribe_audio(audio_bytes)
                             if transcribed:
-                                input_text = f"[Ovozli xabar]: {transcribed}"
+                                v_note = f"[Ovozli xabar (STT)]: {transcribed}"
+                                input_text = f"{input_text}\n\n{v_note}".strip() if input_text else v_note
                                 logger.info("Ovozli xabar matnga o'girildi [%s]: %s", chat_id, transcribed[:80])
                     except Exception as v_err:
                         logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
