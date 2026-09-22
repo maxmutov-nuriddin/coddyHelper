@@ -2337,6 +2337,15 @@ class AIService:
             if extras:
                 sys_prompt = f"{sys_prompt}\n\n# JORIY USLUB VA MENTOR KO'RSATMALARI:\n" + "\n".join(extras)
 
+            # Guruhlar va Ota-onalar bilan muloqot madaniyati:
+            group_humor_block = (
+                "# GURUH CHATLARI, OTA-ONALAR VA JONLI MULOQOT MADANIYATI:\n"
+                "• Guruhda o'quvchilar bilan bir qatorda ota-onalar ham qatnashishadi. Ota-onalarga chuqur hurmat va ehtirom ko'rsating.\n"
+                "• Hazillar va kulgili savollarda (😂, mashinalar, sovg'alar va h.k.) robotdek rad javobi bermang, samimiy tabassum bilan iliq javob bering.\n"
+                "• Ustoz bergan ro'yxat (masalan mashina nomlari, mavzular) — bolalarning amaliy dasturlash vebsaytlari loyihasi mavzusidir. Buni tushunib munosabat bildiring."
+            )
+            sys_prompt = f"{sys_prompt}\n\n{group_humor_block}"
+
         return sys_prompt
 
     def _generate_with_genai(
