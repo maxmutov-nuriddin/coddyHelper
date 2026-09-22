@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from telethon import TelegramClient, events
-from config import config, is_escalation_chat
+from config import config, is_escalation_chat, is_administration_chat_or_user
 from services.ai_service import ai_service
 from services.memory_service import memory_service
 from services.telegram_agent_service import (
@@ -1352,6 +1352,20 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if clean_msg in ("panel", "app", "admin", "webapp", ".panel", ".app", ".admin", "/panel", "/app", "/admin"):
             return
 
+        is_admin_contact = is_administration_chat_or_user(chat_id=chat_id, username=getattr(sender, "username", ""))
+        is_admin_user = (sender_id in (config.mentor_user_id, 8105823872)) or is_escalation_chat(event.chat_id)
+
+        # 🏛 Vazifalar guruhida .scan_admin yoki .analiz_admin buyrug'i
+        if (is_admin_user or is_escalation_chat(event.chat_id)) and clean_msg in (".scan_admin", ".analiz_admin", "scan_admin", "analiz_admin"):
+            from services.profile_intelligence_service import profile_intelligence_service
+            await event.reply("🔍 CoddyCamp ma'muriyati (@coddycamp_sergeli) chati tahlil qilinmoqda...")
+            res = await profile_intelligence_service.scan_and_analyze_admin_chat(client)
+            if res.get("ok"):
+                await event.reply(f"✅ Ma'muriyat chati muvaffaqiyatli tahlil qilindi ({res.get('msg_count', 0)} ta xabar) va kognitiv dosye yangilandi!")
+            else:
+                await event.reply(f"⚠️ Xatolik: {res.get('error', 'Tahlil qilib bo\'lmadi')}")
+            return
+
         # 🛡 XAVFSIZLIK: Telegram hisobini buzish, tasdiqlash kodi so'rash va phishing urinishlari
         phishing_patterns = [
             "kod keldi", "kodni ayt", "kodini ayt", "kodni ber", "kodini ber",
@@ -1362,7 +1376,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             "akkauntni ulab", "profilni ulab", "login code", "login kodi",
             "kirish kodi", "session fayl", "string_session"
         ]
-        if any(pat in clean_msg for pat in phishing_patterns):
+        if not is_admin_contact and any(pat in clean_msg for pat in phishing_patterns):
             s_name = getattr(sender, "first_name", "") or "Noma'lum"
             if getattr(sender, "last_name", None):
                 s_name += f" {sender.last_name}"
@@ -1389,8 +1403,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         # 🛡 XAVFSIZLIK: Tokenlarni qasddan sarflash, sun'iy cheksiz so'rovlar yoki trollik urinishlari
-        is_admin_user = (sender_id in (config.mentor_user_id, 8105823872)) or is_escalation_chat(event.chat_id)
-        if not is_admin_user and is_token_abuse(clean_msg):
+        if not is_admin_user and not is_admin_contact and is_token_abuse(clean_msg):
             s_name = getattr(sender, "first_name", "") or "Noma'lum"
             if getattr(sender, "last_name", None):
                 s_name += f" {sender.last_name}"
@@ -1683,7 +1696,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         # "kasalma", "shomoladim", "boleyu", "ploxo chustvuyu", "kelolmayman" va h.k.
         # Kimdir yozishi bilan hech qanday kutishsiz va chegarasiz @coddycamp_sergeli ga yuboriladi!
         is_admin_user = (sender_id in (config.mentor_user_id, 8105823872)) or is_escalation_chat(event.chat_id)
-        if is_absence_message(input_text) and not is_admin_user and not is_vazifalar:
+        if is_absence_message(input_text) and not is_admin_user and not is_vazifalar and not is_admin_contact:
             handled = await process_student_absence_immediately(
                 client=client,
                 event=event,
@@ -1697,9 +1710,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 return
 
         # Spamerlardan himoya (Rate limiting: 1 daqiqada ko'pi bilan 6 ta so'rov)
-        # Mentor va Vazifalar guruhiga HECH QANDAY rate limit yoki cheklov qo'llanilmaydi!
+        # Mentor, Vazifalar guruhi va Ma'muriyatga HECH QANDAY rate limit yoki cheklov qo'llanilmaydi!
         is_mentor_user = (sender_id in (config.mentor_user_id, 8105823872)) or (is_private and chat_id in (config.mentor_user_id, 8105823872))
-        if not is_mentor_user and not is_vazifalar and not is_escalation_chat(event.chat_id):
+        if not is_mentor_user and not is_vazifalar and not is_admin_contact and not is_escalation_chat(event.chat_id):
             now_ts = time.time()
             user_times = USER_REQUEST_TIMESTAMPS.setdefault(sender_id, [])
             user_times = [t for t in user_times if now_ts - t < 60.0]
@@ -1779,7 +1792,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         # Nuqta (.), bitta harf, raqam yoki no-savol belgilar kelganda og'ir LLM/qidiruvsiz tezkor salomlashish:
-        is_admin_or_vazifalar = is_mentor_user or is_vazifalar or is_escalation_chat(event.chat_id)
+        is_admin_or_vazifalar = is_mentor_user or is_vazifalar or is_escalation_chat(event.chat_id) or is_admin_contact
         if not is_admin_or_vazifalar and not has_photo and not has_voice and not has_doc_file:
             stripped_msg = message_text.strip()
             is_just_symbol_or_short = (
@@ -1968,7 +1981,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 github_match = re.search(r"https?://github\.com/[\w\-]+/[\w\-]+/?", input_text)
 
                 # 🔒 FAQAT MENTOR VA VAZIFALAR UCHUN CHEKLOVLAR (Talab: Schedule va Lokatsiya faqat mentorda ishlasin)
-                if not is_admin_chat and not is_mentor_user:
+                if not is_admin_chat and not is_mentor_user and not is_admin_contact:
                     # 1. Telegram geolokatsiyasi yuborilsa
                     has_geo = bool(
                         getattr(event.message, "geo", None)
@@ -2407,8 +2420,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         logger.error("Human-in-the-loop eskalatsiyasida xatolik: %s", esc_err)
 
                 # 🛡️ 2-MEXANIZM: DEEP SECURITY & PROMPT INJECTION FIREWALL
-                # Faqat oddiy o'quvchilar uchun! Vazifalar guruhi va Mentor uchun MUTLAQO ISHLAMAYDI!
-                if not is_admin_chat and not is_vazifalar and not is_mentor_user:
+                # Faqat oddiy o'quvchilar uchun! Vazifalar guruhi, Mentor va Ma'muriyat uchun MUTLAQO ISHLAMAYDI!
+                if not is_admin_chat and not is_vazifalar and not is_mentor_user and not is_admin_contact:
                     is_attack, attack_reason, attack_reply = detect_prompt_injection_or_jailbreak(input_text)
                     if is_attack:
                         CURRENT_SENDING_CHATS.add(chat_id)
@@ -2426,7 +2439,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                 # 🕵️‍♂️ MIYA 5: YASHIRIN PROFIL RAZVEDKASI (SILENT PROFILER ENQUEUE)
                 # Faqat oddiy o'quvchilar/suhbatdoshlar uchun (100% yashirin, o'quvchiga bildirilmaydi)
-                if not is_admin_chat and not is_vazifalar and not is_mentor_user and sender_id:
+                if not is_admin_chat and not is_vazifalar and not is_mentor_user and not is_admin_contact and sender_id:
                     try:
                         from services.profile_intelligence_service import profile_intelligence_service
                         profile_intelligence_service.enqueue_user(sender_id)
@@ -2436,7 +2449,28 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 # AI javobini generatsiya qilish (35s timeout bilan himoyalangan)
                 try:
                     lower_input = (input_text or "").lower().strip()
-                    if (
+                    if is_admin_contact:
+                        # Ma'muriyat dosyesi yo'q bo'lsa fonda skanerlash
+                        if not memory_service.get_setting("admin_dossier_coddycamp_sergeli"):
+                            try:
+                                from services.profile_intelligence_service import profile_intelligence_service
+                                asyncio.create_task(profile_intelligence_service.scan_and_analyze_admin_chat(client))
+                            except Exception:
+                                pass
+
+                        answer = await asyncio.wait_for(
+                            ai_service.generate_reply(
+                                chat_id=chat_id,
+                                user_message=input_text,
+                                reply_to_context=reply_context,
+                                image_bytes=image_bytes,
+                                file_name=file_name,
+                                file_text=file_text,
+                                is_administration_mode=True,
+                            ),
+                            timeout=40.0,
+                        )
+                    elif (
                         (lower_input.startswith("tushuntir ") or lower_input.startswith(".tushuntir "))
                         and not file_text
                         and not has_photo
@@ -2475,6 +2509,20 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 except asyncio.TimeoutError:
                     logger.warning("AI javob kutish vaqti (timeout 40s) oshdi [%s].", chat_id)
                     log_activity(f"⚠️ AI timeout (40s) bo'ldi [{chat_id}]")
+                    if is_admin_contact:
+                        timeout_text = (
+                            "Assalomu alaykum! Xabaringizni qabul qildim va uni darhol Nuriddin ustozga yetkazdim, tez orada shaxsan o'zlari aloqaga chiqadilar 😊"
+                        )
+                        sent_to = await event.reply(timeout_text)
+                        if sent_to:
+                            BOT_SENT_MESSAGE_IDS.add(sent_to.id)
+                        adm_alert = (
+                            "🚨 **MA'MURIYAT XABARI (AI Kechikishi / Timeout):**\n\n"
+                            f"📩 **Ma'muriyat xabari:** \"{(input_text or message_text)[:350]}\"\n\n"
+                            "⚠️ AI javob berishda kechikdi. Ma'muriyatga 'Ustozga yetkazildi' deb xabar berildi."
+                        )
+                        await dispatch_vazifalar_alert(client, adm_alert)
+                        return
                     if not is_admin_chat and not is_vazifalar:
                         is_ru_req = is_russian_text(input_text or message_text)
                         timeout_text = (
@@ -2507,6 +2555,23 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 except Exception as gen_err:
                     logger.error("AI javobini olishda xatolik [%s]: %s", chat_id, gen_err)
                     log_activity(f"⚠️ AI xatolik [{chat_id}]: {str(gen_err)[:35]}")
+                    if is_admin_contact:
+                        err_reply_text = (
+                            "Assalomu alaykum! Xabaringizni qabul qildim va uni darhol Nuriddin ustozga yetkazdim, tez orada shaxsan o'zlari aloqaga chiqadilar 😊"
+                        )
+                        try:
+                            sent_to = await event.reply(err_reply_text)
+                            if sent_to:
+                                BOT_SENT_MESSAGE_IDS.add(sent_to.id)
+                        except Exception:
+                            pass
+                        adm_alert = (
+                            "🚨 **MA'MURIYAT XABARI (AI Texnik Xatolik):**\n\n"
+                            f"📩 **Ma'muriyat xabari:** \"{(input_text or message_text)[:350]}\"\n\n"
+                            f"⚠️ Xatolik turi: {type(gen_err).__name__}. Ma'muriyatga 'Ustozga yetkazildi' deb javob berildi."
+                        )
+                        await dispatch_vazifalar_alert(client, adm_alert)
+                        return
                     if not is_admin_chat and not is_vazifalar:
                         is_ru_req = is_russian_text(input_text or message_text)
                         err_reply_text = (
@@ -2567,7 +2632,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 LAST_REPLY_TIME[chat_id] = time.time()
 
                 # O'quvchi profiliga faollikni yozib qo'yish (Student CRM)
-                if sender_id and sender_id != config.mentor_user_id and sender_id != 8105823872:
+                if sender_id and sender_id != config.mentor_user_id and sender_id != 8105823872 and not is_admin_contact:
                     try:
                         s_name = getattr(sender, "first_name", "") or "O'quvchi"
                         if getattr(sender, "last_name", None):
@@ -2596,7 +2661,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                     # Agar ovozli xabar bo'lsa yoki foydalanuvchi ovozli so'ragan bo'lsa va voice_reply_enabled yoqilgan bo'lsa
                     is_voice_requested = any(w in input_text.lower() for w in ["ovozli", "ovoz bilan", "голосом", "голос", "audio", "audioda"])
-                    if (has_voice or is_voice_requested) and voice_reply_enabled:
+                    if (has_voice or is_voice_requested) and voice_reply_enabled and not is_admin_contact:
                         try:
                             from services.tts_service import generate_voice_message
                             voice_path = await generate_voice_message(str(answer))
@@ -2626,8 +2691,24 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 finally:
                     CURRENT_SENDING_CHATS.discard(chat_id)
 
-                # Mentorga yo'naltirish (Eskalyatsiya)
-                if getattr(answer, "escalation", None):
+                # 🏛 Agar Ma'muriyat (@coddycamp_sergeli) bilan muloqot bo'lsa, Vazifalar guruhiga DARHOL to'liq hisobot yetkazish
+                if is_admin_contact:
+                    report_tag = "📋 #Davomat #Ma'muriyatXabari" if is_absence_message(input_text) else "🏛 #Ma'muriyatMuloqoti"
+                    admin_report = (
+                        f"🏛 **MA'MURIYAT BILAN MULOQOT (@coddycamp_sergeli):** {report_tag}\n\n"
+                        f"📩 **Ma'muriyat xabari:**\n\"{input_text}\"\n\n"
+                        f"🤖 **Agent javobi:**\n{answer}\n"
+                    )
+                    if getattr(answer, "escalation", None):
+                        admin_report += f"\n🚨 **DIQQAT (Ustoz qarori lozim):**\n{answer.escalation}\n"
+                    try:
+                        await dispatch_vazifalar_alert(client, admin_report)
+                        logger.info("🏛 Ma'muriyat muloqoti xabari Vazifalar guruhiga yetkazildi.")
+                    except Exception as adm_e:
+                        logger.warning("Vazifalar guruhiga ma'muriyat hisoboti yuborishda xatolik: %s", adm_e)
+
+                # Mentorga yo'naltirish (Eskalyatsiya - faqat oddiy foydalanuvchilar/o'quvchilar uchun)
+                if not is_admin_contact and getattr(answer, "escalation", None):
                     sender_name = getattr(sender, "first_name", "") or "Noma'lum"
                     if getattr(sender, "last_name", None):
                         sender_name += f" {sender.last_name}"

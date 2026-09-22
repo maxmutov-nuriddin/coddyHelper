@@ -611,6 +611,130 @@ class ProfileIntelligenceService:
         except Exception as be:
             logger.debug("observe_bot_message ogohlantirish: %s", be)
 
+    async def scan_and_analyze_admin_chat(self, client=None, limit: int = 80) -> dict[str, Any]:
+        """
+        CoddyCamp Sergeli ma'muriyati (@coddycamp_sergeli / 7754389150) chatini
+        Telethon orqali chuqur skanerlab, muloqot tarixi, mavzular va kelishuvlarni
+        AI orqali tahlil qiladi va Kognitiv Dosye (admin_dossier) shakllantiradi.
+        Hisobot darhol Vazifalar guruhiga yuboriladi.
+        """
+        cl = client or self._client
+        if not cl:
+            try:
+                import main
+                cl = getattr(main, "CURRENT_CLIENT", None)
+            except Exception:
+                pass
+        if not cl:
+            logger.warning("scan_and_analyze_admin_chat: Telethon client mavjud emas.")
+            return {"ok": False, "error": "Telethon client topilmadi"}
+
+        logger.info("🔍 CoddyCamp ma'muriyati (@coddycamp_sergeli) chati tahlili boshlanmoqda (Limit: %d)...", limit)
+        target_entities = ["@coddycamp_sergeli", "coddycamp_sergeli", 7754389150]
+        entity = None
+        for t in target_entities:
+            try:
+                entity = await cl.get_entity(t)
+                if entity:
+                    break
+            except Exception:
+                continue
+
+        if not entity:
+            logger.warning("scan_and_analyze_admin_chat: @coddycamp_sergeli entity topilmadi.")
+            return {"ok": False, "error": "@coddycamp_sergeli entity topilmadi"}
+
+        raw_messages = []
+        try:
+            async for msg in cl.iter_messages(entity, limit=limit):
+                text = (msg.text or "").strip()
+                if text:
+                    is_me = msg.out or (msg.sender_id in (config.mentor_user_id, 8105823872))
+                    sender_tag = "Ustoz Nuriddin" if is_me else "CoddyCamp Ma'muriyati (@coddycamp_sergeli)"
+                    raw_messages.append(f"{sender_tag}: {text}")
+        except Exception as read_err:
+            logger.error("Admin chat xabarlarini o'qishda xatolik: %s", read_err)
+            return {"ok": False, "error": str(read_err)}
+
+        if not raw_messages:
+            logger.info("Admin chatda hali xabarlar mavjud emas.")
+            empty_summary = (
+                "CoddyCamp Sergeli filiali ma'muriyati. "
+                "Asosiy mavzular: dars jadvali, xonalar, o'quvchilar davomati va to'lovlari. "
+                "Muloqot uslubi: rasmiy, hamkasblarcha va hurmat bilan."
+            )
+            memory_service.set_setting("admin_dossier_coddycamp_sergeli", empty_summary)
+            return {"ok": True, "dossier": empty_summary, "msg_count": 0}
+
+        # Xabarlarni xronologik tartibga solamiz
+        dialog_transcript = "\n".join(reversed(raw_messages[:70]))
+
+        prompt = (
+            "Quyida dasturlash ustozi Nuriddin Mahmudov va CoddyCamp Sergeli filiali Ma'muriyati (@coddycamp_sergeli) "
+            "o'rtasidagi Telegram yozishmalari tarixi keltirilgan.\n\n"
+            f"=== CHAT TARIXI ===\n{dialog_transcript}\n=== CHAT TUGADI ===\n\n"
+            "Vazifa: Ushbu chatni tahlil qilib, Ustozning AI Yordamchisi (Agente) uchun ma'muriyat bilan qanday muloqot qilish bo'yicha "
+            "Kognitiv Dosye (qo'llanma) tuzing:\n"
+            "1. Ko'rilgan asosiy masalalar (davomat, to'lov, guruhlar, dars vaqtlari, xonalar va h.k.);\n"
+            "2. Ma'muriyatning muloqot tili (o'zbekcha / ruscha) va ohangi;\n"
+            "3. O'zaro kelishilgan qoidalar va odatlar;\n"
+            "4. AI assistent ma'muriyatga qanday javob berishi kerak (lo'nda, aniq, hurmat bilan, dasturlash darsi o'tmasdan).\n"
+            "Javobni aniq, punktma-punkt, 4-6 banddan iborat lo'nda tahlil ko'rinishida yozing."
+        )
+
+        dossier_text = ""
+        try:
+            from services.ai_service import ai_service
+            pool = ai_service._frontline_clients if ai_service._frontline_clients else ai_service._groq_clients
+            if pool:
+                llm = pool[0]
+                res = await llm.chat.completions.create(
+                    model=config.groq_model,
+                    messages=[
+                        {"role": "system", "content": "Siz tajribali tahlilchi va AI yordamchisiz."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=700,
+                    temperature=0.3,
+                )
+                dossier_text = res.choices[0].message.content.strip()
+            elif ai_service._gemini_client:
+                g_res = ai_service._gemini_client.models.generate_content(
+                    model=config.gemini_model,
+                    contents=prompt
+                )
+                dossier_text = (g_res.text or "").strip()
+        except Exception as ai_err:
+            logger.warning("Admin dosyesini AI orqali sintez qilishda xatolik: %s", ai_err)
+            dossier_text = (
+                "CoddyCamp Sergeli filiali ma'muriyati. "
+                "Tahlil qilingan xabarlar soni: " + str(len(raw_messages)) + ". "
+                "Muloqot mavzulari: o'quvchilar davomati, dars jadvallari, markaz yangiliklari. "
+                "Uslub: rasmiy va hurmatli hamkasblarcha."
+            )
+
+        if not dossier_text:
+            dossier_text = "CoddyCamp Sergeli ma'muriyati bilan muloqot dosyesi."
+
+        memory_service.set_setting("admin_dossier_coddycamp_sergeli", dossier_text)
+        logger.info("✅ CoddyCamp ma'muriyat dosyesi muvaffaqiyatli saqlandi (%d ta xabar tahlil qilindi).", len(raw_messages))
+
+        # Vazifalar guruhiga hisobot yuborish
+        try:
+            from handlers.auto_reply import dispatch_vazifalar_alert
+            alert = (
+                "🏛 **CODDYCAMP MA'MURIYAT CHATI (@coddycamp_sergeli) TAHLIL QILINDI:**\n\n"
+                f"📊 **Tahlil qilingan xabarlar:** {len(raw_messages)} ta\n\n"
+                f"📋 **Kognitiv Dosye:**\n{dossier_text}\n\n"
+                "ℹ️ *Agent endilikda ushbu tajriba asosida ma'muriyatga professional munosabatda bo'ladi va o'quvchidek muomala qilmaydi. "
+                "Barcha yangi xabarlar va qarorlar ushbu Vazifalar guruhida sizga yetkaziladi.*"
+            )
+            await dispatch_vazifalar_alert(cl, alert)
+        except Exception as esc_e:
+            logger.warning("Vazifalar guruhiga admin tahlil hisobotini yuborishda ogohlantirish: %s", esc_e)
+
+        return {"ok": True, "dossier": dossier_text, "msg_count": len(raw_messages)}
+
     def get_status(self) -> dict[str, Any]:
         """Web App telemetriyasi uchun profiler holati."""
         return {

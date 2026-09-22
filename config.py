@@ -285,4 +285,27 @@ def get_vazifalar_chat_target_sync() -> int | str:
     return -5388159517
 
 
+def is_administration_chat_or_user(chat_id: Any = None, username: str = None) -> bool:
+    """
+    CoddyCamp o'quv markazi ma'muriyati (@coddycamp_sergeli / 7754389150) ekanligini aniqlaydi.
+    """
+    admin_usernames = {"coddycamp_sergeli", "coddycamp_sergeli2"}
+    admin_ids = {7754389150, -7754389150}
+    if username:
+        clean_u = str(username).strip().lstrip("@").lower()
+        if clean_u in admin_usernames:
+            return True
+    if chat_id is not None:
+        try:
+            cid = int(chat_id)
+            if cid in admin_ids:
+                return True
+        except (ValueError, TypeError):
+            pass
+        clean_cid = str(chat_id).strip().lstrip("@").lower()
+        if clean_cid in admin_usernames:
+            return True
+    return False
+
+
 

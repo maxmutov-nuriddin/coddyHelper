@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 from config import config, is_escalation_chat
-from prompts import SYSTEM_PROMPT, ADMIN_SYSTEM_PROMPT
+from prompts import SYSTEM_PROMPT, ADMIN_SYSTEM_PROMPT, ADMINISTRATION_SYSTEM_PROMPT
 from services.memory_service import memory_service
 
 logger = logging.getLogger(__name__)
@@ -1961,6 +1961,7 @@ class AIService:
         is_admin_mode: bool = False,
         pool_override: list[Any] | None = None,
         brain_type_override: str | None = None,
+        is_administration_mode: bool = False,
     ) -> str:
         history = memory_service.get_history(chat_id)
         if image_bytes:
@@ -1992,7 +1993,9 @@ class AIService:
             messages.append({"role": "user", "content": user_content})
             model_to_use = config.groq_vision_model
         else:
-            sys_prompt = self._build_system_prompt(is_admin_mode, effective_prompt=effective_prompt)
+            sys_prompt = self._build_system_prompt(
+                is_admin_mode, effective_prompt=effective_prompt, is_administration_mode=is_administration_mode
+            )
             messages = [{"role": "system", "content": sys_prompt}]
 
             prev_assistant = ""
@@ -2254,8 +2257,15 @@ class AIService:
             raise last_error
         return "Javob olinmadi."
 
-    def _build_system_prompt(self, is_admin_mode: bool, effective_prompt: str = "") -> str:
+    def _build_system_prompt(self, is_admin_mode: bool, effective_prompt: str = "", is_administration_mode: bool = False) -> str:
         """Tizim promptini bilimlar bazasi va tanlangan mentorlik uslubi (persona) bilan boyitadi."""
+        if is_administration_mode:
+            sys_prompt = ADMINISTRATION_SYSTEM_PROMPT
+            admin_dossier = memory_service.get_setting("admin_dossier_coddycamp_sergeli", "")
+            if admin_dossier:
+                sys_prompt = f"{sys_prompt}\n\n# CODDYCAMP MA'MURIYATI CHATI KOGNITIV TAHLILI (DOSYE):\n{admin_dossier}"
+            return sys_prompt
+
         sys_prompt = ADMIN_SYSTEM_PROMPT if is_admin_mode else SYSTEM_PROMPT
         
         # Token Budgeting: 8k TPM limitiga sig'ish uchun faqat eng muhim dolzarb saboq va bilimlarni ulaymiz
@@ -2329,7 +2339,14 @@ class AIService:
 
         return sys_prompt
 
-    def _generate_with_genai(self, prompt: str, history_context: str, is_admin_mode: bool = False, image_bytes: bytes | None = None) -> str:
+    def _generate_with_genai(
+        self,
+        prompt: str,
+        history_context: str,
+        is_admin_mode: bool = False,
+        image_bytes: bytes | None = None,
+        is_administration_mode: bool = False,
+    ) -> str:
         """Google GenAI orqali javob generatsiya qilish (fallback va Vision)."""
         from google.genai import types
 
@@ -2337,7 +2354,7 @@ class AIService:
         if history_context:
             full_content = f"Avvalgi suhbat konteksti:\n{history_context}\n\nFoydalanuvchining yangi xabari:\n{prompt}"
 
-        sys_prompt = self._build_system_prompt(is_admin_mode, effective_prompt=prompt)
+        sys_prompt = self._build_system_prompt(is_admin_mode, effective_prompt=prompt, is_administration_mode=is_administration_mode)
         gemini_candidates = [
             config.gemini_model,
             "gemini-3.6-flash",
@@ -2386,6 +2403,7 @@ class AIService:
         is_admin_mode: bool = False,
         image_bytes: bytes | None = None,
         brain_tag: str = "reserve",
+        is_administration_mode: bool = False,
     ) -> str | None:
         """Google Gemini zaxira miyasi orqali javob shakllantiradi va token metrikalarini qayd etadi."""
         if not self._gemini_client:
@@ -2405,7 +2423,7 @@ class AIService:
             t_gem = time.time()
             answer = await asyncio.wait_for(
                 loop.run_in_executor(
-                    None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode, image_bytes
+                    None, self._generate_with_genai, effective_prompt, history_context, is_admin_mode, image_bytes, is_administration_mode
                 ),
                 timeout=20.0,
             )
@@ -2432,6 +2450,7 @@ class AIService:
         file_name: str | None = None,
         file_text: str | None = None,
         is_admin_mode: bool | None = None,
+        is_administration_mode: bool = False,
     ) -> AIResult:
         """
         Xabarni tahlil qilib AI javobini qaytaradi (matn, fayl yoki rasm/skrinshot bilan).
@@ -2445,8 +2464,8 @@ class AIService:
         if is_admin_mode is None:
             is_admin_mode = is_escalation_chat(chat_id) or (chat_id in (config.mentor_user_id, 8105823872))
 
-        # Standart xatoliklarga (FAQ) 0.01 soniyada tezkor javob berish
-        if not is_admin_mode and not file_text and not image_bytes:
+        # Standart xatoliklarga (FAQ) 0.01 soniyada tezkor javob berish (faqat oddiy o'quvchilar uchun)
+        if not is_admin_mode and not is_administration_mode and not file_text and not image_bytes:
             fast_faq = check_fast_faq(user_message)
             if fast_faq:
                 logger.info("Fast FAQ mos keldi [%s], tezkor javob berildi.", chat_id)
@@ -2475,8 +2494,8 @@ class AIService:
 
         # 0.2-Bosqich: Universal Multi-Stack Linter (Python, JS, React, HTML, CSS, JSON)
         # O'quvchilar kodi xatoliklarini 0.005s da AI'siz, mutlaqo bepul va vizual ko'rsatkich bilan aniqlash
-        # Mentor va Vazifalar guruhiga 0 ta cheklov (mutlaq erkin, to'liq AI ishlaydi)
-        if not is_admin_mode and not image_bytes:
+        # Mentor, Vazifalar guruhi va Ma'muriyat uchun 0 ta cheklov (mutlaq erkin, to'liq AI ishlaydi)
+        if not is_admin_mode and not is_administration_mode and not image_bytes:
             try:
                 from services.code_linter_service import check_code_snippets
                 is_ru = is_russian_text(user_message)
@@ -2499,8 +2518,8 @@ class AIService:
             from services.search_service import get_web_search_context, is_programming_query
 
             should_search = False
-            if is_admin_mode:
-                # Mentor (Vazifalar): mutlaq erkin, har qanday mavzuda
+            if is_admin_mode or is_administration_mode:
+                # Mentor yoki Ma'muriyat: mutlaq erkin, har qanday mavzuda
                 search_triggers = [
                     "qidir", "search", "internet", "google", "top", "yangilik",
                     "versiya", "nima yangi", "ob-havo", "kurs", "dokumentatsiya",
@@ -2522,7 +2541,7 @@ class AIService:
 
             if should_search:
                 try:
-                    search_ctx = await get_web_search_context(user_message, is_admin=is_admin_mode)
+                    search_ctx = await get_web_search_context(user_message, is_admin=(is_admin_mode or is_administration_mode))
                     if search_ctx:
                         effective_prompt = f"{search_ctx}\n\n[Foydalanuvchi so'rovi]:\n{effective_prompt}"
                         logger.info("Web Search natijalari AI promptiga qo'shildi [%s]", chat_id)
@@ -2530,8 +2549,8 @@ class AIService:
                     logger.warning("Web search qo'shishda ogohlantirish: %s", s_err)
 
         # 3-Mexanizm: O'quvchining Dinamik Xatolar Xaritasi (Student Weakness Profiling)
-        # Faqat o'quvchilar uchun (Mentor va Vazifalar guruhiga mutlaqo ta'sir qilmaydi)
-        if not is_admin_mode and user_message:
+        # Faqat oddiy o'quvchilar uchun (Mentor, Vazifalar guruhi va Ma'muriyatga mutlaqo ta'sir qilmaydi)
+        if not is_admin_mode and not is_administration_mode and user_message:
             try:
                 topic = detect_programming_topic(user_message)
                 if topic:
@@ -2646,21 +2665,21 @@ class AIService:
             if not answer and gemini_trigger_after in ("gemini_first", "primary_first") and _is_gemini_allowed_for_request():
                 logger.info("🥇 [gemini_first] Google Gemini Asosiy Miya (1-o'rinda) sifatida ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
                 )
 
             # 0.5-ustuvorlik: Agar "vision_first" tanlangan bo'lsa va rasm bo'lsa, 1-o'rinda Gemini Vision ishlaydi
             if not answer and image_bytes and gemini_trigger_after == "vision_first" and _is_gemini_allowed_for_request():
                 logger.info("🖼️ [vision_first] Rasm tahlili uchun to'g'ridan-to'g'ri 1-o'rinda Google Gemini Vision ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
                 )
 
             # 0.7-ustuvorlik: Agar "smart_hybrid" tanlangan bo'lsa va VIP/Mentor yoki rasm bo'lsa, 1-o'rinda Gemini ishlaydi
             if not answer and (is_vip or image_bytes) and gemini_trigger_after == "smart_hybrid" and _is_gemini_allowed_for_request():
                 logger.info("👑 [smart_hybrid] VIP/Murakkab so'rov uchun Gemini 1-o'rinda ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
                 )
 
             # 1-ustuvorlik: Groq Birlamchi Miya (Miya 1: Frontline yoki Miya 2: VIP)
@@ -2668,7 +2687,7 @@ class AIService:
                 try:
                     answer = await asyncio.wait_for(
                         self._generate_with_groq(
-                            chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode
+                            chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode, is_administration_mode=is_administration_mode
                         ),
                         timeout=30.0,
                     )
@@ -2684,7 +2703,7 @@ class AIService:
             if not answer and gemini_trigger_after == "after_primary" and _is_gemini_allowed_for_request():
                 logger.info("⚡ [after_primary] Asosiy miya to'ldi. Gemini'ga darhol o'tilmoqda (Groq Zaxira kutib o'tirilmaydi)...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
                 )
 
             # 3-ustuvorlik: Miya 3: Groq Zaxira Qalqoni (12 ta kalit, Jamoalar #9-#12)
@@ -2700,6 +2719,7 @@ class AIService:
                             is_admin_mode=is_admin_mode,
                             pool_override=self._reserve_clients,
                             brain_type_override="groq_reserve",
+                            is_administration_mode=is_administration_mode,
                         ),
                         timeout=30.0,
                     )
@@ -2718,7 +2738,7 @@ class AIService:
                 if gemini_trigger_after != "vision_only_trigger" or image_bytes or file_text:
                     logger.info("⚡ So'nggi istehkom: Google Gemini zaxira tizimi ulanmoqda (scope=%s, trigger=%s)...", gemini_scope, gemini_trigger_after)
                     answer = await self._generate_gemini_reply(
-                        chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve"
+                        chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
                     )
 
             if not answer:
@@ -2741,8 +2761,8 @@ class AIService:
                 escalation_info = redact_sensitive_data(escalation_info)
 
             # Begona mavzu yoki CoddyCamp ta'lim doirasidan tashqari murojaatlarda
-            # foydalanuvchiga mentorga yetkazilganini bildirish va Vazifalar guruhiga uzatish
-            if not is_admin_mode:
+            # foydalanuvchiga mentorga yetkazilganini bildirish va Vazifalar guruhiga uzatish (faqat oddiy o'quvchilar uchun)
+            if not is_admin_mode and not is_administration_mode:
                 off_topic_patterns = [
                     r"CoddyCamp dasturlash ta['’`]?limi bo['’`]?yicha yordam beraman",
                     r"darslarimiz haqida gaplashaylik",
