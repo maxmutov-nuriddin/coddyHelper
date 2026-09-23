@@ -224,6 +224,112 @@ tags:
         except Exception as e:
             logger.warning("Guruh faylini yangilashda ogohlantirish: %s", e)
 
+    def export_dossier(
+        self,
+        user_id: int,
+        username: str = "",
+        first_name: str = "",
+        last_name: str = "",
+        phone: str = "",
+        bio: str = "",
+        dossier_text: str = "",
+    ) -> None:
+        """Foydalanuvchi dosyesi yaratilganda yoki yangilanganda Obsidian kartochkasini avtomatik yangilaydi."""
+        if not self._initialized:
+            self.init_vault()
+
+        raw_name = f"{first_name or ''} {last_name or ''}".strip()
+        display_name = raw_name if raw_name else (f"@{username}" if username else f"Foydalanuvchi {user_id}")
+        clean_file = _clean_filename(display_name)
+        if len(clean_file) > 35 or clean_file.startswith(('.', '-', '@')):
+            clean_file = _clean_filename(username) if username else f"User_{user_id}"
+
+        filename = f"{clean_file}.md"
+        filepath = self.students_dir / filename
+
+        # Guruhni aniqlash
+        full_text_lower = f"{display_name} {bio} {dossier_text}".lower()
+        is_parent = False
+        target_group = "CoddyCamp_Sergeli_Markazi"
+        group_title = "CoddyCamp Sergeli Filiali - Umumiy Jamoa"
+
+        if any(w in full_text_lower for w in ["oila", "ona", "ota", "farzand", "qizim", "o'g'lim", "deti", "семь", "мама"]):
+            target_group = "Ota_onalar_va_Vasiylar_Hamjamiyati"
+            group_title = "Ota-onalar va Vasiylar Hamjamiyati"
+            is_parent = True
+        elif any(w in full_text_lower for w in ["frontend", "react", "html", "css", "javascript", "web"]):
+            target_group = "Frontend_Dasturlash_Web"
+            group_title = "Frontend Dasturlash (HTML, CSS, JS, React)"
+        elif any(w in full_text_lower for w in ["backend", "fastapi", "django", "sql", "postgres"]):
+            target_group = "Backend_va_Ma_lumotlar_Bazasi"
+            group_title = "Backend va Ma'lumotlar Bazasi (FastAPI & PostgreSQL)"
+        elif any(w in full_text_lower for w in ["python", "bot", "algoritm", "kod"]):
+            target_group = "Python_Dasturlash_Asoslari"
+            group_title = "Python Dasturlash Asoslari"
+
+        group_link = f"[[Guruhlar/{target_group}|{group_title}]]"
+        status = "ota_ona" if is_parent else "faol"
+        phone_display = f"+{phone}" if phone and not phone.startswith("+") else (phone or "Ko'rsatilmagan")
+        username_display = f"@{username}" if username else "Mavjud emas"
+
+        dossier_section = ""
+        if dossier_text and len(dossier_text.strip()) > 30:
+            cleaned_dossier = dossier_text.strip()
+            cleaned_dossier = re.sub(r"🕵️‍♂️ \*\*\[Miya 5: Shaxs Kognitiv Dosyesi\]\*\*\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n?", "", cleaned_dossier)
+            dossier_section = f"### 🧠 AI Kognitiv Tahlili va Psixologik Portret:\n{cleaned_dossier}\n"
+        else:
+            dossier_section = "### 🧠 AI Kognitiv Tahlili:\n*Profil yangi. Agent suhbatlar va xabarlar asosida kognitiv tahlil yuritmoqda.*\n"
+
+        md_content = f"""---
+title: "{display_name}"
+user_id: {user_id}
+username: "{username}"
+phone: "{phone_display}"
+role: "{"ota_ona" if is_parent else "oquvchi"}"
+group: "{group_title}"
+status: "{status}"
+updated: "{_tashkent_now_str()}"
+tags:
+  - {"ota_ona" if is_parent else "oquvchi"}
+  - coddycamp
+  - status/{status}
+---
+
+# 👤 {display_name}
+
+> [!INFO] Asosiy Holati: `{status.upper()}` | Guruh: {group_link}
+
+### 📋 Asosiy Ma'lumotlar:
+- **To'liq ismi:** {raw_name or "Noma'lum"}
+- **Telegram Username:** {username_display}
+- **Telefon raqami:** `{phone_display}`
+- **Telegram ID:** `{user_id}`
+- **Bio/Status:** {bio or "*Mavjud emas*"}
+
+---
+
+### 🏫 Biriktirilgan O'quv Rejasi:
+- **Yo'nalish Guruhi:** {group_link}
+- **Bosh Mentor:** [[Mamuriyat_va_Ustozlar/Nuriddin Makhmutov|Nuriddin Ustoz]]
+- **Kurator:** [[Mamuriyat_va_Ustozlar/Kurator Sergeli|Kurator Sergeli]]
+
+---
+
+{dossier_section}
+
+---
+
+### 🔗 Bog'liq Tizim Havolalari:
+- Markaziy Miya Xaritasi: [[🏠 Asosiy_Miya_Xaritasi|🏠 Asosiy Miya Xaritasi]]
+- Akademiya Qoidalari: [[Oltin_Qoidalar/Dars_qoldirish_va_kasallik_tartibi|Dars Qoldirish Tartibi]]
+- Leksikon va Slang: [[Lugat_va_Slang/Mentor_Leksikoni|Mentor Leksikoni]]
+"""
+        try:
+            filepath.write_text(md_content, encoding="utf-8")
+            self._link_student_to_group(target_group, clean_file, display_name)
+        except Exception as e:
+            logger.warning("Obsidianda dosye saqlashda ogohlantirish: %s", e)
+
     def delete_student_note(self, student_name: str) -> None:
         """O'quvchi o'chirilganda uning Obsidian faylini ham o'chiradi."""
         if not self._initialized:

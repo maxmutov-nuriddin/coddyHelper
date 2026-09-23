@@ -2283,8 +2283,21 @@ class SQLiteMemoryService:
                     """,
                     (name.strip(), clean, lat, long, address.strip()),
                 )
+                lid = cursor.lastrowid
                 conn.commit()
-                return cursor.lastrowid
+
+                # Obsidian Knowledge Vault bilan sinxronlash
+                try:
+                    from services.obsidian_brain_service import obsidian_brain_service
+                    obsidian_brain_service.export_rule(
+                        topic=f"lokatsiya_{clean}",
+                        content=f"📍 **{name.strip()} lokatsiyasi**:\n• Kenglik (Lat): `{lat}`\n• Uzunlik (Long): `{long}`\n• 🗺 [Google Maps Havolasi](https://www.google.com/maps?q={lat},{long})" + (f"\n• Manzil: {address.strip()}" if address.strip() else ""),
+                        source="mentor"
+                    )
+                except Exception as oe:
+                    logger.debug("Obsidian lokatsiya eksportida ogohlantirish: %s", oe)
+
+                return lid
         except Exception as e:
             logger.error("Lokatsiyani saqlashda xatolik: %s", e)
             return 0
@@ -3084,6 +3097,21 @@ class SQLiteMemoryService:
                 )
         except Exception as me:
             logger.debug("MongoDB user_dossier sinxronlashda ogohlantirish: %s", me)
+
+        # Obsidian Knowledge Vault bilan sinxronlash
+        try:
+            from services.obsidian_brain_service import obsidian_brain_service
+            obsidian_brain_service.export_dossier(
+                user_id=user_id,
+                username=username,
+                first_name=first_name,
+                last_name=last_name,
+                phone=phone,
+                bio=bio,
+                dossier_text=dossier_text,
+            )
+        except Exception as oe:
+            logger.debug("Obsidian user_dossier sinxronlashda ogohlantirish: %s", oe)
 
         return True
 
