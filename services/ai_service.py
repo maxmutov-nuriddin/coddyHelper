@@ -2295,6 +2295,16 @@ class AIService:
         if mistakes_snippet:
             sys_prompt = f"{sys_prompt}\n\n{mistakes_snippet}"
 
+        # Obsidian Vault'dagi mentor qoidalari (Human-in-the-loop):
+        try:
+            from services.obsidian_brain_service import obsidian_brain_service
+            obsidian_rules = obsidian_brain_service.read_custom_rules()
+            if obsidian_rules:
+                obs_block = "\n".join(obsidian_rules[:4])
+                sys_prompt = f"{sys_prompt}\n\n# OBSIDIAN VAULT QOIDALARI (MENTOR SOZLAMALARI):\n{obs_block}"
+        except Exception:
+            pass
+
         if is_admin_mode:
             try:
                 now_tashkent = datetime.now(ZoneInfo("Asia/Tashkent"))

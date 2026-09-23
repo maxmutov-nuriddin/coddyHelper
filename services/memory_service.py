@@ -40,6 +40,11 @@ class SQLiteMemoryService:
                 mongo_memory_service.migrate_from_sqlite(self.db_path)
         except Exception as me:
             logger.debug("MongoDB bilan avto-sinxronlashda ogohlantirish: %s", me)
+        try:
+            from services.obsidian_brain_service import obsidian_brain_service
+            obsidian_brain_service.init_vault()
+        except Exception as oe:
+            logger.debug("Obsidian vault init ogohlantirish: %s", oe)
 
     def _get_connection(self) -> sqlite3.Connection:
         return sqlite3.connect(str(self.db_path), timeout=10.0)
@@ -1063,7 +1068,13 @@ class SQLiteMemoryService:
                         (category, t, c),
                     )
                     conn.commit()
-                    return cursor.lastrowid
+                    res_id = cursor.lastrowid
+                try:
+                    from services.obsidian_brain_service import obsidian_brain_service
+                    obsidian_brain_service.export_rule(t, c, source="mentor")
+                except Exception:
+                    pass
+                return res_id
         except Exception as e:
             logger.error("Yangi bilimni saqlashda xatolik: %s", e)
             return 0
@@ -1149,6 +1160,17 @@ class SQLiteMemoryService:
                 conn.commit()
         except Exception as e:
             logger.error("SQLite bilimni o'chirishda xatolik: %s", e)
+
+        if deleted and (target_str or topic_str):
+            try:
+                from services.obsidian_brain_service import obsidian_brain_service
+                if topic_str:
+                    obsidian_brain_service.delete_rule_note(topic_str)
+                if target_str and not target_str.isdigit():
+                    obsidian_brain_service.delete_rule_note(target_str)
+            except Exception:
+                pass
+
         return deleted
 
     def get_learned_facts(self, limit: int = 50) -> list[dict]:
@@ -1321,6 +1343,11 @@ class SQLiteMemoryService:
                 )
                 conn.commit()
                 logger.info("🧠 Yangi avtonom saboq saqlandi: [%s] %s", t[:30], c[:40])
+                try:
+                    from services.obsidian_brain_service import obsidian_brain_service
+                    obsidian_brain_service.export_rule(t, c, source=source or "agent")
+                except Exception:
+                    pass
                 return cursor.lastrowid
         except Exception as e:
             logger.error("Avtonom saboqni saqlashda xatolik: %s", e)
@@ -1546,6 +1573,11 @@ class SQLiteMemoryService:
                     (clean_term, clean_meaning, example.strip(), confidence),
                 )
                 conn.commit()
+                try:
+                    from services.obsidian_brain_service import obsidian_brain_service
+                    obsidian_brain_service.export_lexicon(self.get_all_mentor_lexicon(limit=100))
+                except Exception:
+                    pass
                 return True
         except Exception as e:
             logger.error("Mentor lug'atini saqlashda xatolik: %s", e)
@@ -1613,7 +1645,14 @@ class SQLiteMemoryService:
                 cursor = conn.cursor()
                 cursor.execute("DELETE FROM mentor_lexicon WHERE LOWER(term) = LOWER(?)", (clean_term,))
                 conn.commit()
-                return cursor.rowcount > 0
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    try:
+                        from services.obsidian_brain_service import obsidian_brain_service
+                        obsidian_brain_service.export_lexicon(self.get_all_mentor_lexicon(limit=100))
+                    except Exception:
+                        pass
+                return deleted
         except Exception as e:
             logger.error("Mentor lug'atidan o'chirishda xatolik: %s", e)
             return False
@@ -1665,6 +1704,15 @@ class SQLiteMemoryService:
                 )
                 conn.commit()
                 logger.info("🧠 AI o'z xatosidan saboq qayd qildi: %s", clean_rule[:60])
+                try:
+                    from services.obsidian_brain_service import obsidian_brain_service
+                    obsidian_brain_service.export_mistake(
+                        mistake_text=mistake.strip(),
+                        lesson_learned=correction.strip(),
+                        golden_rule=clean_rule,
+                    )
+                except Exception:
+                    pass
                 return True
         except Exception as e:
             logger.error("Self-mistake saqlashda xatolik: %s", e)
@@ -1993,7 +2041,7 @@ class SQLiteMemoryService:
                         (user_id, full_name, username, group_name, status, strengths, weaknesses, mentor_notes),
                     )
                     conn.commit()
-                    return cursor.lastrowid or 0
+                    res_id = cursor.lastrowid or 0
                 else:
                     cursor.execute(
                         """
@@ -2003,7 +2051,25 @@ class SQLiteMemoryService:
                         (full_name, username, group_name, status, strengths, weaknesses, mentor_notes),
                     )
                     conn.commit()
-                    return cursor.lastrowid
+                    res_id = cursor.lastrowid or 0
+
+                try:
+                    from services.obsidian_brain_service import obsidian_brain_service
+                    obsidian_brain_service.export_student({
+                        "full_name": full_name,
+                        "user_id": user_id,
+                        "username": username,
+                        "group_name": group_name,
+                        "status": status,
+                        "strengths": strengths,
+                        "weaknesses": weaknesses,
+                        "mentor_notes": mentor_notes,
+                        "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    })
+                except Exception:
+                    pass
+
+                return res_id
         except Exception as e:
             logger.error("O'quvchini saqlashda xatolik: %s", e)
             return 0
@@ -2160,16 +2226,18 @@ class SQLiteMemoryService:
             return False
 
     def delete_student(self, student_id: int) -> bool:
-        """O'quvchini bazadan o'chiradi (MongoDB + SQLite)."""
+        """O'quvchini bazadan o'chiradi (MongoDB + SQLite + Obsidian)."""
         ok = False
         user_id = student_id
+        st_name = ""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT user_id FROM students WHERE id = ?", (student_id,))
+                cursor.execute("SELECT user_id, full_name FROM students WHERE id = ? OR user_id = ?", (student_id, student_id))
                 row = cursor.fetchone()
-                if row and row[0]:
+                if row:
                     user_id = row[0]
+                    st_name = row[1] or ""
                 cursor.execute("DELETE FROM students WHERE id = ? OR user_id = ?", (student_id, student_id))
                 conn.commit()
                 if cursor.rowcount > 0:
@@ -2183,6 +2251,14 @@ class SQLiteMemoryService:
                     ok = True
         except Exception as me:
             logger.debug("MongoDB dan o'quvchi o'chirishda ogohlantirish: %s", me)
+
+        if st_name:
+            try:
+                from services.obsidian_brain_service import obsidian_brain_service
+                obsidian_brain_service.delete_student_note(st_name)
+            except Exception:
+                pass
+
         return ok
 
     # -----------------------------------------------------------
