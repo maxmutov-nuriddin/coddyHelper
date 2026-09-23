@@ -39,6 +39,7 @@ def _tashkent_now_str() -> str:
 class ObsidianBrainService:
     def __init__(self, vault_dir: Path = VAULT_DIR):
         self.vault_dir = vault_dir
+        self.staff_dir = self.vault_dir / "Mamuriyat_va_Ustozlar"
         self.students_dir = self.vault_dir / "Oquvchilar"
         self.groups_dir = self.vault_dir / "Guruhlar"
         self.rules_dir = self.vault_dir / "Oltin_Qoidalar"
@@ -53,6 +54,7 @@ class ObsidianBrainService:
         try:
             for d in (
                 self.vault_dir,
+                self.staff_dir,
                 self.students_dir,
                 self.groups_dir,
                 self.rules_dir,
@@ -439,6 +441,13 @@ mentor qisqartmalari va jargonlarni o'z ichiga oladi.
                 lesson_learned=m.get("correction") or m.get("lesson_learned", ""),
                 golden_rule=m.get("rule") or m.get("golden_rule", ""),
             )
+
+        # 5. user_dossiers va to'liq ma'lumotlar bazasini yangilash
+        try:
+            from scripts.populate_real_data import main as populate_main
+            populate_main()
+        except Exception as e:
+            logger.warning("To'liq dosyelarni eksport qilishda ogohlantirish: %s", e)
 
         logger.info("✅ Obsidian Vault to'liq sinxronlandi: %d o'quvchi, %d qoida, %d leksikon.", len(students), len(facts), len(lex_entries))
 

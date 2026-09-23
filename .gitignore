@@ -35,3 +35,7 @@ Thumbs.db
 .vscode/
 *.sublime-project
 *.sublime-workspace
+
+# Obsidian Brain Vault (Maxfiy shaxsiy ma'lumotlar va o'quvchilar dosyelari - faqat lokal saqlanadi)
+brain_vault/
+
