@@ -31,6 +31,7 @@ PENDING_TASKS: dict[object, asyncio.Task] = {}
 MESSAGE_ACCUMULATOR: dict[object, list[dict]] = {}
 LAST_MENTOR_ACTIVITY: dict[int, float] = {}
 LAST_REPLY_TIME: dict[int, float] = {}
+LAST_REPLIES: dict[int, tuple[int, float]] = {}  # msg_id -> (replying_user_id, timestamp)
 BOT_SENT_MESSAGE_IDS: set[int] = set()
 CURRENT_SENDING_CHATS: set[int] = set()
 MIN_INTERVAL_SECONDS = 2.0
@@ -58,6 +59,7 @@ def clear_all_pending_tasks() -> int:
     CURRENT_SENDING_CHATS.clear()
     BOT_SENT_MESSAGE_IDS.clear()
     USER_REQUEST_TIMESTAMPS.clear()
+    LAST_REPLIES.clear()
     log_activity(f"🔄 Agent qayta ishga tushirildi ({cancelled} ta vazifa tozalandi).")
     logger.info("Agent tozalash: %d ta vazifa bekor qilindi, barcha bufferlar tozalandi.", cancelled)
     return cancelled
@@ -691,6 +693,86 @@ def is_escalation_chat(chat_id: int) -> bool:
     return c_norm == t_norm
 
 
+def has_mentor_call_or_formal_vocative(text: str) -> bool:
+    """
+    Xabarda ustozga (mentorga) to'g'ridan-to'g'ri murojaat yoki rasmiy/hurmat shakli borligini aniqlaydi.
+    """
+    t = str(text or "").lower().strip()
+    if not t:
+        return False
+
+    mentor_patterns = [
+        # Ustoz / Nuriddin aka murojaatlari
+        r"\b(?:ustoz\w*|nuriddin\s*aka\w*|nuriddin\w*|mentor\w*|mentorimiz|o['’`]?qituvchi\w*)\b",
+        r"@(?:mentor_cc|makhmutov_n)\b",
+        # Hurmatli fe'llar va iltimoslar (Siz shakli)
+        r"\b(?:tushuntirib\s+bering|qarab\s+bering|ko['’`]?rib\s+bering|tekshirib\s+bering|yordam\s+bering\s+ustoz)\b",
+        r"\b(?:tushuntirvorasizmi|aytvorasizmi|o['’`]?rgatvorasizmi|yordam\s+berolasizmi|ko['’`]?rsatib\s+bering)\b",
+        # Ruscha hurmat / ustoz murojaatlari
+        r"\b(?:учитель\w*|преподаватель\w*|нуриддин\s*ака|ментор\w*)\b",
+        r"\b(?:объясните\s+пожалуйста|посмотрите\s+пожалуйста|проверьте\s+пожалуйста|помогите\s+пожалуйста)\b",
+    ]
+    return any(re.search(pat, t, re.I) for pat in mentor_patterns)
+
+
+def has_peer_informal_vocative(text: str) -> bool:
+    """
+    Xabar tengdoshga (boshqa o'quvchiga) qaratilgan norasmiy do'stona uslubda (Sen shaklida)
+    yozilganini aniqlaydi.
+    """
+    t = str(text or "").lower().strip()
+    if not t:
+        return False
+
+    peer_patterns = [
+        # Do'stona 1-ga-1 so'zlashuv murojaatlari (jo'ra, og'a, brat, bro, do'stim)
+        r"\b(?:jo['’`]?ra\w*|og['’`]?a\w*|brat\w*|o['’`]?rtoq\w*|bro\b|dostim|do['’`]?stim|bratva|jigar\w*|birodar\w*)\b",
+        # 2-shaxs birlik olmoshlari (Sen shakli: sanda, senda, sanga, senga)
+        r"\b(?:sanda|senda|sanga|senga|sandayam|sendayam|o['’`]?zingda|o['’`]?zingdachi|o['’`]?zingchi)\b",
+        # Tengdoshga buyruq / savol fe'llari (Sen shakli: ko'r-chi, tashavor, qildingmi, chiqdimi)
+        r"\b(?:ko['’`]?r-chi|ko['’`]?rchi|ko['’`]?rdingmi|qildingmi|tashavor\w*|tashlab\s+ber|aytvor|ayt-chi|chiqdimi|ishladimi|yozdingmi|olvoldim|tushundingmi|bilasanmi|qilayapsanmi|qilyapsanmi)\b",
+        # Ruscha tengdosh so'zlashuvi
+        r"\b(?:у\s+тебя|ты\s+сделал|скинь|посмотри|брат|бро|видел|получилось\s+у\s+тебя)\b",
+    ]
+    return any(re.search(pat, t, re.I) for pat in peer_patterns)
+
+
+def is_programming_or_it_content(
+    text: str,
+    has_photo: bool = False,
+    has_doc_file: bool = False,
+    has_github: bool = False,
+) -> bool:
+    """
+    Xabarda dasturlash kodi, fayli, xatolik (traceback) yoki IT leksikoni borligini aniqlaydi.
+    """
+    if has_doc_file or has_github:
+        return True
+
+    t = str(text or "").lower().strip()
+    if not t:
+        return has_photo
+
+    code_syntax_patterns = [
+        # Dasturlash kalit so'zlari
+        r"\b(?:def|class|import|return|lambda|async|await|try|except|finally)\b",
+        r"\b(?:for|while)\s+\w+\s+in\b",
+        r"\b(?:console\.log|print\s*\(|fmt\.Print|System\.out)\b",
+        # Xatoliklar va traceback
+        r"\b(?:traceback|indexerror|keyerror|typeerror|valueerror|syntaxerror|nameerror|zerodivisionerror|attributeerror)\b",
+        r"\b(?:error|xato|xatolik|bug|exception|failed|chiqyapti|ishlamayapti)\b",
+        # Texnologiyalar va tillar
+        r"\b(?:python|javascript|typescript|django|fastapi|react|vue|node(?:\.js)?|html|css|sqlite|mongodb|sql|postgres)\b",
+        # Dasturlash tushunchalari
+        r"\b(?:loop|tsikl|massiv|array|funksiya|function|algoritm|terminal|bash|pip|npm|git|github|commit|push|pull)\b",
+        # CoddyCamp / Vazifalar
+        r"\b(?:uyga\s+vazifa|darsdagi\s+topshiriq|coddycamp|lms|vazifani|topshiriqni)\b",
+        # IDE / Muhitlar
+        r"\b(?:vs\s*code|pycharm|jupyter|colab)\b",
+    ]
+    return any(re.search(pat, t, re.I) for pat in code_syntax_patterns)
+
+
 def is_relevant_group_message(
     message_text: str,
     has_photo: bool,
@@ -698,27 +780,70 @@ def is_relevant_group_message(
     has_doc_file: bool,
     has_github: bool,
     reply_to_me: bool,
+    reply_to_other_user: bool = False,
     is_dangerous: bool = False,
     is_mentioned: bool = False,
 ) -> bool:
-    # Rasmlar, ovozli xabarlar, kod fayllari, xavfli fayllar, GitHub linki yoki mentorga qaratilgan xabarlar
-    if has_photo or has_voice or has_doc_file or has_github or reply_to_me or is_dangerous or is_mentioned:
+    """
+    O'quvchilar guruhidagi xabarni 4 pog'onali kognitiv filtrdan o'tkazadi:
+    1. Xavfli fayl bo'lsa -> True (darhol xavfsizlik filtri)
+    2. Botga yoki mentorga reply bo'lsa -> True (darhol javob)
+    3. Ustoz chaqirilgan bo'lsa (Ustoz, Nuriddin aka, @mentor_cc) -> True (darhol javob)
+    4. Boshqa o'quvchiga reply qilingan bo'lsa -> FALSE (O'quvchilar o'zaro chati / kod bahsi)
+    5. Tengdoshga qaratilgan bo'lsa (sen, sanda, og'a, bro) -> FALSE (O'quvchilar o'zaro hamkorligi)
+    6. Dasturlashga aloqasi bo'lmagan oddiy suhbat (futbol, o'yin, hazil) -> FALSE
+    7. Umumiy kod savoli bo'lsa (hech kimga yo'naltirilmagan yordam) -> TRUE (Sokratik kutish bilan)
+    """
+    # 1. Xavfli fayl bo'lsa darhol xavfsizlikka yo'naltirish
+    if is_dangerous:
         return True
 
     text = message_text.lower().strip()
-    if not text:
+
+    # 2. Botga yoki mentorga to'g'ridan-to'g'ri reply bo'lsa
+    if reply_to_me:
+        return True
+
+    # 3. Ustoz to'g'ridan-to'g'ri chaqirilgan bo'lsa yoki teg bo'lsa
+    mentor_called = has_mentor_call_or_formal_vocative(message_text) or is_mentioned
+    if mentor_called:
+        return True
+
+    # 4. Boshqa bir o'quvchiga Reply qilingan bo'lsa:
+    # O'quvchilar xohlagancha bir-birining xabariga javob berib kod muhokama qilishsin -> BOT JIM TURADI!
+    if reply_to_other_user:
+        logger.info("Guruh filtri: Xabar boshqa o'quvchiga reply qilingan (Peer-to-peer discussion). Bot jim turadi.")
         return False
 
-    # Guruhda faqat bitta so'zdan iborat bildirishnomalarni o'tkazib yuborish (keraksiz xabar bo'lmasligi uchun)
+    # 5. Murojaat nishoni: Tengdoshga qaratilgan so'zlashuv (Sen shakli, o'rtoq, bro) bo'lsa:
+    # Ustoz nomi tilga olinmagan bo'lsa -> BOT JIM TURADI!
+    if has_peer_informal_vocative(message_text):
+        logger.info("Guruh filtri: Xabar tengdoshga qaratilgan (Peer vocative: '%s'). Bot jim turadi.", text[:30])
+        return False
+
+    # 6. Qisqa tasdiq yoki loqayd so'zlar:
     ignored_standalone = {
         "ok", "ha", "yoq", "yo'q", "rahmat", "raxmat", "tushunarli",
         "bopti", "hop", "xop", "+", "++", "+++", "spasibo", "thanks", "thx", "zo'r", "zor",
-        "хорошо", "ладно", "понял", "понятно", "ок", "да", "нет", "ясно", "спасибо"
+        "хорошо", "ладно", "понял", "понятно", "ок", "да", "нет", "ясно", "спасибо", "salom", "привет"
     }
-    if text in ignored_standalone:
+    if text in ignored_standalone and not has_photo and not has_doc_file:
         return False
 
-    # Qolgan barcha savollar, vazifalar, salomlar va so'rovlar qabul qilinadi
+    # 7. Dasturlash / IT mazmuni bormi?
+    is_it_code = is_programming_or_it_content(
+        text=message_text,
+        has_photo=has_photo,
+        has_doc_file=has_doc_file,
+        has_github=has_github,
+    )
+
+    # Agar dasturlashga mutlaqo aloqasi bo'lmasa va ustoz chaqirilmagan bo'lsa -> BOT JIM TURADI
+    if not is_it_code:
+        logger.info("Guruh filtri: Xabar dasturlashga aloqador emas va ustoz chaqirilmagan. Bot jim turadi.")
+        return False
+
+    # 8. Umumiy kod savoli: kod yoki xatolik bor, hech kimga yo'naltirilmagan.
     return True
 
 
@@ -1899,17 +2024,28 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         # Agar xabar reply qilingan bo'lsa
         reply_context = None
         reply_to_me = False
+        reply_to_other_user = False
         if event.is_reply:
+            if getattr(event, "reply_to_msg_id", None):
+                LAST_REPLIES[event.reply_to_msg_id] = (sender_id, time.time())
+                if len(LAST_REPLIES) > 500:
+                    cutoff = time.time() - 300
+                    for k, (_, t_val) in list(LAST_REPLIES.items()):
+                        if t_val < cutoff:
+                            LAST_REPLIES.pop(k, None)
+
             parent = await event.get_reply_message()
             if parent:
                 if parent.text:
                     reply_context = parent.text
                 self_id = await get_my_id()
-                if parent.sender_id == self_id:
+                if parent.sender_id == self_id or (config.mentor_user_id and parent.sender_id == config.mentor_user_id) or parent.sender_id == 8105823872:
                     reply_to_me = True
+                else:
+                    reply_to_other_user = True
 
         is_mentioned = bool(getattr(event.message, "mentioned", False))
-        if "ustoz" in message_text.lower() or "mentor" in message_text.lower():
+        if has_mentor_call_or_formal_vocative(message_text):
             is_mentioned = True
 
         # Aqlli Reaksiyalar (Telegram Reactions — 👍, ❤️, 🔥)
@@ -1968,6 +2104,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             has_doc_file=has_doc_file,
             has_github=has_github,
             reply_to_me=reply_to_me,
+            reply_to_other_user=reply_to_other_user,
             is_dangerous=is_dangerous,
             is_mentioned=is_mentioned,
         ):
@@ -2032,6 +2169,13 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                             chat_id, int(time_since_mentor), int(wait_sec)
                         )
 
+                # Guruhlarda Sokratik kutish (Peer delay):
+                # Agar guruhdagi umumiy dasturlash savoli bo'lsa (ustoz to'g'ridan-to'g'ri chaqirilmagan va botga reply emas),
+                # boshqa o'quvchilar javob berishiga imkon yaratish uchun AI 12 soniya kutadi.
+                if is_group and not is_admin_chat and not (reply_to_me or is_mentioned):
+                    wait_sec = max(wait_sec, 12.0)
+                    logger.info("Guruh [%s]: Umumiy dasturlash savoli. Tengdoshlar yordami uchun Sokratik kutish: %ds", chat_id, int(wait_sec))
+
                 if wait_sec > 0:
                     logger.info(
                         "Yangi xabar [%s]. Mentor yozishini %s soniya kutamiz...",
@@ -2047,6 +2191,29 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         log_activity(f"Mentor o'zi javob yozgani uchun AI aralashmadi [{chat_id}]")
                         logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", chat_id)
                         return
+
+                    # Guruhdagi umumiy savolga boshqa o'quvchi reply qilib javob berdimi? (Sokratik tamoyil)
+                    if is_group and not (reply_to_me or is_mentioned):
+                        buffered_ids = {
+                            getattr(b.get("event"), "id", None)
+                            for b in MESSAGE_ACCUMULATOR.get(debounce_key, [])
+                            if getattr(b.get("event"), "id", None) is not None
+                        }
+                        if getattr(event, "id", None):
+                            buffered_ids.add(event.id)
+
+                        answered_by_peer = False
+                        for m_id in buffered_ids:
+                            if m_id in LAST_REPLIES:
+                                r_sender, r_time = LAST_REPLIES[m_id]
+                                if r_sender != sender_id and r_time >= message_received_time:
+                                    answered_by_peer = True
+                                    break
+                        if answered_by_peer:
+                            MESSAGE_ACCUMULATOR.pop(debounce_key, None)
+                            log_activity(f"O'quvchilar o'zaro yechim topdi, AI aralashmadi [{chat_id}]")
+                            logger.info("Guruh [%s]: Boshqa o'quvchi xabarga javob berdi. Sokratik tamoyil: AI aralashmadi.", chat_id)
+                            return
 
                 # Buferdan to'plangan barcha bo'lingan xabarlarni sug'urib olamiz
                 buffered_msgs = MESSAGE_ACCUMULATOR.pop(debounce_key, [])
