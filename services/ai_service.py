@@ -2008,8 +2008,16 @@ class AIService:
                         continue
                     prev_assistant = content_clean
                 role = "user" if msg.role == "user" else "assistant"
+                # Xabar yozilgan vaqti (Toshkent vaqti) bo'lsa, xabarga prefiks qilish
+                time_tag = ""
+                if getattr(msg, "created_at", None):
+                    raw_ca = str(msg.created_at).strip()
+                    if len(raw_ca) >= 16 and " " in raw_ca:
+                        time_tag = f"[{raw_ca[11:16]}] "
+                    elif len(raw_ca) >= 5:
+                        time_tag = f"[{raw_ca[:5]}] "
                 # Tokenlar hajmi 413/429 limitiga urilmasligi uchun eski xabarlarni ixchamlashtirish
-                compact_content = content_clean[:400] + ("..." if len(content_clean) > 400 else "")
+                compact_content = time_tag + content_clean[:400] + ("..." if len(content_clean) > 400 else "")
                 messages.append({"role": role, "content": compact_content})
 
             messages.append({"role": "user", "content": effective_prompt})
@@ -2431,10 +2439,17 @@ class AIService:
             self._recalculate_cascade_states(active_override="Google Gemini")
             history = memory_service.get_history(chat_id)
             recent_history = history[-6:] if not is_admin_mode else history[-8:]
-            history_lines = [
-                f"{'Foydalanuvchi' if m.role == 'user' else 'AI'}: {m.content[:500]}"
-                for m in recent_history
-            ]
+            history_lines = []
+            for m in recent_history:
+                t_prefix = ""
+                if getattr(m, "created_at", None):
+                    raw_ca = str(m.created_at).strip()
+                    if len(raw_ca) >= 16 and " " in raw_ca:
+                        t_prefix = f"[{raw_ca[11:16]}] "
+                    elif len(raw_ca) >= 5:
+                        t_prefix = f"[{raw_ca[:5]}] "
+                r_lbl = "Foydalanuvchi" if m.role == "user" else "AI"
+                history_lines.append(f"{t_prefix}{r_lbl}: {m.content[:500]}")
             history_context = "\n".join(history_lines)
 
             loop = asyncio.get_running_loop()

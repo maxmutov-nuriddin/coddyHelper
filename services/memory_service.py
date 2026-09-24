@@ -24,6 +24,7 @@ DB_PATH = Path(__file__).resolve().parent.parent / "coddy_memory.db"
 class ChatMessage:
     role: Literal["user", "model"]
     content: str
+    created_at: str | None = None
 
 
 class SQLiteMemoryService:
@@ -582,12 +583,19 @@ class SQLiteMemoryService:
             logger.error("Oxirgi xabarni yangilashda xatolik: %s", e)
 
     def get_history(self, chat_id: int) -> list[ChatMessage]:
-        """Oxirgi N ta xabarlar tarixini xronologik tartibda qaytaradi (MongoDB -> SQLite)."""
+        """Oxirgi N ta xabarlar tarixini xronologik tartibda vaqti (Toshkent vaqti) bilan qaytaradi (MongoDB -> SQLite)."""
         try:
             if mongo_memory_service.is_connected():
                 docs = mongo_memory_service.get_conversation_history(chat_id, limit=self.limit)
                 if docs:
-                    return [ChatMessage(role=d["role"], content=d["content"]) for d in docs]
+                    return [
+                        ChatMessage(
+                            role=d["role"],
+                            content=d["content"],
+                            created_at=str(d.get("created_at") or d.get("timestamp") or "")
+                        )
+                        for d in docs
+                    ]
         except Exception as me:
             logger.debug("MongoDB dan tarixni olishda ogohlantirish: %s", me)
 
@@ -596,8 +604,8 @@ class SQLiteMemoryService:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    SELECT role, content FROM (
-                        SELECT id, role, content FROM messages 
+                    SELECT role, content, datetime(created_at, '+5 hours') FROM (
+                        SELECT id, role, content, created_at FROM messages 
                         WHERE chat_id = ? 
                         ORDER BY id DESC LIMIT ?
                     ) ORDER BY id ASC
@@ -605,7 +613,14 @@ class SQLiteMemoryService:
                     (chat_id, self.limit),
                 )
                 rows = cursor.fetchall()
-                return [ChatMessage(role=r[0], content=r[1]) for r in rows]
+                return [
+                    ChatMessage(
+                        role=r[0],
+                        content=r[1],
+                        created_at=str(r[2]) if len(r) > 2 and r[2] else None
+                    )
+                    for r in rows
+                ]
         except Exception as e:
             logger.error("Xotirani o'qishda xatolik: %s", e)
             return []
