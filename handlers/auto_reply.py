@@ -1555,12 +1555,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         my_user_id = await get_my_id()
-        # Izbrannoe (Saved Messages) — foydalanuvchi talabi: AI bu yerda mutlaqo ishlamaydi!
-        if chat_id == my_user_id or (is_private and chat_id in (config.mentor_user_id, 8105823872)):
-            return
 
-        # Mentorning o'zi yuborgan har qanday xabarga AI mutlaqo javob bermaydi:
-        if event.out or sender_id == my_user_id or sender_id in (config.mentor_user_id, 8105823872):
+        # Izbrannoe (Saved Messages) — foydalanuvchi talabi: AI bu yerda mutlaqo ishlamaydi!
+        if chat_id == my_user_id:
             return
 
         is_vazifalar = await check_is_vazifalar_chat(event)
@@ -1568,6 +1565,46 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         # Agar bu "Vazifalar" guruhi bo'lsa, darhol AI Co-Pilot bilan qayta ishlaymiz:
         if is_vazifalar:
             await handle_vazifalar_chat(event)
+            return
+
+        # 🎯 Mentor AI murojaati tekshiruvi (chatlarda, guruhlarda yoki shaxsiyda)
+        # "va aynan mentorni ozida chatlarda guruhlarda agentga murojat qilolishi uchun
+        # ai deb yozib son vazifa bersa agetn chunib shuni bajarishi kerak
+        # bunda agent ishlatadigon ai mentorni ozinikidan ketishi lozim"
+        is_from_mentor = bool(sender_id in (config.mentor_user_id, 8105823872) or sender_id == my_user_id)
+        if is_from_mentor:
+            raw_text = (event.raw_text or "").strip()
+            # Mentor ovozli xabar yuborgan bo'lsa STT
+            if not raw_text:
+                has_voice = bool(
+                    getattr(event.message, "voice", False)
+                    or (
+                        event.message.document
+                        and event.message.file
+                        and getattr(event.message.file, "mime_type", "").startswith("audio/")
+                    )
+                )
+                if has_voice:
+                    try:
+                        audio_bytes = await event.message.download_media(bytes)
+                        if audio_bytes:
+                            transcribed = await ai_service.transcribe_audio(audio_bytes)
+                            if transcribed:
+                                raw_text = transcribed.strip()
+                    except Exception as v_err:
+                        logger.debug("Mentor ovozli buyrug'ini STT qilishda xatolik: %s", v_err)
+
+            if raw_text and re.match(r"^(?:[./!]?ai|coddy)(?:[:,\s\n]+|$)", raw_text, re.I):
+                from handlers.commands import handle_mentor_ai_task
+                handled = await handle_mentor_ai_task(client, event, raw_text=raw_text, is_outgoing=event.out)
+                if handled:
+                    return
+
+            # Agar bu 'ai' buyrug'i bo'lmasa, mentorning oddiy suhbatlariga AI javob bermaydi
+            return
+
+        # Mentorning o'zi yuborgan har qanday xabarga AI mutlaqo javob bermaydi:
+        if event.out or sender_id == my_user_id or sender_id in (config.mentor_user_id, 8105823872):
             return
 
         # Agar guruh bo'lsa, maxsus tekshiruvlar:

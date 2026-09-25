@@ -2,8 +2,10 @@
 Foydalanuvchi buyruqlari (Userbot komandalari)
 """
 
+import asyncio
 import logging
 import re
+from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from telethon import TelegramClient, events
@@ -14,12 +16,300 @@ from services.memory_service import memory_service
 logger = logging.getLogger(__name__)
 
 
+async def handle_mentor_ai_task(
+    client: TelegramClient,
+    event: events.NewMessage.Event,
+    raw_text: str,
+    is_outgoing: bool = True,
+) -> bool:
+    """
+    Mentorni o'zi chatlarda, guruhlarda yoki shaxsiyda agentga 'ai <vazifa>' deb murojaat qilganda
+    vazifani tushunib, bajaradi.
+    MUHIM: Bunda AI modeli va tokenlari MENTORNING O'ZINIKIDAN (Miya 2: VIP Klaster, GROQ_VIP_KEYS, 120B model)
+    ketadi va barcha pedagogik cheklovlar (Socratic refusals) o'chiriladi.
+    """
+    ai_match = re.match(r"^(?:[./!]?ai|coddy)(?:[:,\s\n]+|$)", raw_text, re.I)
+    if not ai_match:
+        return False
+
+    ai_prompt = raw_text[ai_match.end() :].strip()
+
+    if ai_prompt.lower() in ("on", "1", "start", "enable"):
+        config.auto_reply_enabled = True
+        msg = "🤖 **Avto-javob rejimi faollashtirildi!**\nKelgan shaxsiy xabarlarga AI avtomatik javob beradi."
+        if is_outgoing:
+            try:
+                await event.edit(msg)
+            except Exception:
+                await event.reply(msg)
+        else:
+            await event.reply(msg)
+        return True
+
+    if ai_prompt.lower() in ("off", "0", "stop", "disable"):
+        config.auto_reply_enabled = False
+        msg = "⏸ **Avto-javob rejimi to'xtatildi.**\nXabarlar faqat qo'lda boshqariladi."
+        if is_outgoing:
+            try:
+                await event.edit(msg)
+            except Exception:
+                await event.reply(msg)
+        else:
+            await event.reply(msg)
+        return True
+
+    reply_text = None
+    image_bytes = None
+    file_name = None
+    file_text = None
+
+    if event.is_reply:
+        reply_message = await event.get_reply_message()
+        if reply_message:
+            if reply_message.text:
+                reply_text = reply_message.text
+
+            # Rasm / Skrinshot bormi?
+            r_doc_name = getattr(reply_message.file, "name", "") or ""
+            r_doc_ext = (Path(r_doc_name).suffix.lower() if r_doc_name else "") or (
+                getattr(reply_message.file, "ext", "").lower() if reply_message.file else ""
+            )
+            r_mime = (getattr(reply_message.file, "mime_type", "") or "").lower()
+            is_img = reply_message.photo or r_mime.startswith("image/") or r_doc_ext in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".heic"}
+            if is_img:
+                try:
+                    image_bytes = await reply_message.download_media(bytes)
+                except Exception as img_err:
+                    logger.warning("Reply rasmni yuklashda xatolik: %s", img_err)
+
+            # Hujjat yoki kod bormi? (.py, .ipynb, .docx, .pdf, .txt, .zip...)
+            if reply_message.document and not is_img:
+                try:
+                    f_bytes = await reply_message.download_media(bytes)
+                    if f_bytes:
+                        if r_doc_ext == ".ipynb":
+                            import json
+                            nb = json.loads(f_bytes.decode("utf-8", errors="ignore"))
+                            cells_text = [
+                                f"# [{c.get('cell_type')}]:\n{''.join(c.get('source', []))}"
+                                for c in nb.get("cells", [])
+                                if "".join(c.get("source", [])).strip()
+                            ]
+                            file_text = "\n\n".join(cells_text)
+                            file_name = r_doc_name or "notebook.ipynb"
+                        elif r_doc_ext == ".docx":
+                            import zipfile, io, xml.etree.ElementTree as ET
+                            with zipfile.ZipFile(io.BytesIO(f_bytes)) as z:
+                                tree = ET.fromstring(z.read("word/document.xml"))
+                                texts = [n.text for n in tree.iter() if n.tag.endswith("t") and n.text]
+                                file_text = "\n".join(texts)
+                                file_name = r_doc_name or "document.docx"
+                        elif r_doc_ext == ".pdf":
+                            import io
+                            from pypdf import PdfReader
+                            reader = PdfReader(io.BytesIO(f_bytes))
+                            file_text = "\n".join([p.extract_text() or "" for p in reader.pages[:10]])
+                            file_name = r_doc_name or "document.pdf"
+                        else:
+                            file_text = f_bytes.decode("utf-8", errors="ignore")
+                            file_name = r_doc_name or f"file{r_doc_ext}"
+                except Exception as f_err:
+                    logger.warning("Reply faylni yuklashda xatolik: %s", f_err)
+
+    # Agar mentor o'z xabariga rasm ilova qilgan bo'lsa
+    if event.message.photo and not image_bytes:
+        try:
+            image_bytes = await event.message.download_media(bytes)
+        except Exception as e:
+            logger.warning("Xabar rasmini yuklashda xatolik: %s", e)
+
+    # Agar mentor o'z xabariga fayl yoki notebook ilova qilgan bo'lsa
+    if event.message.document and not image_bytes and not file_text:
+        try:
+            m_doc_name = getattr(event.message.file, "name", "") or ""
+            m_doc_ext = (Path(m_doc_name).suffix.lower() if m_doc_name else "") or (
+                getattr(event.message.file, "ext", "").lower() if event.message.file else ""
+            )
+            m_mime = (getattr(event.message.file, "mime_type", "") or "").lower()
+            if not (m_mime.startswith("image/") or m_doc_ext in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".heic"}):
+                f_bytes = await event.message.download_media(bytes)
+                if f_bytes:
+                    if m_doc_ext == ".ipynb":
+                        import json
+                        nb = json.loads(f_bytes.decode("utf-8", errors="ignore"))
+                        cells_text = [
+                            f"# [{c.get('cell_type')}]:\n{''.join(c.get('source', []))}"
+                            for c in nb.get("cells", [])
+                            if "".join(c.get("source", [])).strip()
+                        ]
+                        file_text = "\n\n".join(cells_text)
+                        file_name = m_doc_name or "notebook.ipynb"
+                    elif m_doc_ext == ".docx":
+                        import zipfile, io, xml.etree.ElementTree as ET
+                        with zipfile.ZipFile(io.BytesIO(f_bytes)) as z:
+                            tree = ET.fromstring(z.read("word/document.xml"))
+                            texts = [n.text for n in tree.iter() if n.tag.endswith("t") and n.text]
+                            file_text = "\n".join(texts)
+                            file_name = m_doc_name or "document.docx"
+                    elif m_doc_ext == ".pdf":
+                        import io
+                        from pypdf import PdfReader
+                        reader = PdfReader(io.BytesIO(f_bytes))
+                        file_text = "\n".join([p.extract_text() or "" for p in reader.pages[:10]])
+                        file_name = m_doc_name or "document.pdf"
+                    else:
+                        file_text = f_bytes.decode("utf-8", errors="ignore")
+                        file_name = m_doc_name or f"file{m_doc_ext}"
+        except Exception as f_err:
+            logger.warning("Mentor xabaridagi faylni yuklashda xatolik: %s", f_err)
+
+    prompt_clean = (ai_prompt or "").strip()
+    lower_p = prompt_clean.lower()
+    generic_triggers = {
+        "", "javob", "javob ber", "javobini ayt", "javob berchi", "javob yoz",
+        "yech", "yechib ber", "tushuntir", "tushuntirib ber", "reply", "answer", "help", "yordam", "tekshir", "tekshirib ber"
+    }
+    if not prompt_clean and not reply_text and not image_bytes and not file_text:
+        help_msg = "ℹ️ **Foydalanish:** `ai <vazifangiz>` yoki biror rasm/kod/xabarga reply qilib `ai` deb yozing."
+        if is_outgoing:
+            try:
+                await event.edit(help_msg)
+            except Exception:
+                await event.reply(help_msg)
+        else:
+            await event.reply(help_msg)
+        return True
+
+    status_text = "⏳ **AI vazifani tahlil qilmoqda...**"
+    status_msg = None
+    if is_outgoing:
+        try:
+            await event.edit(status_text)
+        except Exception:
+            status_msg = await event.reply(status_text)
+    else:
+        status_msg = await event.reply(status_text)
+
+    if not prompt_clean or lower_p in generic_triggers:
+        if reply_text or image_bytes or file_text:
+            user_input = (
+                "Ushbu o'quvchining yuborgan xabari, kodi, vazifasi yoki xatoligini to'liq tahlil qilib, "
+                "unga to'g'ridan-to'g'ri tushunarli, aniq va professional yechim va yo'nalish ber."
+            )
+        else:
+            user_input = "Savolga to'liq, aniq va professional yechim ber."
+    else:
+        user_input = prompt_clean
+
+    mentor_user_id = config.mentor_user_id or 8105823872
+    try:
+        answer = await asyncio.wait_for(
+            ai_service.generate_reply(
+                chat_id=mentor_user_id,
+                user_message=user_input,
+                reply_to_context=reply_text,
+                image_bytes=image_bytes,
+                file_name=file_name,
+                file_text=file_text,
+                is_admin_mode=True,  # Mentorning shaxsiy VIP klasteri (openai/gpt-oss-120b, 0 cheklov)
+                user_id=mentor_user_id,
+            ),
+            timeout=40.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("AI buyrug'ida timeout (40s) yuz berdi [chat_id: %s]", event.chat_id)
+        err_to = "⚠️ **Kechirasiz, AI javob berishda vaqt tugadi (40s). Iltimos, qaytadan urinib ko'ring.**"
+        if status_msg:
+            try:
+                await status_msg.edit(err_to)
+            except Exception:
+                pass
+        elif is_outgoing:
+            try:
+                await event.edit(err_to)
+            except Exception:
+                pass
+        return True
+    except Exception as e:
+        logger.error("AI buyrug'ida xatolik: %s", e)
+        err_gen = "⚠️ **AI javob berishda kutilmagan xatolik yuz berdi.**"
+        if status_msg:
+            try:
+                await status_msg.edit(err_gen)
+            except Exception:
+                pass
+        elif is_outgoing:
+            try:
+                await event.edit(err_gen)
+            except Exception:
+                pass
+        return True
+
+    ans_str = str(answer or "").strip()
+    if not ans_str:
+        ans_str = "⚠️ AI dan javob olinmadi. Iltimos, so'rovni qayta yuboring."
+
+    from handlers.auto_reply import BOT_SENT_MESSAGE_IDS
+    try:
+        target_to_edit = status_msg if status_msg else (event if is_outgoing else None)
+        if len(ans_str) > 4000:
+            if target_to_edit:
+                await target_to_edit.edit(ans_str[:4000])
+                sent_more = await client.send_message(event.chat_id, ans_str[4000:], reply_to=event.message.id)
+                if sent_more:
+                    BOT_SENT_MESSAGE_IDS.add(sent_more.id)
+            else:
+                sent1 = await event.reply(ans_str[:4000])
+                if sent1:
+                    BOT_SENT_MESSAGE_IDS.add(sent1.id)
+                sent_more = await client.send_message(event.chat_id, ans_str[4000:], reply_to=event.message.id)
+                if sent_more:
+                    BOT_SENT_MESSAGE_IDS.add(sent_more.id)
+        else:
+            if target_to_edit:
+                await target_to_edit.edit(ans_str)
+            else:
+                sent = await event.reply(ans_str)
+                if sent:
+                    BOT_SENT_MESSAGE_IDS.add(sent.id)
+    except Exception as e:
+        logger.error("Xabarni chiqarishda xatolik: %s", e)
+        try:
+            sent = await event.reply(ans_str)
+            if sent:
+                BOT_SENT_MESSAGE_IDS.add(sent.id)
+        except Exception as e2:
+            logger.error("Xabarni reply qilishda ham xatolik: %s", e2)
+
+    return True
+
+
 def register_command_handlers(client: TelegramClient) -> None:
     prefix = config.command_prefix
 
     @client.on(events.NewMessage(outgoing=True))
     async def handle_user_command(event: events.NewMessage.Event):
         raw_text = (event.raw_text or "").strip()
+
+        # Agar mentor ovozli xabar orqali buyruq bergan bo'lsa
+        has_voice = bool(
+            getattr(event.message, "voice", False)
+            or (
+                event.message.document
+                and event.message.file
+                and getattr(event.message.file, "mime_type", "").startswith("audio/")
+            )
+        )
+        if not raw_text and has_voice:
+            try:
+                audio_bytes = await event.message.download_media(bytes)
+                if audio_bytes:
+                    transcribed = await ai_service.transcribe_audio(audio_bytes)
+                    if transcribed:
+                        raw_text = transcribed.strip()
+            except Exception as v_err:
+                logger.debug("Mentor ovozli xabarini STT qilishda ogohlantirish: %s", v_err)
+
         lower_text = raw_text.lower()
 
         # -----------------------------------------------------------
@@ -567,118 +857,13 @@ def register_command_handlers(client: TelegramClient) -> None:
             return
 
         # -----------------------------------------------------------
-        # AI Suhbat / Chat Co-Pilot (ai <savol>, coddy <savol>, .ai <savol>)
+        # AI Suhbat / Chat Co-Pilot (ai <savol>, coddy <savol>, .ai <savol>, ai: <savol>)
         # -----------------------------------------------------------
-        is_ai_cmd = False
-        ai_prompt = ""
-        for trigger in (f"{prefix}ai", "ai", "coddy"):
-            if lower_text == trigger:
-                is_ai_cmd = True
-                ai_prompt = ""
-                break
-            elif lower_text.startswith(f"{trigger} "):
-                is_ai_cmd = True
-                ai_prompt = raw_text[len(trigger) :].strip()
-                break
-
-        if is_ai_cmd:
-            if ai_prompt.lower() in ("on", "1", "start", "enable"):
-                config.auto_reply_enabled = True
-                await event.edit("🤖 **Avto-javob rejimi faollashtirildi!**\nKelgan shaxsiy xabarlarga AI avtomatik javob beradi.")
+        ai_match = re.match(r"^(?:[./!]?ai|coddy)(?:[:,\s\n]+|$)", raw_text, re.I)
+        if ai_match:
+            handled = await handle_mentor_ai_task(client, event, raw_text=raw_text, is_outgoing=True)
+            if handled:
                 return
-
-            if ai_prompt.lower() in ("off", "0", "stop", "disable"):
-                config.auto_reply_enabled = False
-                await event.edit("⏸ **Avto-javob rejimi to'xtatildi.**\nXabarlar faqat qo'lda boshqariladi.")
-                return
-
-            reply_text = None
-            image_bytes = None
-
-            if event.is_reply:
-                reply_message = await event.get_reply_message()
-                if reply_message:
-                    if reply_message.text:
-                        reply_text = reply_message.text
-                    if reply_message.photo or (
-                        reply_message.document
-                        and reply_message.file
-                        and getattr(reply_message.file, "mime_type", "").startswith("image/")
-                    ):
-                        image_bytes = await reply_message.download_media(bytes)
-            elif event.message.photo:
-                image_bytes = await event.message.download_media(bytes)
-
-            prompt_clean = (ai_prompt or "").strip()
-            lower_p = prompt_clean.lower()
-            generic_triggers = {
-                "", "javob", "javob ber", "javobini ayt", "javob berchi", "javob yoz",
-                "yech", "yechib ber", "tushuntir", "tushuntirib ber", "reply", "answer", "help", "yordam"
-            }
-            if not prompt_clean and not reply_text and not image_bytes:
-                await event.edit("ℹ️ **Foydalanish:** `ai <savolingiz>` yoki biror rasm/xabarga reply qilib `ai` deb yozing.")
-                return
-
-            await event.edit("⏳ **AI javob tayyorlamoqda...**")
-
-            if not prompt_clean or lower_p in generic_triggers:
-                if reply_text or image_bytes:
-                    user_input = (
-                        "Ushbu o'quvchining yuborgan xabari, kodi, vazifasi yoki xatoligini to'liq tahlil qilib, "
-                        "unga to'g'ridan-to'g'ri tushunarli, aniq va professional pedagogik yechim/javob ber."
-                    )
-                else:
-                    user_input = "Savolga to'liq, aniq va professional yechim ber."
-            else:
-                user_input = prompt_clean
-
-            # Guruh yoki shaxsiy chat turiga ko'ra to'g'ri miyaga (Frontline yoki VIP) yo'naltirish
-            is_admin_chat = is_escalation_chat(event.chat_id)
-
-            try:
-                answer = await asyncio.wait_for(
-                    ai_service.generate_reply(
-                        chat_id=event.chat_id,
-                        user_message=user_input,
-                        reply_to_context=reply_text,
-                        image_bytes=image_bytes,
-                        is_admin_mode=is_admin_chat,
-                    ),
-                    timeout=35.0,
-                )
-            except asyncio.TimeoutError:
-                logger.warning("AI buyrug'ida timeout (35s) yuz berdi [chat_id: %s]", event.chat_id)
-                try:
-                    await event.edit("⚠️ **Kechirasiz, AI javob berishda vaqt tugadi (35s). Iltimos, qaytadan urinib ko'ring.**")
-                except Exception:
-                    pass
-                return
-            except Exception as e:
-                logger.error("AI buyrug'ida xatolik: %s", e)
-                try:
-                    await event.edit("⚠️ **AI javob berishda kutilmagan xatolik yuz berdi.**")
-                except Exception:
-                    pass
-                return
-
-            ans_str = str(answer or "").strip()
-            if not ans_str:
-                ans_str = "⚠️ AI dan javob olinmadi. Iltimos, so'rovni qayta yuboring."
-
-            # Telegram xabar uzunligi chegarasi (4096 belgi)
-            try:
-                if len(ans_str) > 4000:
-                    await event.edit(ans_str[:4000])
-                    await client.send_message(event.chat_id, ans_str[4000:])
-                else:
-                    await event.edit(ans_str)
-            except Exception as e:
-                logger.error("Xabarni chiqarishda xatolik: %s", e)
-                try:
-                    await event.reply(ans_str)
-                except Exception as e2:
-                    logger.error("Xabarni reply qilishda ham xatolik: %s", e2)
-            return
 
         if not raw_text.startswith(prefix):
             return
