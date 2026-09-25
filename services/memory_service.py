@@ -805,7 +805,15 @@ class SQLiteMemoryService:
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM learned_memory")
                 row = cursor.fetchone()
-                return row[0] if row else 0
+                cnt = row[0] if row else 0
+                try:
+                    if mongo_memory_service.is_connected():
+                        m_cnt = mongo_memory_service._db["brain_cognitive.learned_insights"].count_documents({})
+                        if m_cnt > cnt:
+                            cnt = m_cnt
+                except Exception:
+                    pass
+                return cnt
         except Exception:
             return 0
 
@@ -2627,6 +2635,15 @@ class SQLiteMemoryService:
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM messages")
                 total_msgs = cursor.fetchone()[0]
+
+                # Agar MongoDB ulangan bo'lsa, haqiqiy umumiy xabarlar sonini hisoblash
+                try:
+                    if mongo_memory_service.is_connected():
+                        mongo_cnt = mongo_memory_service._db["brain_frontline.conversations"].count_documents({})
+                        if mongo_cnt > total_msgs:
+                            total_msgs = mongo_cnt
+                except Exception:
+                    pass
 
                 cursor.execute("SELECT COUNT(*) FROM students")
                 total_students = cursor.fetchone()[0]

@@ -1398,7 +1398,7 @@ class MongoMemoryService:
                 cursor.execute("SELECT COUNT(*) FROM messages")
                 existing_msg_count = cursor.fetchone()[0]
                 if existing_msg_count == 0:
-                    recent_convs = list(self._db["brain_frontline.conversations"].find().sort("timestamp", -1).limit(200))
+                    recent_convs = list(self._db["brain_frontline.conversations"].find().sort("timestamp", -1).limit(50000))
                     recent_convs.reverse()
                     for doc in recent_convs:
                         cid = doc.get("chat_id")
