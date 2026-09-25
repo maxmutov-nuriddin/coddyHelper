@@ -1657,10 +1657,10 @@
           </select>
         </div>
         <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label">💻 Kod Berish Darajasi</label>
+          <label class="form-label" id="label-ai-code-mode">💬 Javob Berish Uslubi</label>
           <select id="select-ai-code-mode" onchange="changeCodeMode(this.value)" class="form-input" style="background: var(--card-bg, #242f3d); color: var(--text-color, #fff); font-weight: 600;">
-            <option value="full_code">💻 To'liq ishlaydigan kod variantini taqdim etish</option>
-            <option value="hints_only">💡 Faqat maslahat va yo'nalish (Tayyor kod bermaslik)</option>
+            <option value="full_code">📋 Batafsil va tushunarli javob</option>
+            <option value="hints_only">⚡ Qisqa va lo'nda javob</option>
           </select>
         </div>
       </div>
@@ -1691,21 +1691,21 @@
 
     <!-- ==================== SAHIFA: O'QUV DASTURI & BILIMLAR BAZASI ==================== -->
     <div class="tab-pane" id="tab-knowledge">
-      <div class="section-header-badge">🧠 Bilimlar & O'quv Steki</div>
+      <div class="section-header-badge">🧠 Bilimlar & Mavzular Chegarasi</div>
 
       <!-- CURRICULUM TOPICS -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title" id="curriculum-topics-title">🎓 O'quv Dasturi & Mavzular Chegarasi</span>
+          <span class="card-title" id="curriculum-topics-title">🎯 Mavzular & AI Chegaralari</span>
         </div>
         <p id="curriculum-topics-desc" style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
-          AI faqat shu stekingiz bo'yicha javob beradi (masalan: <i>for</i> sikli so'ralsa faqat JavaScript bo'yicha tushuntiradi, Python/C++ ga chalg'imaydi).
+          AI faqat siz belgilagan quyidagi mavzular bo'yicha javob beradi (boshqa mavzularda chalg'imaydi).
         </p>
         <div id="curriculum-topics-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
           <!-- JS to'ldiradi -->
         </div>
         <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
-          <input type="text" id="new-curriculum-topic" placeholder="Masalan: Vue.js yoki Docker" style="flex: 1; min-width: 140px; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
+          <input type="text" id="new-curriculum-topic" placeholder="Yangi mavzu nomini kiriting..." style="flex: 1; min-width: 140px; background: var(--bg-color, #17212b); border: 1px solid var(--border-color, #384656); border-radius: 8px; padding: 8px 12px; color: #fff; font-size: 13px;">
           <button type="button" onclick="addCurriculumTopic()" class="btn-primary" style="padding: 8px 14px; font-size: 13px; border-radius: 8px; white-space: nowrap; cursor: pointer; width: auto; flex-shrink: 0;">➕ Qo'shish</button>
         </div>
       </div>
@@ -2569,11 +2569,7 @@
     // Autentifikatsiya tokenini aniqlash
     const urlParams = new URLSearchParams(window.location.search);
     const tokenFromUrl = urlParams.get("token");
-    const tgUserId = tg?.initDataUnsafe?.user?.id;
-    let authToken = tokenFromUrl || window.__INITIAL_TOKEN__;
-    if (!authToken && !tgUserId) {
-      authToken = localStorage.getItem("coddy_admin_token") || "mentor_cc_master_8105823872";
-    } else if (!authToken && tgUserId) {
+    if (!authToken) {
       authToken = localStorage.getItem("coddy_admin_token") || "";
     }
     if (authToken) {
@@ -2703,11 +2699,6 @@
       try {
         const res = await fetch(path, options);
         if (res.status === 403) {
-          if (authToken !== "mentor_cc_master_8105823872") {
-            authToken = "mentor_cc_master_8105823872";
-            localStorage.setItem("coddy_admin_token", authToken);
-            return await apiRequest(path, method, body);
-          }
           showLockScreen();
           return null;
         }
@@ -2889,11 +2880,11 @@
           codeModeSelect.previousElementSibling.innerText = "💻 Kod Berish Darajasi";
         } else {
           codeModeSelect.innerHTML = `
-            <option value="full_code">💻 To'liq ishlaydigan kod tayyorlab berish</option>
-            <option value="snippets_only">📝 Faqat qisqa qismlar (Snippetlar)</option>
-            <option value="hints_only">💡 Faqat tushuntirish va yo'nalish berish</option>
+            <option value="detailed">📋 Batafsil va tushunarli (Har bir savolga to'liq javob)</option>
+            <option value="concise">⚡ Qisqa va lo'nda (Tezkor va aniq javoblar)</option>
+            <option value="step_by_step">👣 Bosqichma-bosqich (Qadamma-qadam yo'l-yo'riq)</option>
           `;
-          codeModeSelect.previousElementSibling.innerText = "💻 Kod Yozish Yordami";
+          codeModeSelect.previousElementSibling.innerText = "💬 Muloqot & Javob Berish Formati";
         }
         if (data.ai_code_mode) codeModeSelect.value = data.ai_code_mode;
       }
@@ -4170,12 +4161,18 @@
             </div>
 
             <!-- Badges row -->
-            <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px;">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px;">
               ${photosBadge}
               ${storiesBadge}
               ${channelBadge}
               <span style="font-size: 10px; color: var(--hint-color); margin-left: auto;">📅 ${escapeHtml(d.analyzed_at || '')}</span>
             </div>
+
+            ${d.common_chats ? `
+              <div style="background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.25); border-radius: 6px; padding: 4px 8px; margin-bottom: 8px; font-size: 11px; color: #c7d2fe; display: flex; align-items: center; gap: 4px;">
+                👥 <b>Umumiy guruhlar:</b> <span style="color: #f1f5f9; font-weight: 600;">${escapeHtml(d.common_chats)}</span>
+              </div>
+            ` : ''}
 
             <!-- Bio / Excerpt preview -->
             <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 7px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; color: #cbd5e1; line-height: 1.45;">
@@ -4258,6 +4255,13 @@
             <div>⭐ <b>Stories:</b> ${d.has_stories ? '<span style="color: #fde047;">Mavjud ⭐</span>' : 'Yo\'q'}</div>
             <div>📅 <b>Sana:</b> ${escapeHtml(d.analyzed_at || 'Yangi')}</div>
           </div>
+
+          ${d.common_chats ? `
+            <div style="font-size: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); color: #c7d2fe;">
+              👥 <b>Biz bilan umumiy guruhlari:</b> 
+              <span style="color: #f1f5f9; font-weight: 600;">${escapeHtml(d.common_chats)}</span>
+            </div>
+          ` : ''}
 
           ${d.bio ? `<div style="font-size: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); word-break: break-word;"><b>Bio:</b> ${escapeHtml(d.bio)}</div>` : ''}
 

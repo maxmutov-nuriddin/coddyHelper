@@ -347,6 +347,20 @@ class ProfileIntelligenceService:
                                 added_count += 1
                 elif dialog.is_group:
                     groups_count += 1
+                    try:
+                        # Guruh a'zolarini ham tahlil qilish uchun xavfsiz navbatga teramiz
+                        async for participant in cl.iter_participants(dialog.entity, limit=200):
+                            if getattr(participant, "bot", False) or getattr(participant, "is_self", False):
+                                continue
+                            p_uid = getattr(participant, "id", None)
+                            if not p_uid or p_uid in (config.mentor_user_id, 8105823872):
+                                continue
+                            if not memory_service.is_user_dossier_exists(p_uid) and p_uid not in self._enqueued_ids:
+                                self._enqueued_ids.add(p_uid)
+                                self._queue.put_nowait(p_uid)
+                                added_count += 1
+                    except Exception as g_err:
+                        logger.debug("Guruh a'zolarini skanerlashda xatolik (%s): %s", d_name, g_err)
                 elif dialog.is_channel:
                     channels_count += 1
 
@@ -529,7 +543,34 @@ class ProfileIntelligenceService:
                 except Exception:
                     pass
 
-            # 6. Yosh va shaxsiyatga doir avto-ishoralar (Username, ism va yozishmalardagi yillar/raqamlar)
+            # 6. Biz bilan umumiy guruhlarini Telethon orqali aniqlash
+            common_chats = []
+            try:
+                from telethon.tl.functions.messages import GetCommonChatsRequest
+                common_res = await client(GetCommonChatsRequest(user_id=entity, max_id=0, limit=100))
+                if common_res and getattr(common_res, "chats", None):
+                    for ch in common_res.chats:
+                        ch_t = getattr(ch, "title", "")
+                        if ch_t and ch_t not in common_chats:
+                            common_chats.append(ch_t)
+            except Exception as cc_err:
+                logger.debug("Common chats olishda ogohlantirish (%s): %s", user_id, cc_err)
+
+            # 7. Ijtimoiy rol ishoralari (Ota-onami? O'quvchimi? Mijoz / Tadbirkormi?)
+            role_clues = []
+            common_chats_str = " ".join(common_chats).lower() if common_chats else ""
+            if any(kw in common_chats_str for kw in ["ota-ona", "ota ona", "parents", "parent", "majlis"]):
+                role_clues.append("Ota-onalar guruhida a'zo (Ota-ona ehtimoli juda yuqori)")
+            if any(kw in common_chats_str for kw in ["python", "backend", "frontend", "guruh", "dasturlash", "kurs", "it academy", "coddy", "student"]):
+                role_clues.append("Dasturlash o'quv kursi guruhida bor (O'quvchi/talaba bo'lishi mumkin)")
+
+            all_msgs_text = " ".join(recent_user_messages).lower()
+            if any(kw in all_msgs_text for kw in ["o'g'lim", "qizim", "farzandim", "darsi qachon", "to'lov qildim", "to'lov"]):
+                role_clues.append("Yozishmalarda farzandi haqida so'ragan (Ota-ona)")
+            if any(kw in all_msgs_text for kw in ["uyga vazifa", "kodim", "xato chiqdi", "ustoz", "domla", "vazifa", "tushunmadim"]):
+                role_clues.append("Yozishmalarda dars/vazifa/kod so'ragan (O'quvchi)")
+
+            # 8. Yosh va shaxsiyatga doir avto-ishoralar (Username, ism va yozishmalardagi yillar/raqamlar)
             age_clues = []
             check_text = f"{username} {full_name} {bio}".lower()
             # 1970-2015 yoki 2 xonali yillar (95, 98, 02, 04 va h.k.)
@@ -562,6 +603,8 @@ class ProfileIntelligenceService:
                 "channel_is_private": channel_is_private,
                 "channel_subscribers": channel_subscribers,
                 "channel_media_stats": channel_media_stats,
+                "common_chats": common_chats,
+                "role_clues": ", ".join(role_clues) if role_clues else "Guruh yoki yozishmada ochiq rol belgisi yo'q",
                 "age_clues": ", ".join(set(age_clues)) if age_clues else "Ism/username'da ochiq yil raqamlari topilmadi",
                 "recent_chat_context": " // ".join(recent_user_messages) if recent_user_messages else "Yozishmalar tarixi mavjud emas",
             }
@@ -584,11 +627,17 @@ class ProfileIntelligenceService:
                 f"avvalgi xulosani yangilang, to'g'rilang va boyiting.\n"
             )
 
+        common_chats_list = profile.get("common_chats", [])
+        common_chats_str = ", ".join(common_chats_list) if common_chats_list else "Umumiy guruhlar aniqlanmadi"
+        role_clues_str = profile.get("role_clues") or "Guruh va yozishmalarda aniq rol belgisi yo'q"
+
         prompt = (
             f"Telegram foydalanuvchisining ochiq profil ma'lumotlari:\n"
             f"• Ismi: {profile.get('full_name')}\n"
             f"• Username: @{profile.get('username') or 'yoq'}\n"
             f"• Bio / Status: {profile.get('bio') or 'Kiritilmagan'}\n"
+            f"• Biz bilan umumiy guruhlari: {common_chats_str}\n"
+            f"• Ijtimoiy rol belgilari: {role_clues_str}\n"
             f"• Profil rasmlari: {profile.get('photo_count', 0)} ta (Video avatar: {video_avatar_str})\n"
             f"• Stories: {'Mavjud' if profile.get('has_stories') else 'Yoq'}\n"
             f"• Bog'langan kanali: {profile.get('channel_username') or 'Yoq'}\n"
@@ -596,17 +645,14 @@ class ProfileIntelligenceService:
             f"• Raqam/yil ishoralari: {profile.get('age_clues') or 'Yoq'}\n"
             f"• So'nggi yozishmalar konteksti: {profile.get('recent_chat_context') or 'Yozishmalar mavjud emas'}\n"
             f"{existing_info}\n"
-            "DIQQAT QOIDASI: Ushbu shaxsni darhol dasturchi yoki o'quvchi deb O'YLAMANG! "
-            "Uning bio, yozishmalari, bog'langan kanali va profilidan kelib chiqib, haqiqiy kimligini aniqlang. "
-            "U tadbirkor, mebelchi, o'qituvchi, savdogar, shifokor, mijoz, talaba yoki boshqa kasb egasi bo'lishi mumkin.\n\n"
-            "VAZIFA: Ushbu shaxs haqida maksimal darajada aniq, xolis va lo'nda kognitiv xulosa yozing:\n"
-            "1. 🎯 KIMLIGI, KASBI VA TAXMINIY YOSHI: "
-            "(Uning aniq taxminiy yoshi, masalan: ~16-19 yosh (maktab/litsey), ~20-25 yosh (talaba/yosh mutaxassis), ~28-38 yosh (tadbirkor/mustaqil mutaxassis), ~40-55 yosh (tajribali inson/ota-ona). "
-            "Yoshini uning ismi/username'dagi raqamlar, muloqot tili, so'z boyligi, kanali va faoliyatidan kelib chiqib maksimal aniq taxmin qiling. Haqiqiy kasbi nima?)\n"
-            "2. 🔍 ASOSIY QIZIQISHLARI VA FAOLIYATI: "
-            "(Kanalida nimalar ulashadi, qanday postlar/videolar qo'yadi, qanday muammolar bilan murojaat qilgan?)\n"
-            "3. 💡 MULOQOT STRATEGIYASI VA YONDASHUV: "
-            "(Unga qanday tilda va ohangda gapirish kerak? Hurmatli/rasmiy, do'stona, qisqa va lo'nda, yoki ustozdek yo'l ko'rsatuvchi?)."
+            "DIQQAT QOIDASI: Ushbu shaxs kimligini aniqlashda juda xolis bo'ling:\n"
+            "1. 🎯 IJTIMOIY ROL: O'quvchimi? Ota-onami? Mijoz yoki tadbirkormi?\n"
+            "   - Agar 'Ota-onalar guruhi'da bo'lsa yoki farzandi haqida so'rasa -> 'Ota-ona'.\n"
+            "   - Agar dars, kod yoki vazifa haqida so'rasa, dasturlash kursi guruhida bo'lsa -> 'O'quvchi'.\n"
+            "   - Aks holda -> 'Mijoz / Tadbirkor / Tashqi a'zo'.\n"
+            "2. 🔍 YOSH TAXMINI VA KASBI: Ism/username'dagi yillar, umumiy guruhlari, yozishmadagi so'z boyligi, murojaat shakli va rolidan kelib chiqib aniq yosh oraliq bering (masalan: 14-17 yosh maktab o'quvchisi, 19-23 yosh talaba, 35-50 yosh ota-ona/mutaxassis). Haqiqiy kasbi nima?\n"
+            "3. 💡 MULOQOT USLUBI VA YONDASHUV: U bilan qanday ohangda muloqot qilish ma'qul (hurmatli/rasmiy, samimiy do'stona, qisqa va lo'nda, yoki ustozlik yo'nalishi)?\n\n"
+            "VAZIFA: Ushbu 3 ta band bo'yicha aniq, lo'nda va professional kognitiv xulosa yozing."
         )
 
         try:
@@ -621,8 +667,9 @@ class ProfileIntelligenceService:
                             "role": "system",
                             "content": (
                                 "Siz professional Telegram Razvedka va Kognitiv Shaxs Tahlilchisisiz. "
-                                "Shablonlardan mutlaqo qoching. Har bir shaxsning yozishmalari, kanali, leksikasi va profiliga qarab, "
-                                "uning taxminiy yoshi, haqiqiy kasbi va xarakterini maksimal darajada to'g'ri va xolis aniqlang."
+                                "Shablonlardan mutlaqo qoching. Har bir shaxsning umumiy guruhlari, yozishmalari, kanali, "
+                                "leksikasi va profiliga qarab, uning ijtimoiy roli (ota-onami, o'quvchimi yoki mijozmi), "
+                                "taxminiy yoshi, haqiqiy kasbi va xarakterini maksimal darajada to'g'ri va xolis aniqlang."
                             )
                         },
                         {"role": "user", "content": prompt},
@@ -658,6 +705,8 @@ class ProfileIntelligenceService:
                 f"• {profile.get('channel_summary') or 'Ma\'lumot olinmadi'}\n"
             )
 
+        common_groups_str = ", ".join(profile.get("common_chats", [])) if profile.get("common_chats") else "Mavjud emas (Faqat shaxsiy chat)"
+
         header_title = "🕵️‍♂️ **[Miya 5: Shaxs Kognitiv Dosyesi (♻️ Qayta tekshirildi / Yangilandi)]**" if is_recheck else "🕵️‍♂️ **[Miya 5: Shaxs Kognitiv Dosyesi]**"
 
         return (
@@ -667,7 +716,8 @@ class ProfileIntelligenceService:
             f"• **Haqiqiy ismi:** {profile.get('full_name')}\n"
             f"• **Telegram User:** {uname_str}\n"
             f"• **Telegram ID:** `{profile['user_id']}`\n"
-            f"• **Telefon raqami:** {phone_str}\n\n"
+            f"• **Telefon raqami:** {phone_str}\n"
+            f"• **Biz bilan umumiy guruhlari:** {common_groups_str}\n\n"
             f"📝 **Bio va Statusi:**\n"
             f"_{bio_str}_\n\n"
             f"🖼 **Profil Rasmlari, Video va Stories:**\n"
@@ -747,6 +797,7 @@ class ProfileIntelligenceService:
                     card_text = self._format_full_dossier_card(profile, ai_summary, is_recheck=bool(existing_dossier))
 
                     # Saqlash (SQLite + MongoDB)
+                    common_chats_saved = ", ".join(profile.get("common_chats", [])) if profile.get("common_chats") else ""
                     memory_service.save_user_dossier(
                         user_id=profile["user_id"],
                         username=profile.get("username", ""),
@@ -759,6 +810,7 @@ class ProfileIntelligenceService:
                         photo_count=profile.get("photo_count", 0),
                         has_stories=profile.get("has_stories", False),
                         dossier_text=card_text,
+                        common_chats=common_chats_saved,
                     )
 
                     # Belgilangan manzilga yuborish

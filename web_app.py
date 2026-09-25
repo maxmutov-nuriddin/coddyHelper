@@ -211,7 +211,18 @@ def get_current_user(request: web.Request) -> dict:
     if not token and "token" in request.query:
         token = request.query["token"].strip()
     if not token:
-        token = MASTER_ADMIN_TOKEN
+        # XAVFSIZLIK: Token kiritilmagan bo'lsa, uni MASTER_ADMIN_TOKEN ga aylantirmaymiz!
+        # Aks holda shaxsi tasdiqlanmagan so'rovlar Super Admin ma'lumotlarini o'qib oladi.
+        return {
+            "user_id": 0,
+            "is_super_admin": False,
+            "subscription": None,
+            "business_name": "Mening Boshqaruvim",
+            "profession": "Mijoz",
+            "full_name": "Foydalanuvchi",
+            "username": "",
+            "role": "guest",
+        }
 
     user_id = get_token_user_id(token)
     is_super = memory_service.is_super_admin(user_id) if user_id else (token == MASTER_ADMIN_TOKEN)
@@ -513,6 +524,12 @@ self.addEventListener('fetch', (event) => {
                 "name": "Teacher",
             }
 
+        uid = 0 if current_u["is_super_admin"] else current_u["user_id"]
+        ai_persona_key = "ai_persona" if current_u["is_super_admin"] else f"ai_persona_{current_u['user_id']}"
+        ai_code_mode_key = "ai_code_mode" if current_u["is_super_admin"] else f"ai_code_mode_{current_u['user_id']}"
+        default_persona = "socratic" if current_u["is_super_admin"] else "friendly"
+        default_code_mode = "full_code" if current_u["is_super_admin"] else "detailed"
+
         return web.json_response(
             {
                 "ok": True,
@@ -527,8 +544,8 @@ self.addEventListener('fetch', (event) => {
                 "gemini_trigger_after": memory_service.get_setting("gemini_trigger_after", "after_reserve"),
                 "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",
                 "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "5")),
-                "ai_persona": memory_service.get_setting("ai_persona", "socratic"),
-                "ai_code_mode": memory_service.get_setting("ai_code_mode", "full_code"),
+                "ai_persona": memory_service.get_setting(ai_persona_key, default_persona),
+                "ai_code_mode": memory_service.get_setting(ai_code_mode_key, default_code_mode),
                 "private_quiet_window": memory_service.get_private_quiet_window(),
                 "students_count": memory_service.get_students_count(),
                 "active_ai": active_ai,
@@ -536,11 +553,11 @@ self.addEventListener('fetch', (event) => {
                 "mentor_wait_seconds": config.mentor_wait_seconds,
                 "active_chats_count": memory_service.total_active_chats(),
 
-                "active_reminders_count": memory_service.get_active_reminders_count(creator_id=(0 if user_info["is_super_admin"] else user_info["user_id"])),
+                "active_reminders_count": memory_service.get_active_reminders_count(creator_id=uid),
                 "ignored_users_count": memory_service.get_ignored_users_count(),
-                "learned_facts_count": memory_service.get_learned_facts_count(),
+                "learned_facts_count": memory_service.get_learned_facts_count(user_id=uid),
                 "trusted_websites": memory_service.get_trusted_websites(),
-                "curriculum_topics": memory_service.get_curriculum_topics(),
+                "curriculum_topics": memory_service.get_curriculum_topics(user_id=uid),
                 "recent_activity_logs": list(reversed(RECENT_ACTIVITY_LOGS[-15:])),
 
                 "telegram_authorized": telegram_authorized,
@@ -655,13 +672,17 @@ self.addEventListener('fetch', (event) => {
             return web.json_response({"ok": True, "debounce_seconds": val})
         elif feature == "ai_persona":
             val = str(data.get("value", "socratic")).strip()
-            memory_service.set_setting("ai_persona", val)
-            logger.info("Admin Panel orqali ai_persona o'zgartirildi: %s", val)
+            user_info = get_current_user(request)
+            p_key = "ai_persona" if user_info["is_super_admin"] else f"ai_persona_{user_info['user_id']}"
+            memory_service.set_setting(p_key, val)
+            logger.info("Admin Panel orqali ai_persona o'zgartirildi (%s): %s", p_key, val)
             return web.json_response({"ok": True, "ai_persona": val})
         elif feature == "ai_code_mode":
             val = str(data.get("value", "full_code")).strip()
-            memory_service.set_setting("ai_code_mode", val)
-            logger.info("Admin Panel orqali ai_code_mode o'zgartirildi: %s", val)
+            user_info = get_current_user(request)
+            cm_key = "ai_code_mode" if user_info["is_super_admin"] else f"ai_code_mode_{user_info['user_id']}"
+            memory_service.set_setting(cm_key, val)
+            logger.info("Admin Panel orqali ai_code_mode o'zgartirildi (%s): %s", cm_key, val)
             return web.json_response({"ok": True, "ai_code_mode": val})
         elif feature == "private_quiet_window":
             try:

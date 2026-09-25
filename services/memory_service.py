@@ -291,12 +291,16 @@ class SQLiteMemoryService:
                         channel_username TEXT DEFAULT '',
                         channel_summary TEXT DEFAULT '',
                         photo_count INTEGER DEFAULT 0,
-                        has_stories INTEGER DEFAULT 0,
                         dossier_text TEXT NOT NULL,
+                        common_chats TEXT DEFAULT '',
                         analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                     """
                 )
+                try:
+                    conn.execute("ALTER TABLE user_dossiers ADD COLUMN common_chats TEXT DEFAULT ''")
+                except Exception:
+                    pass
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_user_dossiers_analyzed ON user_dossiers (analyzed_at)"
                 )
@@ -1609,17 +1613,17 @@ class SQLiteMemoryService:
 
 
 
-    def get_all_precomputed_answers(self, limit: int = 50, owner_id: int = 0) -> list[dict]:
+    def get_all_precomputed_answers(self, limit: int = 60, owner_id: int = 0) -> list[dict]:
         """Oldindan tayyorlangan barcha yechimlar ro'yxatini qaytaradi."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                if owner_id:
+                if owner_id and not self.is_super_admin(owner_id):
                     cursor.execute(
                         """
                         SELECT id, topic, question_pattern, answer_text, usage_count, created_at
                         FROM precomputed_answers
-                        WHERE owner_id = ? OR owner_id = 0
+                        WHERE owner_id = ? OR owner_id = 0 OR owner_id IS NULL
                         ORDER BY id DESC LIMIT ?
                         """,
                         (owner_id, limit),
@@ -1629,24 +1633,34 @@ class SQLiteMemoryService:
                         """
                         SELECT id, topic, question_pattern, answer_text, usage_count, created_at
                         FROM precomputed_answers
-                        WHERE owner_id = 0
+                        WHERE owner_id = 0 OR owner_id IS NULL
                         ORDER BY id DESC LIMIT ?
                         """,
                         (limit,),
                     )
 
                 rows = cursor.fetchall()
-                return [
-                    {
-                        "id": r[0],
-                        "topic": r[1],
-                        "question_pattern": r[2],
-                        "answer_text": r[3],
-                        "usage_count": r[4],
-                        "created_at": r[5],
-                    }
-                    for r in rows
-                ]
+                if rows:
+                    return [
+                        {
+                            "id": r[0],
+                            "topic": r[1],
+                            "question_pattern": r[2],
+                            "answer_text": r[3],
+                            "usage_count": r[4],
+                            "created_at": r[5],
+                        }
+                        for r in rows
+                    ]
+
+            # Agar SQLite'da topilmasa, MongoDB'dan qidirish
+            try:
+                from services.mongo_memory_service import mongo_memory_service
+                if mongo_memory_service.is_connected():
+                    return mongo_memory_service.get_all_precomputed_answers(limit=limit, owner_id=owner_id)
+            except Exception:
+                pass
+            return []
         except Exception as e:
             logger.error("get_all_precomputed_answers xatosi (SQLite): %s", e)
             return []
@@ -3283,6 +3297,7 @@ class SQLiteMemoryService:
         photo_count: int = 0,
         has_stories: bool = False,
         dossier_text: str = "",
+        common_chats: str = "",
     ) -> bool:
         """Foydalanuvchining to'liq dosyesini saqlaydi (Dual: SQLite + MongoDB)."""
         if not user_id or not dossier_text:
@@ -3294,8 +3309,8 @@ class SQLiteMemoryService:
                     INSERT INTO user_dossiers (
                         user_id, username, first_name, last_name, phone, bio,
                         channel_username, channel_summary, photo_count, has_stories,
-                        dossier_text, analyzed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        dossier_text, common_chats, analyzed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(user_id) DO UPDATE SET
                         username = excluded.username,
                         first_name = excluded.first_name,
@@ -3307,12 +3322,13 @@ class SQLiteMemoryService:
                         photo_count = excluded.photo_count,
                         has_stories = excluded.has_stories,
                         dossier_text = excluded.dossier_text,
+                        common_chats = excluded.common_chats,
                         analyzed_at = CURRENT_TIMESTAMP
                     """,
                     (
                         user_id, username or "", first_name or "", last_name or "", phone or "",
                         bio or "", channel_username or "", channel_summary or "", photo_count,
-                        1 if has_stories else 0, dossier_text
+                        1 if has_stories else 0, dossier_text, common_chats or ""
                     ),
                 )
                 conn.commit()
@@ -3335,6 +3351,7 @@ class SQLiteMemoryService:
                     photo_count=photo_count,
                     has_stories=has_stories,
                     dossier_text=dossier_text,
+                    common_chats=common_chats,
                 )
         except Exception as me:
             logger.debug("MongoDB user_dossier sinxronlashda ogohlantirish: %s", me)
@@ -3405,20 +3422,20 @@ class SQLiteMemoryService:
                         """
                         SELECT user_id, username, first_name, last_name, phone, bio,
                                channel_username, channel_summary, photo_count, has_stories,
-                               dossier_text, analyzed_at
+                               dossier_text, analyzed_at, common_chats
                         FROM user_dossiers
-                        WHERE first_name LIKE ? OR last_name LIKE ? OR username LIKE ? OR phone LIKE ? OR bio LIKE ? OR dossier_text LIKE ?
+                        WHERE first_name LIKE ? OR last_name LIKE ? OR username LIKE ? OR phone LIKE ? OR bio LIKE ? OR dossier_text LIKE ? OR common_chats LIKE ?
                         ORDER BY analyzed_at DESC
                         LIMIT ?
                         """,
-                        (q_clean, q_clean, q_clean, q_clean, q_clean, q_clean, limit),
+                        (q_clean, q_clean, q_clean, q_clean, q_clean, q_clean, q_clean, limit),
                     )
                 else:
                     cursor.execute(
                         """
                         SELECT user_id, username, first_name, last_name, phone, bio,
                                channel_username, channel_summary, photo_count, has_stories,
-                               dossier_text, analyzed_at
+                               dossier_text, analyzed_at, common_chats
                         FROM user_dossiers
                         ORDER BY analyzed_at DESC
                         LIMIT ?
@@ -3441,6 +3458,7 @@ class SQLiteMemoryService:
                             "has_stories": bool(r[9]),
                             "dossier_text": r[10],
                             "analyzed_at": str(r[11]),
+                            "common_chats": r[12] if len(r) > 12 and r[12] else "",
                         }
                         for r in rows
                     ]

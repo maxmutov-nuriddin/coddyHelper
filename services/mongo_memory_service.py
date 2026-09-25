@@ -865,9 +865,22 @@ class MongoMemoryService:
         try:
             query = {}
             if owner_id:
-                query["owner_id"] = owner_id
-            return list(self._db["brain_knowledge.precomputed_answers"].find(query).limit(limit))
-
+                query["$or"] = [{"owner_id": owner_id}, {"owner_id": 0}, {"owner_id": {"$exists": False}}]
+            docs = list(self._db["brain_knowledge.precomputed_answers"].find(query).limit(limit))
+            result = []
+            for d in docs:
+                q_pat = d.get("question_pattern") or d.get("clean_question") or d.get("trigger_pattern") or ""
+                ans = d.get("answer_text") or d.get("response_text") or ""
+                if q_pat and ans:
+                    result.append({
+                        "id": str(d.get("_id", "")),
+                        "topic": d.get("topic", "Umumiy"),
+                        "question_pattern": q_pat,
+                        "answer_text": ans,
+                        "usage_count": d.get("usage_count", 0),
+                        "created_at": str(d.get("created_at", "")),
+                    })
+            return result
         except Exception as e:
             logger.error("MongoDB get_all_precomputed_answers xatolik: %s", e)
             return []
@@ -970,6 +983,7 @@ class MongoMemoryService:
         photo_count: int = 0,
         has_stories: bool = False,
         dossier_text: str = "",
+        common_chats: str = "",
     ) -> bool:
         """Miya 5 dosyesini MongoDB Atlas'da saqlaydi."""
         if not self.is_connected() or not user_id:
@@ -989,6 +1003,7 @@ class MongoMemoryService:
                         "photo_count": photo_count,
                         "has_stories": bool(has_stories),
                         "dossier_text": dossier_text,
+                        "common_chats": common_chats or "",
                         "analyzed_at": datetime.now(ZoneInfo("Asia/Tashkent")),
                     }
                 },
@@ -1034,6 +1049,7 @@ class MongoMemoryService:
                         {"phone": regex},
                         {"bio": regex},
                         {"dossier_text": regex},
+                        {"common_chats": regex},
                     ]
                 }
             docs = self._db["brain_frontline.user_dossiers"].find(flt).sort("analyzed_at", -1).limit(limit)
@@ -1051,6 +1067,7 @@ class MongoMemoryService:
                     "photo_count": d.get("photo_count", 0),
                     "has_stories": bool(d.get("has_stories")),
                     "dossier_text": d.get("dossier_text", ""),
+                    "common_chats": d.get("common_chats", ""),
                     "analyzed_at": str(d.get("analyzed_at") or ""),
                 })
             return result
@@ -1428,15 +1445,16 @@ class MongoMemoryService:
             # 8. precomputed_answers
             try:
                 for doc in self._db["brain_knowledge.precomputed_answers"].find():
-                    top = doc.get("topic") or ""
-                    q = doc.get("clean_question") or doc.get("trigger_pattern") or ""
-                    ans = doc.get("response_text") or ""
+                    top = doc.get("topic") or "Umumiy"
+                    q = doc.get("question_pattern") or doc.get("clean_question") or doc.get("trigger_pattern") or ""
+                    ans = doc.get("answer_text") or doc.get("response_text") or ""
+                    owner_id = int(doc.get("owner_id", 0) or 0)
                     if q and ans:
                         cursor.execute("SELECT id FROM precomputed_answers WHERE question_pattern = ?", (q,))
                         if not cursor.fetchone():
                             cursor.execute(
-                                "INSERT INTO precomputed_answers (topic, question_pattern, answer_text) VALUES (?, ?, ?)",
-                                (top, q, ans),
+                                "INSERT INTO precomputed_answers (topic, question_pattern, answer_text, owner_id) VALUES (?, ?, ?, ?)",
+                                (top, q, ans, owner_id),
                             )
                             stats["precomputed_answers"] += 1
             except Exception as e:
@@ -1516,8 +1534,8 @@ class MongoMemoryService:
                             INSERT INTO user_dossiers (
                                 user_id, username, first_name, last_name, phone, bio,
                                 channel_username, channel_summary, photo_count, has_stories,
-                                dossier_text, analyzed_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                dossier_text, common_chats, analyzed_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(user_id) DO UPDATE SET
                                 username = excluded.username,
                                 first_name = excluded.first_name,
@@ -1529,6 +1547,7 @@ class MongoMemoryService:
                                 photo_count = excluded.photo_count,
                                 has_stories = excluded.has_stories,
                                 dossier_text = excluded.dossier_text,
+                                common_chats = excluded.common_chats,
                                 analyzed_at = excluded.analyzed_at
                             """,
                             (
@@ -1543,6 +1562,7 @@ class MongoMemoryService:
                                 doc.get("photo_count", 0),
                                 1 if doc.get("has_stories") else 0,
                                 doc.get("dossier_text", ""),
+                                doc.get("common_chats", ""),
                                 str(doc.get("analyzed_at") or ""),
                             ),
                         )
