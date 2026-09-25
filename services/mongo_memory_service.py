@@ -1439,9 +1439,9 @@ class MongoMemoryService:
             except Exception as e:
                 logger.debug("Restore mentor_lexicon ogohlantirish: %s", e)
 
-            # 11. self_mistakes
+            # 11. self_mistakes (barcha o'rganilgan xatolar va qoidalar)
             try:
-                for doc in self._db["brain_cognitive.self_mistakes"].find().sort("created_at", -1).limit(100):
+                for doc in self._db["brain_cognitive.self_mistakes"].find().sort("created_at", -1):
                     sit = doc.get("situation") or ""
                     mis = doc.get("mistake") or ""
                     cor = doc.get("correction") or ""
