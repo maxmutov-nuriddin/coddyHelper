@@ -1655,6 +1655,23 @@ self.addEventListener('fetch', (event) => {
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_api_delete_subscription(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        user_info = get_current_user(request)
+        if not user_info["is_super_admin"]:
+            return web.json_response({"ok": False, "error": "Faqat Super Admin obunani o'chira oladi!"}, status=403)
+
+        try:
+            data = await request.json()
+            user_id = int(data.get("user_id", 0))
+            if not user_id:
+                return web.json_response({"ok": False, "error": "user_id kiritilishi shart"}, status=400)
+            ok = memory_service.delete_subscription(user_id)
+            return web.json_response({"ok": ok})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_get("/manifest.json", handle_manifest_json)
@@ -1713,6 +1730,7 @@ self.addEventListener('fetch', (event) => {
     app.router.add_get("/api/subscriptions", handle_api_get_subscriptions)
     app.router.add_post("/api/subscriptions", handle_api_upsert_subscription)
     app.router.add_post("/api/subscriptions/revoke", handle_api_revoke_subscription)
+    app.router.add_post("/api/subscriptions/delete", handle_api_delete_subscription)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

@@ -1801,6 +1801,53 @@
       </div>
     </div> <!-- /tab-students -->
 
+    <!-- ==================== SAHIFA: MIJOZLAR & OBUNALAR (FAQAT SUPER ADMIN) ==================== -->
+    <div class="tab-pane" id="tab-clients">
+      <div class="section-header-badge" style="background: rgba(46, 166, 255, 0.15); color: var(--accent); border: 1px solid rgba(46, 166, 255, 0.3);">
+        👥 Mijozlar & Obunalar Boshqaruvi (Super Admin)
+      </div>
+
+      <!-- STATS CARDS -->
+      <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 14px;">
+        <div class="stat-card">
+          <div class="stat-value" id="clients-stat-total" style="color: var(--accent);">0</div>
+          <div class="stat-label">Jami Mijozlar</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="clients-stat-active" style="color: var(--success);">0</div>
+          <div class="stat-label">Faol Obunalar</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="clients-stat-groups" style="color: var(--warning);">0</div>
+          <div class="stat-label">Ulangan Guruhlar</div>
+        </div>
+      </div>
+
+      <!-- ACTION & SEARCH -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">👥 Mijozlar Ro'yxati</span>
+          <button class="btn btn-primary" onclick="openClientModal()" style="width: auto; padding: 6px 14px; font-size: 12px; font-weight: 600;">
+            ➕ Yangi Mijoz
+          </button>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <input type="text" id="client-search-input" class="form-input" placeholder="🔍 Qidirish (ID, ism, @username, biznes)..." oninput="debounceClientSearch()" style="flex: 1;" />
+        </div>
+        <div class="chat-chips" style="padding-bottom: 0; overflow-x: auto; flex-wrap: wrap;">
+          <div class="chip active-chip" id="chip-client-all" onclick="filterClientStatus('all')">Barchasi</div>
+          <div class="chip" id="chip-client-active" onclick="filterClientStatus('active')">🟢 Faol</div>
+          <div class="chip" id="chip-client-nogroup" onclick="filterClientStatus('nogroup')">⏳ Guruhi Ulanmagan</div>
+          <div class="chip" id="chip-client-expired" onclick="filterClientStatus('expired')">🔴 To'xtatilgan / Tugagan</div>
+        </div>
+      </div>
+
+      <!-- CLIENTS LIST CONTAINER -->
+      <div id="clients-list">
+        <!-- JS bilan to'ldiriladi -->
+      </div>
+    </div> <!-- /tab-clients -->
+
     <!-- ==================== SAHIFA: ESLATMALAR MARKAZI ==================== -->
     <div class="tab-pane" id="tab-reminders">
       <div class="section-header-badge">⏰ Eslatmalar Markazi</div>
@@ -1871,6 +1918,10 @@
         <div class="metric-box">
           <div class="metric-value" id="metric-ignored">0</div>
           <div class="metric-label">Bloklanganlar</div>
+        </div>
+        <div class="metric-box" id="metric-clients-box" onclick="switchTab('clients')" style="display: none; cursor: pointer; border: 1px solid rgba(46, 166, 255, 0.4); background: rgba(46, 166, 255, 0.08);">
+          <div class="metric-value" id="metric-clients" style="color: var(--accent);">0</div>
+          <div class="metric-label" style="color: var(--accent);">👥 Mijozlar</div>
         </div>
       </div>
 
@@ -2276,6 +2327,58 @@
     </div>
   </div>
 
+  <!-- CLIENT MODAL (ADD / EDIT) -->
+  <div id="client-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; padding: 12px; box-sizing: border-box;">
+    <div style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: var(--radius); width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; padding: 16px; box-shadow: var(--shadow); box-sizing: border-box;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 id="client-modal-title" style="font-size: 16px; font-weight: 600;">➕ Yangi Mijoz Qo'shish</h3>
+        <button onclick="closeClientModal()" style="background: none; border: none; color: var(--hint-color); font-size: 20px; cursor: pointer;">✕</button>
+      </div>
+      <input type="hidden" id="modal-client-is-edit" value="0" />
+      
+      <div class="form-group">
+        <label class="form-label">Telegram User ID *</label>
+        <input type="number" id="modal-client-user-id" class="form-input" placeholder="Masalan: 123456789" />
+        <p style="font-size: 11px; color: var(--hint-color); margin-top: 4px;">Foydalanuvchining raqamli Telegram ID si</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Biznes / Kompaniya Nomi *</label>
+        <input type="text" id="modal-client-business" class="form-input" placeholder="Masalan: Akmal Mebel, Grand Tour..." />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Egasining Ism-Sharifi</label>
+        <input type="text" id="modal-client-name" class="form-input" placeholder="Masalan: Akmal Ergashev" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Telegram Username</label>
+        <input type="text" id="modal-client-username" class="form-input" placeholder="@akmal_mebel" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Faoliyat Sohasi / Kasbi</label>
+        <input type="text" id="modal-client-profession" class="form-input" placeholder="Masalan: Rieltor, Shifokor, Mebel ishlab chiqarish, Dasturchi" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Obuna Muddati (Kunlarda) *</label>
+        <input type="number" id="modal-client-days" class="form-input" value="30" min="1" max="3650" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Shaxsiy AI Yo'riqnomasi (System Prompt)</label>
+        <textarea id="modal-client-prompt" class="form-input" rows="3" placeholder="Ixtiyoriy: Ushbu mijozning sun'iy intellekti qanday javob berishi kerak (masalan: do'kon mahsulotlari, narxlar va xushmuomala xizmat ko'rsatish)"></textarea>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="closeClientModal()" style="flex: 1;">Bekor qilish</button>
+        <button class="btn btn-primary" onclick="saveClient()" style="flex: 1;">Saqlash</button>
+      </div>
+    </div>
+  </div>
+
   <!-- DOSSIER DETAIL MODAL -->
   <div id="dossier-detail-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(6px); z-index: 9999; align-items: center; justify-content: center; padding: 12px; box-sizing: border-box;">
     <div style="background: var(--secondary-bg); border: 1px solid rgba(168,85,247,0.45); border-radius: var(--radius); width: 100%; max-width: 550px; max-height: 90vh; overflow-y: auto; padding: 18px; box-shadow: var(--shadow); box-sizing: border-box;">
@@ -2326,6 +2429,10 @@
     <button class="nav-item" id="nav-students" onclick="switchTab('students', this)">
       <span class="nav-icon">👨‍🎓</span>
       <span>O'quvchilar</span>
+    </button>
+    <button class="nav-item" id="nav-clients" onclick="switchTab('clients', this)" style="display: none;">
+      <span class="nav-icon">👥</span>
+      <span>Mijozlar</span>
     </button>
     <button class="nav-item" id="nav-reminders" onclick="switchTab('reminders', this)">
       <span class="nav-icon">⏰</span>
@@ -2442,6 +2549,8 @@
         loadPrecomputedAnswers();
       } else if (tabId === "students") {
         loadStudents();
+      } else if (tabId === "clients") {
+        loadClients();
       } else if (tabId === "reminders") {
         loadReminders();
       } else if (tabId === "knowledge") {
@@ -2608,6 +2717,27 @@
     async function loadStatus() {
       const data = await apiRequest("/api/status");
       if (!data || !data.ok) return;
+
+      // Multi-User: Only Super Admin (support) sees the "Mijozlar" navigation tab and metric box
+      const isSuper = Boolean(data.is_super_admin || data.current_user?.is_super_admin);
+      const navClients = document.getElementById("nav-clients");
+      if (navClients) {
+        navClients.style.display = isSuper ? "flex" : "none";
+      }
+      const clientsBox = document.getElementById("metric-clients-box");
+      if (clientsBox) {
+        clientsBox.style.display = isSuper ? "block" : "none";
+      }
+      if (isSuper) {
+        apiRequest("/api/subscriptions").then(res => {
+          if (res && res.ok && res.subscriptions) {
+            clientsCache = res.subscriptions;
+            const mc = document.getElementById("metric-clients");
+            if (mc) mc.innerText = res.subscriptions.length;
+            updateClientStats();
+          }
+        });
+      }
 
       // Update toggles
       document.getElementById("switch-auto-reply").checked = data.auto_reply_enabled;
@@ -4658,6 +4788,300 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         showToast("O'quvchi o'chirildi.");
         loadStudents();
         loadStatus();
+      } else {
+        showToast("Xatolik yuz berdi!");
+      }
+    }
+
+    // ===========================================================
+    // 5.5. Mijozlar & Obunalar Boshqaruvi (Faqat Super Admin)
+    // ===========================================================
+    let clientsCache = [];
+    let currentClientFilter = "all";
+    let clientSearchTimeout = null;
+
+    async function loadClients() {
+      const listEl = document.getElementById("clients-list");
+      if (listEl && (!listEl.children || listEl.children.length === 0)) {
+        showTabLoader("clients-list", "Mijozlar va obunalar yuklanmoqda...");
+      }
+
+      const data = await apiRequest("/api/subscriptions");
+      if (!listEl) return;
+
+      if (!data || !data.ok || !data.subscriptions) {
+        listEl.innerHTML = `
+          <div class="card" style="text-align: center; color: var(--hint-color); padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 8px;">⚠️</div>
+            <p style="font-size: 14px; margin-bottom: 6px;">Mijozlar ma'lumotlarini yuklab bo'lmadi.</p>
+            <button class="btn btn-secondary" onclick="loadClients()" style="width: auto; padding: 6px 14px; margin: 0 auto;">Qayta urinish</button>
+          </div>`;
+        return;
+      }
+
+      clientsCache = data.subscriptions;
+      updateClientStats();
+      renderClients();
+    }
+
+    function updateClientStats() {
+      const total = clientsCache.length;
+      const active = clientsCache.filter(c => c.active && !c.is_expired).length;
+      const groups = clientsCache.filter(c => c.group_id && String(c.group_id) !== "0").length;
+
+      const elTotal = document.getElementById("clients-stat-total");
+      const elActive = document.getElementById("clients-stat-active");
+      const elGroups = document.getElementById("clients-stat-groups");
+
+      if (elTotal) elTotal.innerText = total;
+      if (elActive) elActive.innerText = active;
+      if (elGroups) elGroups.innerText = groups;
+    }
+
+    function renderClients() {
+      const listEl = document.getElementById("clients-list");
+      if (!listEl) return;
+
+      const searchInput = document.getElementById("client-search-input");
+      const search = (searchInput ? searchInput.value : "").trim().toLowerCase();
+
+      let filtered = clientsCache.filter(c => {
+        // Status filter
+        if (currentClientFilter === "active") {
+          if (!c.active || c.is_expired) return false;
+        } else if (currentClientFilter === "nogroup") {
+          if (c.group_id && String(c.group_id) !== "0") return false;
+        } else if (currentClientFilter === "expired") {
+          if (c.active && !c.is_expired) return false;
+        }
+
+        // Search query
+        if (search) {
+          const matchId = String(c.user_id || "").includes(search);
+          const matchName = String(c.full_name || "").toLowerCase().includes(search);
+          const matchUser = String(c.username || "").toLowerCase().includes(search);
+          const matchBiz = String(c.business_name || "").toLowerCase().includes(search);
+          const matchProf = String(c.profession || "").toLowerCase().includes(search);
+          if (!matchId && !matchName && !matchUser && !matchBiz && !matchProf) return false;
+        }
+
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = `
+          <div class="card" style="text-align: center; color: var(--hint-color); padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 8px;">👥</div>
+            <p style="font-size: 14px; margin-bottom: 6px;">Hech qanday mijoz topilmadi.</p>
+            <p style="font-size: 12px; margin-bottom: 12px;">Yangi foydalanuvchiga dostup berish uchun bosing:</p>
+            <button class="btn btn-primary" onclick="openClientModal()" style="width: auto; padding: 8px 18px; font-size: 13px; margin: 0 auto;">
+              ➕ Yangi Mijoz Qo'shish
+            </button>
+          </div>`;
+        return;
+      }
+
+      listEl.innerHTML = filtered.map(c => {
+        const isActive = Boolean(c.active && !c.is_expired);
+        const hasGroup = Boolean(c.group_id && String(c.group_id) !== "0");
+        const statusBadge = isActive
+          ? `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4);">🟢 Faol</span>`
+          : `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4);">🔴 To'xtatilgan</span>`;
+
+        const groupBadge = hasGroup
+          ? `<span style="color: #2ea6ff; font-weight: 600;">✅ Ulangan (${c.group_id})</span>`
+          : `<span style="color: #f59e0b; font-weight: 500;">⏳ Ulanmagan</span>`;
+
+        const usernameText = c.username ? `@${c.username.replace('@','')}` : "—";
+        const professionText = c.profession ? escapeHtml(c.profession) : "Tadbirkor / Mijoz";
+        const businessTitle = c.business_name ? escapeHtml(c.business_name) : "Mijoz Paneli";
+        const expDate = c.expires_at ? c.expires_at.split(" ")[0] : "Cheksiz";
+
+        return `
+          <div class="card" style="margin-bottom: 12px; border-left: 3px solid ${isActive ? 'var(--success)' : 'var(--danger)'};">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+              <div>
+                <div style="font-size: 15px; font-weight: 700; color: #fff;">${businessTitle}</div>
+                <div style="font-size: 12px; color: var(--hint-color); margin-top: 2px;">
+                  👤 ${escapeHtml(c.full_name || 'Noma\'lum')} (${usernameText}) • <code>ID: ${c.user_id}</code>
+                </div>
+              </div>
+              <div>${statusBadge}</div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: var(--radius-sm); margin: 8px 0;">
+              <div>
+                <span style="color: var(--hint-color);">Sohasi:</span> <b style="color: #e2e8f0;">${professionText}</b>
+              </div>
+              <div>
+                <span style="color: var(--hint-color);">Guruh:</span> ${groupBadge}
+              </div>
+              <div>
+                <span style="color: var(--hint-color);">Muddati:</span> <b style="color: ${isActive ? '#22c55e' : '#ef4444'};">${expDate}</b>
+              </div>
+              <div>
+                <span style="color: var(--hint-color);">Roli:</span> <b style="color: #a855f7;">${c.role || 'client'}</b>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
+              <button class="btn btn-primary" onclick="extendClientSub(${c.user_id}, 30)" style="padding: 6px 12px; font-size: 11.5px; width: auto; font-weight: 600;">
+                ➕ 30 Kun Uzaytirish
+              </button>
+              <button class="btn btn-secondary" onclick="openClientModal(${c.user_id})" style="padding: 6px 12px; font-size: 11.5px; width: auto;">
+                ✏️ Tahrirlash
+              </button>
+              ${isActive ? `
+                <button class="btn" onclick="toggleClientStatus(${c.user_id}, false)" style="background: rgba(239,68,68,0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.4); padding: 6px 12px; font-size: 11.5px; width: auto;">
+                  ⏹ To'xtatish
+                </button>
+              ` : `
+                <button class="btn" onclick="toggleClientStatus(${c.user_id}, true)" style="background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); padding: 6px 12px; font-size: 11.5px; width: auto;">
+                  ▶️ Faollashtirish
+                </button>
+              `}
+              <button class="btn" onclick="deleteClientSub(${c.user_id})" style="background: transparent; color: var(--hint-color); border: 1px solid rgba(255,255,255,0.1); padding: 6px 10px; font-size: 11.5px; width: auto; margin-left: auto;">
+                🗑 O'chirish
+              </button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function filterClientStatus(filter) {
+      haptic();
+      currentClientFilter = filter;
+      document.querySelectorAll("#tab-clients .chat-chips .chip").forEach(c => c.classList.remove("active-chip"));
+      const chip = document.getElementById("chip-client-" + filter);
+      if (chip) chip.classList.add("active-chip");
+      renderClients();
+    }
+
+    function debounceClientSearch() {
+      if (clientSearchTimeout) clearTimeout(clientSearchTimeout);
+      clientSearchTimeout = setTimeout(() => {
+        renderClients();
+      }, 200);
+    }
+
+    function openClientModal(userId = null) {
+      haptic();
+      const modal = document.getElementById("client-modal");
+      const title = document.getElementById("client-modal-title");
+      modal.style.display = "flex";
+
+      if (userId) {
+        title.innerText = "✏️ Mijoz Ma'lumotlarini Tahrirlash";
+        document.getElementById("modal-client-is-edit").value = "1";
+        const c = clientsCache.find(x => x.user_id === userId);
+        if (c) {
+          const uidInput = document.getElementById("modal-client-user-id");
+          uidInput.value = c.user_id;
+          uidInput.readOnly = true;
+          document.getElementById("modal-client-business").value = c.business_name || "";
+          document.getElementById("modal-client-name").value = c.full_name || "";
+          document.getElementById("modal-client-username").value = c.username ? ("@" + c.username.replace('@','')) : "";
+          document.getElementById("modal-client-profession").value = c.profession || "";
+          document.getElementById("modal-client-days").value = 30;
+          document.getElementById("modal-client-prompt").value = c.system_prompt || "";
+          return;
+        }
+      }
+
+      title.innerText = "➕ Yangi Mijoz Qo'shish";
+      document.getElementById("modal-client-is-edit").value = "0";
+      const uidInput = document.getElementById("modal-client-user-id");
+      uidInput.value = "";
+      uidInput.readOnly = false;
+      document.getElementById("modal-client-business").value = "";
+      document.getElementById("modal-client-name").value = "";
+      document.getElementById("modal-client-username").value = "";
+      document.getElementById("modal-client-profession").value = "";
+      document.getElementById("modal-client-days").value = 30;
+      document.getElementById("modal-client-prompt").value = "";
+    }
+
+    function closeClientModal() {
+      document.getElementById("client-modal").style.display = "none";
+    }
+
+    async function saveClient() {
+      haptic();
+      const uidVal = document.getElementById("modal-client-user-id").value.trim();
+      const business = document.getElementById("modal-client-business").value.trim();
+      const daysVal = document.getElementById("modal-client-days").value.trim();
+
+      if (!uidVal || isNaN(parseInt(uidVal))) {
+        showToast("To'g'ri Telegram User ID kiritilishi shart!");
+        return;
+      }
+      if (!business) {
+        showToast("Biznes / Kompaniya nomini kiriting!");
+        return;
+      }
+
+      const payload = {
+        user_id: parseInt(uidVal),
+        business_name: business,
+        full_name: document.getElementById("modal-client-name").value.trim(),
+        username: document.getElementById("modal-client-username").value.trim(),
+        profession: document.getElementById("modal-client-profession").value.trim(),
+        days: parseInt(daysVal) || 30,
+        system_prompt: document.getElementById("modal-client-prompt").value.trim()
+      };
+
+      const res = await apiRequest("/api/subscriptions", "POST", payload);
+      if (res && res.ok) {
+        showToast("✅ Mijoz obunasi muvaffaqiyatli saqlandi!");
+        closeClientModal();
+        loadClients();
+      } else {
+        showToast("Xatolik: " + (res?.error || "Saqlab bo'lmadi"));
+      }
+    }
+
+    async function extendClientSub(userId, days = 30) {
+      haptic();
+      const c = clientsCache.find(x => x.user_id === userId);
+      const res = await apiRequest("/api/subscriptions", "POST", {
+        user_id: userId,
+        days: days,
+        business_name: c?.business_name || "",
+        profession: c?.profession || "",
+        system_prompt: c?.system_prompt || ""
+      });
+      if (res && res.ok) {
+        showToast(`✅ Obuna +${days} kunga uzaytirildi!`);
+        loadClients();
+      } else {
+        showToast("Xatolik: " + (res?.error || "Uzaytirib bo'lmadi"));
+      }
+    }
+
+    async function toggleClientStatus(userId, activate) {
+      haptic();
+      if (!activate) {
+        if (!confirm("Haqiqatan ham ushbu mijoz obunasini to'xtatmoqchimisiz?")) return;
+        const res = await apiRequest("/api/subscriptions/revoke", "POST", { user_id: userId });
+        if (res && res.ok) {
+          showToast("Mijoz obunasi to'xtatildi.");
+          loadClients();
+        } else {
+          showToast("Xatolik yuz berdi!");
+        }
+      } else {
+        extendClientSub(userId, 30);
+      }
+    }
+
+    async function deleteClientSub(userId) {
+      haptic();
+      if (!confirm("Diqqat! Ushbu mijozni bazadan butunlay o'chirmoqchimisiz?")) return;
+      const res = await apiRequest("/api/subscriptions/delete", "POST", { user_id: userId });
+      if (res && res.ok) {
+        showToast("Mijoz butunlay o'chirildi.");
+        loadClients();
       } else {
         showToast("Xatolik yuz berdi!");
       }

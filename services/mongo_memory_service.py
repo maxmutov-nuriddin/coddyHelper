@@ -1152,6 +1152,17 @@ class MongoMemoryService:
             logger.error("MongoDB revoke_user_subscription xatolik: %s", e)
             return False
 
+    def delete_user_subscription(self, user_id: int) -> bool:
+        """Foydalanuvchi obunasini MongoDB dan butunlay o'chiradi."""
+        if not self.is_connected() or not user_id:
+            return False
+        try:
+            self._db["system_core.user_subscriptions"].delete_one({"user_id": user_id})
+            return True
+        except Exception as e:
+            logger.error("MongoDB delete_user_subscription xatolik: %s", e)
+            return False
+
     def get_user_subscription(self, user_id: int) -> dict | None:
         """Foydalanuvchi obunasini MongoDB dan oladi."""
         if not self.is_connected() or not user_id:

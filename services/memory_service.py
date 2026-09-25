@@ -3572,7 +3572,18 @@ class SQLiteMemoryService:
         from datetime import timedelta
         tashkent_tz = ZoneInfo("Asia/Tashkent")
         now = datetime.now(tashkent_tz)
-        expires_at = (now + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        start_dt = now
+        existing = self.get_subscription(user_id)
+        if existing and existing.get("expires_at") and not existing.get("is_expired"):
+            try:
+                cur_exp = datetime.fromisoformat(existing["expires_at"].replace("Z", "+00:00"))
+                if cur_exp.tzinfo is None:
+                    cur_exp = cur_exp.replace(tzinfo=tashkent_tz)
+                if cur_exp > now:
+                    start_dt = cur_exp
+            except Exception:
+                pass
+        expires_at = (start_dt + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
         try:
             with self._get_connection() as conn:
@@ -3661,6 +3672,19 @@ class SQLiteMemoryService:
             return True
         except Exception as e:
             logger.error("Obunani bekor qilishda xatolik: %s", e)
+            return False
+
+    def delete_subscription(self, user_id: int) -> bool:
+        """Foydalanuvchi obunasini butunlay o'chiradi."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM user_subscriptions WHERE user_id = ?", (user_id,))
+                conn.commit()
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.delete_user_subscription(user_id)
+            return True
+        except Exception as e:
+            logger.error("Obunani o'chirishda xatolik: %s", e)
             return False
 
     def get_all_subscriptions(self) -> list[dict]:
