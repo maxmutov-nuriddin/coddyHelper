@@ -2190,6 +2190,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             PENDING_TASKS[debounce_key].cancel()
 
         async def process_delayed_reply():
+            nonlocal input_text
             try:
                 is_admin_chat = is_escalation_chat(chat_id)
 
