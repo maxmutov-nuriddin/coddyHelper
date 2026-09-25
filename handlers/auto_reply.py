@@ -2356,8 +2356,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     except Exception as hist_err:
                         logger.debug("Telegram chat tarixini o'qishda ogohlantirish: %s", hist_err)
 
-                # Agar ovozli xabar bo'lsa, Whisper orqali matnga o'girish
-                if has_voice_eff:
+                # Agar ovozli xabar bo'lsa, Whisper/Gemini orqali matnga o'girish
+                if has_voice_eff and "[Ovozli xabar" not in (input_text or ""):
                     try:
                         audio_bytes = await active_media_event.message.download_media(bytes)
                         if audio_bytes:

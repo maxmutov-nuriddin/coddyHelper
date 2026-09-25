@@ -2505,7 +2505,7 @@ class AIService:
         )
         gemini_candidates = [
             config.gemini_model,
-            "gemini-3-flash-preview",
+            "gemini-3.8-flash",
             "gemini-flash-latest",
             "gemini-3.1-flash-lite",
             "gemini-flash-lite-latest",
@@ -3345,9 +3345,24 @@ class AIService:
             "tamam mı", "ben ", " benim", " dersler", "derse "
         )
 
-        whisper_models = ["whisper-large-v3-turbo", "whisper-large-v3"]
+        whisper_models = ["whisper-large-v3", "whisper-large-v3-turbo"]
+        alien_accents = ("ó", "é", "á", "í", "ú", "ñ", "ç", "ã", "õ", "å", "ø", "ä", "ö", "ü")
 
-        # 1-bosqich: Groq Whisper Large-v3 (Frontline Klasteri - 12 ta kalit, 0.2s chaqmoqdek tez va mustaqil)
+        def _is_suspicious_audio_text(t: str, lang: str) -> bool:
+            if not t or len(t.strip()) < 3:
+                return True
+            low = t.lower()
+            if any(h in low for h in hallucinations) and len(t) < 45:
+                return True
+            if any(tm in low for tm in turkish_markers):
+                return True
+            if any(c in low for c in alien_accents):
+                return True
+            if lang in ("tr", "turkish", "az", "azerbaijani", "tk", "turkmen", "kk", "kazakh", "ky", "kyrgyz", "is", "la", "ku", "sw"):
+                return True
+            return False
+
+        # 1-bosqich: Groq Whisper Large-v3 (Frontline Klasteri - O'zbek tili majburiy rejimida)
         pool = self._frontline_clients if self._frontline_clients else self._groq_clients
         if pool:
             for _ in range(min(5, len(pool))):
@@ -3355,54 +3370,43 @@ class AIService:
                 self._frontline_idx = (self._frontline_idx + 1) % len(pool)
                 for w_model in whisper_models:
                     try:
+                        # 1.1. Avval o'zbek tilini majburiy ko'rsatib o'qish (eng yuqori aniqlik)
                         transcription = await client.audio.transcriptions.create(
+                            file=("voice.ogg", audio_bytes),
+                            model=w_model,
+                            language="uz",
+                            prompt="Assalomu alaykum ustoz, dars, uyga vazifa, topshiriq, kod, dasturlash, savol, mazam yo'q, kechikaman.",
+                            temperature=0.0,
+                        )
+                        text = str(getattr(transcription, "text", transcription)).strip()
+                        det_lang = "uz"
+
+                        # 1.2. Agar matnda fonetik xatolar yoki g'alati belgilar bo'lmasa:
+                        if text and not _is_suspicious_audio_text(text, det_lang):
+                            logger.info("✅ Groq Whisper (%s) O'zbek nutqini to'liq o'qidi: %s", w_model, text[:80])
+                            return text
+
+                        # 1.3. Agar shubhali bo'lsa (ehtimol ruscha gapirgan bo'lishi mumkin), avto-aniqlash bilan sinash:
+                        trans_auto = await client.audio.transcriptions.create(
                             file=("voice.ogg", audio_bytes),
                             model=w_model,
                             response_format="verbose_json",
                             prompt=multilingual_prompt,
                             temperature=0.0,
                         )
-                        det_lang = str(getattr(transcription, "language", "") or "").lower()
-                        text = str(getattr(transcription, "text", transcription)).strip()
+                        auto_lang = str(getattr(trans_auto, "language", "") or "").lower()
+                        auto_text = str(getattr(trans_auto, "text", trans_auto)).strip()
 
-                        if any(h in text.lower() for h in hallucinations) and len(text) < 45:
-                            text = ""
-
-                        # Agar Whisper o'zbekchani turkcha deb yanglishsa, majburiy language='uz' bilan qayta o'qish:
-                        is_turkish = (
-                            det_lang in ("tr", "turkish", "az", "azerbaijani", "tk", "turkmen", "kk", "kazakh", "ky", "kyrgyz")
-                            or any(tm in text.lower() for tm in turkish_markers)
-                        )
-                        if is_turkish and audio_bytes:
-                            logger.warning("⚠️ Whisper o'zbekcha nutqni turkcha deb o'yladi (det_lang=%s), majburiy language='uz' bilan qayta o'qilmoqda...", det_lang)
-                            uz_prompt = (
-                                "Assalomu alaykum ustoz, CoddyCamp dasturlash maktabi. Bugun darsga kela olmayman, kechikaman, kasalman, mazam yo'q, uyga vazifa, topshiriq, kod, o'quvchi."
-                            )
-                            try:
-                                trans_uz = await client.audio.transcriptions.create(
-                                    file=("voice.ogg", audio_bytes),
-                                    model=w_model,
-                                    language="uz",
-                                    prompt=uz_prompt,
-                                    temperature=0.0,
-                                )
-                                uz_text = str(getattr(trans_uz, "text", trans_uz)).strip()
-                                if uz_text and len(uz_text) > 3:
-                                    text = uz_text
-                                    det_lang = "uz"
-                                    logger.info("✅ language='uz' bilan muvaffaqiyatli transkripsiya qilindi: %s", text[:80])
-                            except Exception as uz_err:
-                                logger.warning("language='uz' bilan transkripsiyada ogohlantirish: %s", uz_err)
-
-                        if text:
-                            polished = await self._polish_voice_transcription(text, detected_lang=det_lang)
-                            logger.info("✅ Groq Whisper (%s) ovozli xabarni 0.2s da matnga aylantirdi: %s", w_model, polished[:80])
+                        if auto_text and not _is_suspicious_audio_text(auto_text, auto_lang):
+                            polished = await self._polish_voice_transcription(auto_text, detected_lang=auto_lang)
+                            logger.info("✅ Groq Whisper (%s, %s) audio o'qildi: %s", w_model, auto_lang, polished[:80])
                             return polished
+
                     except Exception as e:
                         logger.debug("Groq Whisper (%s) xatolik: %s", w_model, e)
                         continue
 
-        # 2-bosqich: Groq Zaxira Qalqoni orqali urinish (12 ta kalit)
+        # 2-bosqich: Groq Zaxira Qalqoni orqali urinish
         if self._reserve_clients:
             for _ in range(min(3, len(self._reserve_clients))):
                 client = self._reserve_clients[self._reserve_idx % len(self._reserve_clients)]
@@ -3412,49 +3416,23 @@ class AIService:
                         transcription = await client.audio.transcriptions.create(
                             file=("voice.ogg", audio_bytes),
                             model=w_model,
-                            response_format="verbose_json",
-                            prompt=multilingual_prompt,
+                            language="uz",
+                            prompt="Assalomu alaykum ustoz, dars, topshiriq, vazifa, savol, kod.",
                             temperature=0.0,
                         )
-                        det_lang = str(getattr(transcription, "language", "") or "").lower()
                         text = str(getattr(transcription, "text", transcription)).strip()
-
-                        if any(h in text.lower() for h in hallucinations) and len(text) < 45:
-                            text = ""
-
-                        is_turkish = (
-                            det_lang in ("tr", "turkish", "az", "azerbaijani", "tk", "turkmen")
-                            or any(tm in text.lower() for tm in turkish_markers)
-                        )
-                        if is_turkish and audio_bytes:
-                            try:
-                                trans_uz = await client.audio.transcriptions.create(
-                                    file=("voice.ogg", audio_bytes),
-                                    model=w_model,
-                                    language="uz",
-                                    prompt="Assalomu alaykum ustoz, CoddyCamp dasturlash. Darsga kela olmayman, kasalman, vazifa, topshiriq.",
-                                    temperature=0.0,
-                                )
-                                uz_text = str(getattr(trans_uz, "text", trans_uz)).strip()
-                                if uz_text:
-                                    text = uz_text
-                                    det_lang = "uz"
-                            except Exception:
-                                pass
-
-                        if text:
-                            polished = await self._polish_voice_transcription(text, detected_lang=det_lang)
-                            logger.info("🛡️ Groq Whisper (Zaxira Qalqoni) ovozli xabarni matnga aylantirdi: %s", polished[:80])
-                            return polished
+                        if text and not _is_suspicious_audio_text(text, "uz"):
+                            logger.info("🛡️ Groq Whisper Zaxira orqali o'qildi: %s", text[:80])
+                            return text
                     except Exception as e:
                         logger.debug("Groq Whisper Zaxira xatolik: %s", e)
                         continue
 
-        # 3-bosqich: Favqulodda Zaxira (Faqat barcha 24 ta Groq kalitlari to'lgan taqdirda Google Gemini)
+        # 3-bosqich: Google Gemini (Native Multimodal Audio - Har qanday lahja va tildagi nutqni 100% tiniq o'qiydi)
         if self._gemini_client:
             gem_candidates = [
-                getattr(config, "gemini_model", "gemini-3-flash-preview") or "gemini-3-flash-preview",
-                "gemini-3-flash-preview",
+                getattr(config, "gemini_model", "gemini-3.8-flash") or "gemini-3.8-flash",
+                "gemini-3.8-flash",
                 "gemini-flash-latest",
             ]
             seen_models = set()
@@ -3463,7 +3441,7 @@ class AIService:
                     continue
                 seen_models.add(gem_model)
                 try:
-                    logger.info("⚡ Favqulodda zaxira: Google Gemini (%s) orqali transkripsiya...", gem_model)
+                    logger.info("⚡ Google Gemini Multimodal Audio (%s) orqali ovoz tinglanmoqda...", gem_model)
                     from google.genai import types
                     loop = asyncio.get_running_loop()
 
@@ -3473,25 +3451,27 @@ class AIService:
                             contents=[
                                 types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg"),
                                 (
-                                    "Siz O'zbekiston, Toshkentdagi CoddyCamp dasturlash akademiyasi uchun professional audio transkripsiyachisiz.\n"
-                                    "Ushbu ovozli xabarni (audio) juda diqqat bilan eshiting.\n\n"
-                                    "QAT'IY QOIDALAR:\n"
-                                    "1. Ushbu audio O'ZBEKCHA (o'zbek tili, Toshkent og'zaki nutqi), RUSCHA yoki INGLIZCHA nutqdir.\n"
-                                    "2. So'zlashuvchi aytgan har bir so'zni 100% tiniq, to'liq va aniq qilib so'zma-so'z matnga o'giring.\n"
-                                    "3. Hech qanday qo'shimcha so'z, kirish yoki izoh yozmang. Faqat haqiqiy nutq matnini qaytaring."
+                                    "Siz professional audio-tinglovchi va transkripsiyachisiz.\n"
+                                    "Ushbu ovozli xabarni diqqat bilan eshiting va inson aytgan nutqni so'zma-so'z to'liq yozib bering.\n\n"
+                                    "TALABLAR:\n"
+                                    "1. Audio O'ZBEKCHA (og'zaki jonli nutq), RUSCHA yoki INGLIZCHA bo'lishi mumkin.\n"
+                                    "2. So'zlovchi aytgan gaplarni hech qanday o'zgartirishsiz, to'g'ri orfografiya bilan yozing.\n"
+                                    "3. Faqat nutq matnining o'zini qaytaring (hech qanday kirish yoki izohsiz)."
                                 )
                             ],
                         )
                         return resp.text.strip() if resp and resp.text else ""
 
-                    gemini_text = await asyncio.wait_for(loop.run_in_executor(None, _gemini_transcribe), timeout=8.0)
+                    gemini_text = await asyncio.wait_for(loop.run_in_executor(None, _gemini_transcribe), timeout=10.0)
                     if gemini_text:
-                        logger.info("✅ Google Gemini Favqulodda Zaxira orqali audio o'qildi: %s", gemini_text[:80])
-                        return await self._polish_voice_transcription(gemini_text)
+                        logger.info("✅ Google Gemini audio xabarni muvaffaqiyatli matnga aylantirdi: %s", gemini_text[:80])
+                        return gemini_text
                     break
                 except Exception as gem_err:
-                    logger.warning("Google Gemini transkripsiyasida ogohlantirish: %s", gem_err)
-                    break
+                    logger.warning("Google Gemini audio tinglashda ogohlantirish (%s): %s", gem_model, gem_err)
+                    continue
+
+        return ""
 
         return ""
 
