@@ -513,6 +513,22 @@ class ProfileIntelligenceService:
             except Exception:
                 pass
 
+            # Agar shaxsiy yozishma bo'lmasa, guruhlardagi yozishmalar bazasidan qidirish
+            if not recent_user_messages:
+                try:
+                    with memory_service._get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute(
+                            "SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 10",
+                            (user_id,)
+                        )
+                        for r_role, r_content in cur.fetchall():
+                            if r_content:
+                                r_side = "U" if r_role == "user" else "Biz"
+                                recent_user_messages.append(f"{r_side}: {r_content[:220].replace(chr(10), ' ')}")
+                except Exception:
+                    pass
+
             # 6. Yosh va shaxsiyatga doir avto-ishoralar (Username, ism va yozishmalardagi yillar/raqamlar)
             age_clues = []
             check_text = f"{username} {full_name} {bio}".lower()
