@@ -2206,12 +2206,15 @@
               Barcha Chatlardagi Shaxsiy Dosyeler Bazasi
             </div>
           </div>
-          <div style="display: flex; gap: 6px; align-items: center;">
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
             <button class="btn btn-secondary" onclick="loadUserDossiers()" style="padding: 6px 12px; font-size: 11.5px; font-weight: 700;">
               🔄 Yangilash
             </button>
             <button class="btn btn-primary" onclick="triggerHistoricDialogScan()" style="padding: 6px 12px; font-size: 11.5px; font-weight: 700; background: rgba(168,85,247,0.8);">
               🔍 Skanerlash
+            </button>
+            <button class="btn btn-secondary" onclick="recheckAllDossiersNow()" style="padding: 6px 12px; font-size: 11.5px; font-weight: 700; background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.45); color: #fbbf24;" title="Barcha mavjud dosyelarni yangidan tahlil qilib chiqish">
+              🔁 Barchani qayta tekshirish
             </button>
           </div>
         </div>
@@ -2250,6 +2253,28 @@
             <div style="font-size: 10px; color: var(--hint-color);">⭐ Stories & Kanal:</div>
             <div id="dossiers-channels-stat" style="font-size: 16px; font-weight: 800; color: #c084fc; margin: 2px 0;">0 ta</div>
             <div style="font-size: 9px; color: var(--hint-color);">Aktiv profillar</div>
+          </div>
+        </div>
+
+        <!-- AVTO-TAKRORAN TEKSHIRUV & QAYTA TAHLIL SOZLAMASI -->
+        <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 18px;">⏱️</span>
+            <div>
+              <div style="font-size: 12px; font-weight: 700; color: #f8fafc;">
+                Avto-takroran tekshiruv (Har 3 kunda)
+              </div>
+              <div style="font-size: 10px; color: var(--hint-color);">
+                Eski dosyelarni yangi xabarlar va o'zgargan bio/kanallar bilan avtomatik yangilash
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <label class="switch" style="margin: 0;">
+              <input type="checkbox" id="toggle-profiler-auto-recheck" onchange="toggleProfilerAutoRecheck(this.checked)" checked>
+              <span class="slider round"></span>
+            </label>
+            <span id="profiler-recheck-status-badge" class="badge" style="font-size: 10px; padding: 3px 8px; background: rgba(34,197,94,0.18); color: #4ade80; border: 1px solid rgba(34,197,94,0.3);">Faol (Har 3 kunda)</span>
           </div>
         </div>
       </div>
@@ -3776,6 +3801,22 @@
             }
           }
 
+          // 5. Avto-takroran tekshiruv sozlamasi
+          if (res.profiler) {
+            const recheckToggle = document.getElementById('toggle-profiler-auto-recheck');
+            const recheckBadge = document.getElementById('profiler-recheck-status-badge');
+            if (recheckToggle && typeof res.profiler.auto_recheck_enabled !== 'undefined') {
+              recheckToggle.checked = Boolean(res.profiler.auto_recheck_enabled);
+            }
+            if (recheckBadge && typeof res.profiler.auto_recheck_enabled !== 'undefined') {
+              const isEn = Boolean(res.profiler.auto_recheck_enabled);
+              recheckBadge.innerText = isEn ? 'Faol (Har 3 kunda)' : "O'chirilgan";
+              recheckBadge.style.color = isEn ? '#4ade80' : '#f87171';
+              recheckBadge.style.background = isEn ? 'rgba(34,197,94,0.18)' : 'rgba(239,68,68,0.18)';
+              recheckBadge.style.borderColor = isEn ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)';
+            }
+          }
+
           renderDossiersList();
         }
       } catch (e) {
@@ -3804,6 +3845,71 @@
         }
       });
       renderDossiersList();
+    }
+
+    async function toggleProfilerAutoRecheck(enabled) {
+      haptic();
+      const badge = document.getElementById('profiler-recheck-status-badge');
+      if (badge) {
+        badge.innerText = enabled ? 'Faol (Har 3 kunda)' : "O'chirilgan";
+        badge.style.color = enabled ? '#4ade80' : '#f87171';
+        badge.style.background = enabled ? 'rgba(34,197,94,0.18)' : 'rgba(239,68,68,0.18)';
+        badge.style.borderColor = enabled ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)';
+      }
+      try {
+        const res = await apiRequest('/api/autonomous-brain/settings', 'POST', {
+          auto_recheck_enabled: enabled,
+          auto_recheck_days: 3,
+        });
+        if (res && res.ok) {
+          showToast(enabled ? "✅ Avto-takroran tekshiruv (3 kun) yoqildi!" : "⏸️ Avto-takroran tekshiruv to'xtatildi.");
+        } else {
+          showToast("Xatolik yuz berdi", true);
+        }
+      } catch (e) {
+        showToast("Sozlamani saqlashda xatolik: " + e.message, true);
+      }
+    }
+
+    async function recheckSingleUser(userId, name) {
+      haptic();
+      showToast(`🔄 ${name || 'Foydalanuvchi'} qayta tekshiruv navbatiga qo'shilmoqda...`);
+      try {
+        const res = await apiRequest('/api/autonomous-brain/recheck-user', 'POST', { user_id: userId });
+        if (res && res.ok) {
+          showToast(`✅ ${name || 'Foydalanuvchi'} yangidan tekshirish navbatiga qo'shildi!`);
+          const qStat = document.getElementById('dossiers-queue-stat');
+          if (qStat && typeof res.queue_length !== 'undefined') {
+            qStat.innerText = `${res.queue_length} ta`;
+          }
+        } else {
+          showToast((res && res.message) || "Navbatga qo'shib bo'lmadi", true);
+        }
+      } catch (e) {
+        showToast("Xatolik: " + e.message, true);
+      }
+    }
+
+    async function recheckAllDossiersNow() {
+      haptic();
+      if (!confirm("Barcha mavjud shaxsiy dosyelarni navbatga olib, yangidan tahlil qilib chiqilsinmi?")) {
+        return;
+      }
+      showToast("🔁 Barchani qayta tekshirish boshlanmoqda...");
+      try {
+        const res = await apiRequest('/api/autonomous-brain/recheck-all', 'POST', {});
+        if (res && res.ok) {
+          showToast(`✅ ${res.count} ta dosye yangidan tekshirish navbatiga qo'shildi!`);
+          const qStat = document.getElementById('dossiers-queue-stat');
+          if (qStat && typeof res.queue_length !== 'undefined') {
+            qStat.innerText = `${res.queue_length} ta`;
+          }
+        } else {
+          showToast((res && res.message) || "Xatolik yuz berdi", true);
+        }
+      } catch (e) {
+        showToast("Xatolik: " + e.message, true);
+      }
     }
 
     let currentGalleryPhotos = [];
@@ -3988,8 +4094,11 @@
 
             <!-- Action buttons -->
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-              <button class="btn btn-secondary" onclick="event.stopPropagation(); openDossierModal(${d.user_id})" style="flex: 1; padding: 8px 12px; font-size: 12px; font-weight: 700; background: linear-gradient(135deg, rgba(168,85,247,0.2), rgba(59,130,246,0.15)); border: 1px solid rgba(168,85,247,0.4); color: #f3e8ff; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+              <button class="btn btn-secondary" onclick="event.stopPropagation(); openDossierModal(${d.user_id})" style="flex: 1; min-width: 110px; padding: 8px 12px; font-size: 12px; font-weight: 700; background: linear-gradient(135deg, rgba(168,85,247,0.2), rgba(59,130,246,0.15)); border: 1px solid rgba(168,85,247,0.4); color: #f3e8ff; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
                 👁️ To'liq Dosye
+              </button>
+              <button type="button" onclick="event.stopPropagation(); recheckSingleUser(${d.user_id}, '${safeName}')" class="btn btn-secondary" style="width: auto; padding: 8px 12px; font-size: 12px; font-weight: 600; background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.4); color: #fcd34d; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px;" title="Ushbu profilni qayta skanerlab, ma'lumotlarni yangilash">
+                🔄 Yangidan tekshirish
               </button>
               ${cleanUname ? `
                 <a href="https://t.me/${escapeHtml(cleanUname)}" target="_blank" onclick="event.stopPropagation();" class="btn btn-secondary" style="width: auto; padding: 8px 12px; font-size: 12px; font-weight: 600; background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.4); color: #38bdf8; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
@@ -4082,8 +4191,11 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
 
         <!-- Direct Actions row -->
         <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+          <button class="btn btn-secondary" onclick="recheckSingleUser(${d.user_id}, '${safeName}'); closeDossierModal();" style="flex: 1; min-width: 140px; padding: 8px 12px; font-size: 12px; font-weight: 700; background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.5); color: #fbbf24; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+            🔄 Profilni Yangidan Tekshirish
+          </button>
           ${cleanUname ? `
-            <a href="https://t.me/${escapeHtml(cleanUname)}" target="_blank" class="btn btn-primary" style="flex: 1; text-decoration: none; padding: 8px 12px; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+            <a href="https://t.me/${escapeHtml(cleanUname)}" target="_blank" class="btn btn-primary" style="flex: 1; min-width: 140px; text-decoration: none; padding: 8px 12px; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
               ✈️ Telegramda Chat Ochish
             </a>
           ` : ''}

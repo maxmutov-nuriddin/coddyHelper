@@ -292,8 +292,12 @@ class AutonomousBrainService:
             elif focus == "profiler":
                 from services.profile_intelligence_service import profile_intelligence_service
                 if profile_intelligence_service.queue_length == 0:
-                    scanned = await self.trigger_dialog_scan(limit=100)
-                    self._log_activity(f"🕵️‍♂️ Skanerlash fokusi: {scanned} ta yangi foydalanuvchi navbatga olindi.", "profiler")
+                    stale = profile_intelligence_service.check_stale_dossiers_for_recheck()
+                    if stale > 0:
+                        self._log_activity(f"🕵️‍♂️ Profil Razvedkasi: {stale} ta eski dosye qayta tekshiruv navbatiga olindi.", "profiler")
+                    else:
+                        scanned = await self.trigger_dialog_scan(limit=100)
+                        self._log_activity(f"🕵️‍♂️ Skanerlash fokusi: {scanned} ta yangi foydalanuvchi navbatga olindi.", "profiler")
                 else:
                     self._log_activity(f"🕵️‍♂️ Skanerlash fokusi: Navbatdagi {profile_intelligence_service.queue_length} ta foydalanuvchi tahlil qilinmoqda...", "profiler")
             else:
@@ -388,8 +392,12 @@ class AutonomousBrainService:
                     # 100% Faqat Skanerlash va Profil Razvedkasi
                     from services.profile_intelligence_service import profile_intelligence_service
                     if profile_intelligence_service.queue_length == 0:
-                        scanned = await self.trigger_dialog_scan(limit=100)
-                        self._log_activity(f"🕵️‍♂️ Avtonom Skaner: {scanned} ta yangi foydalanuvchi navbatga olindi.", "profiler")
+                        stale = profile_intelligence_service.check_stale_dossiers_for_recheck()
+                        if stale > 0:
+                            self._log_activity(f"🕵️‍♂️ Avtonom Skaner: {stale} ta eski dosye qayta tekshiruv navbatiga olindi.", "profiler")
+                        else:
+                            scanned = await self.trigger_dialog_scan(limit=100)
+                            self._log_activity(f"🕵️‍♂️ Avtonom Skaner: {scanned} ta yangi foydalanuvchi navbatga olindi.", "profiler")
                     else:
                         self._log_activity(f"🕵️‍♂️ Avtonom Skaner: Navbatda {profile_intelligence_service.queue_length} ta odam tahlil qilinmoqda...", "profiler")
                 else:

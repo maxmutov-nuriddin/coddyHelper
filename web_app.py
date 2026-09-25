@@ -1507,6 +1507,14 @@ self.addEventListener('fetch', (event) => {
             if "profiler_dest" in data:
                 from services.profile_intelligence_service import profile_intelligence_service
                 profile_intelligence_service.set_destination(str(data["profiler_dest"]).strip())
+            if "profiler_auto_recheck_enabled" in data or "auto_recheck_enabled" in data:
+                from services.profile_intelligence_service import profile_intelligence_service
+                val = bool(data.get("profiler_auto_recheck_enabled", data.get("auto_recheck_enabled", True)))
+                profile_intelligence_service.set_auto_recheck_enabled(val)
+            if "profiler_auto_recheck_days" in data or "auto_recheck_days" in data:
+                from services.profile_intelligence_service import profile_intelligence_service
+                val = int(data.get("profiler_auto_recheck_days", data.get("auto_recheck_days", 3)))
+                profile_intelligence_service.set_auto_recheck_days(val)
             return web.json_response({
                 "ok": True,
                 "status": autonomous_brain_service.get_status(),
@@ -1559,6 +1567,51 @@ self.addEventListener('fetch', (event) => {
             })
         except Exception as e:
             logger.error("handle_api_get_user_dossiers xatolik: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_recheck_user_dossier(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            data = await request.json()
+            user_id = int(data.get("user_id", 0))
+            if not user_id:
+                return web.json_response({"ok": False, "error": "user_id talab qilinadi"}, status=400)
+            from services.profile_intelligence_service import profile_intelligence_service
+            client = get_client_func() if callable(get_client_func) else None
+            if client and not profile_intelligence_service._is_running:
+                profile_intelligence_service.start(client)
+            ok = profile_intelligence_service.recheck_user(user_id)
+            return web.json_response({
+                "ok": ok,
+                "message": "Foydalanuvchi qayta tekshiruv navbatiga qo'shildi!" if ok else "Navbatga qo'shilmadi (ehtimol allaqachon navbatda)",
+                "queue_length": profile_intelligence_service.queue_length,
+                "profiler": profile_intelligence_service.get_status(),
+            })
+        except Exception as e:
+            logger.error("handle_api_recheck_user_dossier xatolik: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_recheck_all_dossiers(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        try:
+            from services.profile_intelligence_service import profile_intelligence_service
+            client = get_client_func() if callable(get_client_func) else None
+            if client and not profile_intelligence_service._is_running:
+                profile_intelligence_service.start(client)
+            added = profile_intelligence_service.recheck_all_users()
+            return web.json_response({
+                "ok": True,
+                "count": added,
+                "message": f"Barcha {added} ta dosye yangidan tekshirish va ma'lumotlarni yangilash navbatiga olindi!",
+                "queue_length": profile_intelligence_service.queue_length,
+                "profiler": profile_intelligence_service.get_status(),
+            })
+        except Exception as e:
+            logger.error("handle_api_recheck_all_dossiers xatolik: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     _AVATAR_CACHE: dict[str, bytes] = {}
 
     def _generate_svg_avatar(name: str) -> bytes:
@@ -1936,6 +1989,8 @@ self.addEventListener('fetch', (event) => {
     app.router.add_post("/api/autonomous-brain/settings", handle_api_autonomous_brain_settings)
     app.router.add_post("/api/autonomous-brain/scan-dialogs", handle_api_autonomous_brain_scan_dialogs)
     app.router.add_get("/api/autonomous-brain/dossiers", handle_api_get_user_dossiers)
+    app.router.add_post("/api/autonomous-brain/recheck-user", handle_api_recheck_user_dossier)
+    app.router.add_post("/api/autonomous-brain/recheck-all", handle_api_recheck_all_dossiers)
     app.router.add_get("/api/user-photo/{user_id}/{index}", handle_api_user_photo)
     app.router.add_get("/api/user-avatar/{user_id}", handle_api_user_photo)
     app.router.add_get("/api/user-photos-info/{user_id}", handle_api_user_photos_info)

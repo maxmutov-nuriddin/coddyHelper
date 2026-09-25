@@ -26,12 +26,14 @@ class ProfileIntelligenceService:
         self._client = None
         self._queue: asyncio.Queue[int] = asyncio.Queue()
         self._enqueued_ids: set[int] = set()
+        self._force_recheck_ids: set[int] = set()
         self._is_running = False
         self._is_crawling = False
         self._worker_task: asyncio.Task | None = None
         self._current_user: str | None = None
         self._total_analyzed_session: int = 0
         self._chat_stats: dict[str, int] = {}
+        self._last_stale_check_time: float = 0.0
 
     def is_vazifalar_group(self, chat_id: Any, title: str = "") -> bool:
         """
@@ -198,10 +200,11 @@ class ProfileIntelligenceService:
     def queue_length(self) -> int:
         return self._queue.qsize()
 
-    def enqueue_user(self, user_id: int) -> bool:
+    def enqueue_user(self, user_id: int, force: bool = False) -> bool:
         """
-        Yangi foydalanuvchini navbatga qo'shadi (1 marta qoidasi).
-        Agar oldin tahlil qilingan bo'lsa yoki navbatda bo'lsa, qo'shilmaydi.
+        Foydalanuvchini navbatga qo'shadi.
+        Agar force=True bo'lsa, mavjud dosye bo'lishiga qaramay yangidan tekshirish uchun navbatga qo'shiladi.
+        Aks holda, oldin tahlil qilingan bo'lsa yoki hozir navbatda bo'lsa, o'tkazib yuboriladi.
         """
         if not self.is_enabled() or not user_id or user_id <= 0:
             return False
@@ -210,18 +213,73 @@ class ProfileIntelligenceService:
         if user_id in (config.mentor_user_id, 8105823872):
             return False
 
-        # 1. Oldin tahlil qilinganmi? (Deduplication)
-        if memory_service.is_user_dossier_exists(user_id):
+        # 1. Oldin tahlil qilinganmi? (force bo'lmasa tekshiriladi)
+        if not force and memory_service.is_user_dossier_exists(user_id):
             return False
 
         # 2. Hozir navbatdami?
         if user_id in self._enqueued_ids:
             return False
 
+        if force:
+            self._force_recheck_ids.add(user_id)
+
         self._enqueued_ids.add(user_id)
         self._queue.put_nowait(user_id)
-        logger.debug("📥 Profiler navbatiga qo'shildi: user_id=%s (Navbat hajmi: %d)", user_id, self._queue.qsize())
+        logger.debug("📥 Profiler navbatiga qo'shildi: user_id=%s (Force: %s, Navbat hajmi: %d)", user_id, force, self._queue.qsize())
         return True
+
+    def is_auto_recheck_enabled(self) -> bool:
+        """Har 3 kunda avto-takroran tekshiruv yoqilganligini tekshiradi."""
+        return memory_service.get_setting("profiler_auto_recheck_enabled", "true").lower() == "true"
+
+    def set_auto_recheck_enabled(self, enabled: bool) -> None:
+        """Har 3 kunda avto-takroran tekshiruvni yoqish / o'chirish."""
+        memory_service.set_setting("profiler_auto_recheck_enabled", "true" if enabled else "false")
+
+    def get_auto_recheck_days(self) -> int:
+        """Avto-takroran tekshiruv davri (standart: 3 kun)."""
+        val = memory_service.get_setting("profiler_auto_recheck_days", "3")
+        try:
+            return max(1, min(30, int(val)))
+        except ValueError:
+            return 3
+
+    def set_auto_recheck_days(self, days: int) -> None:
+        """Avto-takroran tekshiruv kunini belgilash."""
+        d = max(1, min(30, int(days)))
+        memory_service.set_setting("profiler_auto_recheck_days", str(d))
+
+    def recheck_user(self, user_id: int) -> bool:
+        """Bitta foydalanuvchini majburiy yangidan tekshirish navbatiga qo'yadi."""
+        return self.enqueue_user(user_id, force=True)
+
+    def recheck_all_users(self, max_limit: int = 1000) -> int:
+        """Barcha mavjud dosyelarni navbatga terib, yangidan tekshirishni boshlaydi."""
+        user_ids = memory_service.get_all_dossier_user_ids(limit=max_limit)
+        added = 0
+        for uid in user_ids:
+            if self.enqueue_user(uid, force=True):
+                added += 1
+        logger.info("🔁 Barcha dosyelar (%d ta) yangidan tekshiruv navbatiga olindi.", added)
+        return added
+
+    def check_stale_dossiers_for_recheck(self, days: int = 3, limit: int = 100) -> int:
+        """
+        Agar avto-takroran tekshiruv yoqilgan bo'lsa, oxirgi tahlili 3 kundan oshgan
+        foydalanuvchilarni topib, avtomatik yangilanish navbatiga qo'shadi.
+        """
+        if not self.is_auto_recheck_enabled():
+            return 0
+        days_cfg = self.get_auto_recheck_days()
+        stale_ids = memory_service.get_stale_user_dossier_ids(days=days_cfg, limit=limit)
+        added = 0
+        for uid in stale_ids:
+            if self.enqueue_user(uid, force=True):
+                added += 1
+        if added > 0:
+            logger.info("⏳ Avto-takroran tekshiruv: %d ta eski dosye (>=%d kun) yangilanish navbatiga qo'shildi.", added, days_cfg)
+        return added
 
     async def scan_historic_dialogs(self, client=None, limit: int = 500) -> dict[str, Any]:
         """
@@ -477,11 +535,21 @@ class ProfileIntelligenceService:
             logger.warning("Foydalanuvchi profilini o'qishda xatolik (%s): %s", user_id, e)
             return None
 
-    async def _synthesize_dossier_with_ai(self, profile: dict[str, Any]) -> str:
+    async def _synthesize_dossier_with_ai(self, profile: dict[str, Any], existing_dossier: dict[str, Any] | None = None) -> str:
         """Miya 5 orqali foydalanuvchining to'liq kognitiv dosyesini sintez qiladi."""
         from services.ai_service import ai_service
 
         video_avatar_str = "Ha (Video profil)" if profile.get("has_video_avatar") else "Yo'q"
+        existing_info = ""
+        if existing_dossier and existing_dossier.get("dossier_text"):
+            existing_info = (
+                f"\n\n--- AVVALGI TAHLIL TARIXI ---\n"
+                f"{existing_dossier['dossier_text'][:350]}\n"
+                f"--- TAHLIL YANGILANISHI TALABI ---\n"
+                f"Ushbu shaxs qayta tekshirilmoqda. Agar uning ismi, bio, kanali yoki yozishmalarida yangiliklar bo'lsa, "
+                f"avvalgi xulosani yangilang, to'g'rilang va boyiting.\n"
+            )
+
         prompt = (
             f"Telegram foydalanuvchisining ochiq profil ma'lumotlari:\n"
             f"• Ismi: {profile.get('full_name')}\n"
@@ -491,7 +559,8 @@ class ProfileIntelligenceService:
             f"• Stories: {'Mavjud' if profile.get('has_stories') else 'Yoq'}\n"
             f"• Bog'langan kanali: {profile.get('channel_username') or 'Yoq'}\n"
             f"• Kanal ma'lumotlari (obunachilar, postlar, ovozli/video xabarlar): {profile.get('channel_summary') or 'Yoq'}\n"
-            f"• So'nggi yozishmalar konteksti: {profile.get('recent_chat_context') or 'Yozishmalar mavjud emas'}\n\n"
+            f"• So'nggi yozishmalar konteksti: {profile.get('recent_chat_context') or 'Yozishmalar mavjud emas'}\n"
+            f"{existing_info}\n"
             "DIQQAT QOIDASI: Ushbu shaxsni darhol dasturchi yoki o'quvchi deb O'YLAMANG! "
             "Uning bio, yozishmalari, bog'langan kanali va profilidan kelib chiqib, haqiqiy kimligini aniqlang. "
             "U tadbirkor, mebelchi, o'qituvchi, savdogar, shifokor, mijoz, talaba yoki boshqa kasb egasi bo'lishi mumkin.\n\n"
@@ -532,7 +601,7 @@ class ProfileIntelligenceService:
             f"Tavsiya: Standart muloyimlik va uning sohasiga mos aniq yondashuv bilan muloqot qiling."
         )
 
-    def _format_full_dossier_card(self, profile: dict[str, Any], ai_summary: str) -> str:
+    def _format_full_dossier_card(self, profile: dict[str, Any], ai_summary: str, is_recheck: bool = False) -> str:
         """Mentor va Vazifalar guruhi uchun to'liq chiroyli dosye kartasini formatlaydi."""
         uname_str = f"@{profile['username']}" if profile.get("username") else "Mavjud emas"
         phone_str = f"+{profile['phone']}" if profile.get("phone") else "Yashirilgan"
@@ -549,8 +618,10 @@ class ProfileIntelligenceService:
                 f"• {profile.get('channel_summary') or 'Ma\'lumot olinmadi'}\n"
             )
 
+        header_title = "🕵️‍♂️ **[Miya 5: Shaxs Kognitiv Dosyesi (♻️ Qayta tekshirildi / Yangilandi)]**" if is_recheck else "🕵️‍♂️ **[Miya 5: Shaxs Kognitiv Dosyesi]**"
+
         return (
-            f"🕵️‍♂️ **[Miya 5: Shaxs Kognitiv Dosyesi]**\n"
+            f"{header_title}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"👤 **Asosiy Ma'lumotlar:**\n"
             f"• **Haqiqiy ismi:** {profile.get('full_name')}\n"
@@ -602,8 +673,11 @@ class ProfileIntelligenceService:
                     self._queue.task_done()
                     continue
 
-                # 1 marta qoidasi (Deduplication)
-                if memory_service.is_user_dossier_exists(user_id):
+                is_force = user_id in self._force_recheck_ids
+                self._force_recheck_ids.discard(user_id)
+
+                # 1 marta qoidasi (Deduplication) - faqat force bo'lmaganda tekshiriladi
+                if not is_force and memory_service.is_user_dossier_exists(user_id):
                     self._queue.task_done()
                     continue
 
@@ -619,14 +693,18 @@ class ProfileIntelligenceService:
                     continue
 
                 self._current_user = f"ID: {user_id}"
-                logger.info("🕵️‍♂️ [Miya 5] Shaxs tahlil qilinmoqda: %s...", user_id)
+                action_word = "qayta tekshirilmoqda (yangilanmoqda)" if is_force else "tahlil qilinmoqda"
+                logger.info("🕵️‍♂️ [Miya 5] Shaxs %s: %s...", action_word, user_id)
 
                 # Profil ma'lumotlarini o'qish (100% yashirin)
                 profile = await self._inspect_single_user(self._client, user_id)
                 if profile:
+                    # Mavjud eski dosye bo'lsa olish (yangilash va to'g'rilash uchun)
+                    existing_dossier = memory_service.get_user_dossier(user_id)
+
                     # AI xulosa sintezi
-                    ai_summary = await self._synthesize_dossier_with_ai(profile)
-                    card_text = self._format_full_dossier_card(profile, ai_summary)
+                    ai_summary = await self._synthesize_dossier_with_ai(profile, existing_dossier=existing_dossier)
+                    card_text = self._format_full_dossier_card(profile, ai_summary, is_recheck=bool(existing_dossier))
 
                     # Saqlash (SQLite + MongoDB)
                     memory_service.save_user_dossier(
@@ -649,6 +727,17 @@ class ProfileIntelligenceService:
 
                 self._queue.task_done()
                 self._current_user = None
+
+                # Navbat bo'shaganda va avto-takroran tekshiruv yoqilgan bo'lsa
+                if self._queue.empty() and self.is_auto_recheck_enabled():
+                    try:
+                        import time
+                        now_ts = time.time()
+                        if now_ts - self._last_stale_check_time > 1800:  # Har 30 daqiqada tekshirish
+                            self._last_stale_check_time = now_ts
+                            self.check_stale_dossiers_for_recheck(days=self.get_auto_recheck_days())
+                    except Exception as sce:
+                        logger.debug("Auto recheck check ogohlantirish: %s", sce)
 
                 # Xavfsiz tanaffus (Telegram FloodWait dan 100% himoya)
                 delay_sec = self.get_delay_seconds()
@@ -837,6 +926,8 @@ class ProfileIntelligenceService:
             "destination": self.get_destination(),
             "current_user": self._current_user or "Sokin (Kutilmoqda)",
             "chat_stats": self.get_chat_stats(),
+            "auto_recheck_enabled": self.is_auto_recheck_enabled(),
+            "auto_recheck_days": self.get_auto_recheck_days(),
         }
 
 

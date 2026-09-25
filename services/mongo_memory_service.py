@@ -1038,6 +1038,35 @@ class MongoMemoryService:
             logger.error("MongoDB get_all_user_dossiers xatolik: %s", e)
             return []
 
+    def get_stale_user_dossier_ids(self, days: int = 3, limit: int = 200) -> list[int]:
+        """MongoDB'dan oxirgi tahlili N kundan (3 kun) oshgan foydalanuvchilar ID ro'yxatini qaytaradi."""
+        if not self.is_connected():
+            return []
+        try:
+            from datetime import timedelta
+            threshold = datetime.now(ZoneInfo("Asia/Tashkent")) - timedelta(days=days)
+            docs = self._db["brain_frontline.user_dossiers"].find(
+                {"analyzed_at": {"$lte": threshold}},
+                {"user_id": 1}
+            ).sort("analyzed_at", 1).limit(limit)
+            return [int(d["user_id"]) for d in docs if d.get("user_id")]
+        except Exception as e:
+            logger.error("MongoDB get_stale_user_dossier_ids xatolik: %s", e)
+            return []
+
+    def get_all_dossier_user_ids(self, limit: int = 2000) -> list[int]:
+        """MongoDB'dagi barcha tahlil qilingan foydalanuvchilar ID ro'yxatini qaytaradi."""
+        if not self.is_connected():
+            return []
+        try:
+            docs = self._db["brain_frontline.user_dossiers"].find(
+                {}, {"user_id": 1}
+            ).sort("analyzed_at", 1).limit(limit)
+            return [int(d["user_id"]) for d in docs if d.get("user_id")]
+        except Exception as e:
+            logger.error("MongoDB get_all_dossier_user_ids xatolik: %s", e)
+            return []
+
     def save_pedagogical_outcome(
         self,
         student_id: int,

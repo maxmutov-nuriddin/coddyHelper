@@ -3461,6 +3461,58 @@ class SQLiteMemoryService:
 
         return count
 
+    def get_stale_user_dossier_ids(self, days: int = 3, limit: int = 200) -> list[int]:
+        """Oxirgi tahlili N kundan (standart 3 kun) oshgan foydalanuvchilar ID ro'yxatini qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT user_id FROM user_dossiers
+                    WHERE analyzed_at <= datetime('now', ? || ' days')
+                    ORDER BY analyzed_at ASC
+                    LIMIT ?
+                    """,
+                    (f"-{int(days)}", limit),
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    return [int(r[0]) for r in rows if r[0]]
+        except Exception as e:
+            logger.error("get_stale_user_dossier_ids SQLite xatolik: %s", e)
+
+        # Fallback to MongoDB
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                return mongo_memory_service.get_stale_user_dossier_ids(days=days, limit=limit)
+        except Exception:
+            pass
+
+        return []
+
+    def get_all_dossier_user_ids(self, limit: int = 2000) -> list[int]:
+        """Barcha tahlil qilingan foydalanuvchilar ID ro'yxatini qaytaradi."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT user_id FROM user_dossiers ORDER BY analyzed_at ASC LIMIT ?", (limit,))
+                rows = cursor.fetchall()
+                if rows:
+                    return [int(r[0]) for r in rows if r[0]]
+        except Exception as e:
+            logger.error("get_all_dossier_user_ids SQLite xatolik: %s", e)
+
+        # Fallback to MongoDB
+        try:
+            from services.mongo_memory_service import mongo_memory_service
+            if mongo_memory_service.is_connected():
+                return mongo_memory_service.get_all_dossier_user_ids(limit=limit)
+        except Exception:
+            pass
+
+        return []
+
     # -----------------------------------------------------------
     # Pedagogical Outcome Tracker (Implicit RLHF)
     # -----------------------------------------------------------
