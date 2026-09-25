@@ -344,11 +344,17 @@ class ProfileIntelligenceService:
             full_user = getattr(full_user_res, "full_user", None)
             bio = getattr(full_user, "about", "") or ""
 
-            # 2. Profil rasmlari
+            # 2. Profil rasmlari va video avatar tekshiruvi
             photo_count = 0
+            has_video_avatar = False
             try:
                 photos = await client.get_profile_photos(entity, limit=5)
                 photo_count = len(photos) if photos else 0
+                if photos:
+                    for p in photos:
+                        if getattr(p, "video_sizes", None) or getattr(p, "has_video", False):
+                            has_video_avatar = True
+                            break
             except Exception:
                 pass
 
@@ -360,31 +366,94 @@ class ProfileIntelligenceService:
             except Exception:
                 pass
 
-            # 4. Bog'langan kanal yoki tashqi linklar tahlili
+            # 4. Bog'langan kanal yoki tashqi linklar tahlili (Media, Voice, Video, Obunachilar)
             channel_username = ""
             channel_summary = ""
+            channel_is_private = False
+            channel_subscribers = 0
+            channel_media_stats = {"photos": 0, "videos": 0, "voices": 0, "audios": 0}
 
-            # Bio ichidan @kanal yoki t.me/kanal qidirish
-            channel_match = re.search(r"@([a-zA-Z0-9_]{4,32})|t\.me/([a-zA-Z0-9_]{4,32})", bio)
+            # Bio yoki profil ichidan @kanal yoki t.me/kanal qidirish
+            channel_match = re.search(r"@([a-zA-Z0-9_]{4,32})|t\.me/([a-zA-Z0-9_]{4,32})|t\.me/\+([a-zA-Z0-9_-]+)", bio)
             if channel_match:
                 ch_tag = channel_match.group(1) or channel_match.group(2)
-                # O'zining username'i emasligini tekshirish
-                if ch_tag and ch_tag.lower() != username.lower():
+                ch_invite = channel_match.group(3)
+
+                if ch_invite:
+                    channel_username = f"t.me/+{ch_invite}"
+                    channel_is_private = True
+                    channel_summary = "🔒 Yopiq (private) kanal yoki taklif havolasi. Ichki postlarni yopiq bo'lgani sababli o'qib bo'lmadi."
+                elif ch_tag and ch_tag.lower() != (username or "").lower():
                     channel_username = f"@{ch_tag}"
                     try:
                         ch_entity = await client.get_entity(ch_tag)
-                        if ch_entity and getattr(ch_entity, "broadcast", False):
+                        if ch_entity:
                             ch_title = getattr(ch_entity, "title", "")
-                            # Kanalning oxirgi 3 ta postini o'qish
+                            
+                            # Obunachilar sonini olish
+                            try:
+                                from telethon.tl.functions.channels import GetFullChannelRequest
+                                ch_full_res = await client(GetFullChannelRequest(ch_entity))
+                                if ch_full_res and getattr(ch_full_res, "full_chat", None):
+                                    channel_subscribers = getattr(ch_full_res.full_chat, "participants_count", 0) or 0
+                            except Exception:
+                                pass
+
+                            # Kanalning oxirgi 8 ta postini va undagi media turlarini chuqur ko'rish
                             posts_snippets = []
-                            async for post_msg in client.iter_messages(ch_entity, limit=3):
+                            post_count = 0
+                            async for post_msg in client.iter_messages(ch_entity, limit=8):
+                                post_count += 1
                                 if post_msg.text:
                                     posts_snippets.append(post_msg.text[:120].replace("\n", " "))
-                            summary_posts = " | ".join(posts_snippets) if posts_snippets else "Postlar matnsiz"
-                            channel_summary = f"Kanal nomi: '{ch_title}'. So'nggi postlar: {summary_posts}"
+                                
+                                # Media turlarini aniqlash (ovozli, video, rasm)
+                                if post_msg.photo:
+                                    channel_media_stats["photos"] += 1
+                                elif post_msg.voice:
+                                    channel_media_stats["voices"] += 1
+                                elif post_msg.audio:
+                                    channel_media_stats["audios"] += 1
+                                elif post_msg.video or getattr(post_msg, "video_note", False):
+                                    channel_media_stats["videos"] += 1
+
+                            summary_posts = " | ".join(posts_snippets[:4]) if posts_snippets else "Postlar matnsiz yoki faqat media"
+                            
+                            media_desc_parts = []
+                            if channel_media_stats["photos"]:
+                                media_desc_parts.append(f"{channel_media_stats['photos']} ta rasm")
+                            if channel_media_stats["videos"]:
+                                media_desc_parts.append(f"{channel_media_stats['videos']} ta video")
+                            if channel_media_stats["voices"] or channel_media_stats["audios"]:
+                                v_tot = channel_media_stats["voices"] + channel_media_stats["audios"]
+                                media_desc_parts.append(f"{v_tot} ta ovozli/audio xabar")
+
+                            media_str = ", ".join(media_desc_parts) if media_desc_parts else "mediasiz"
+                            subs_str = f"{channel_subscribers} ta obunachi" if channel_subscribers else "Obunachilar soni yashirin"
+
+                            channel_summary = (
+                                f"Kanal nomi: '{ch_title}' ({subs_str}). "
+                                f"So'nggi postlarda: {media_str}. "
+                                f"Mavzular / matnlar: {summary_posts}"
+                            )
                     except Exception as ch_err:
-                        logger.debug("Kanalni o'qishda ogohlantirish (%s): %s", ch_tag, ch_err)
-                        channel_summary = f"Kanal havolasi: @{ch_tag}"
+                        err_str = str(ch_err).lower()
+                        if "private" in err_str or "forbidden" in err_str or "cannot find" in err_str:
+                            channel_is_private = True
+                            channel_summary = f"🔒 Yopiq (private) yoki maxfiy kanal (@{ch_tag}). Obuna bo'lmasdan ko'rib bo'lmaydi."
+                        else:
+                            channel_summary = f"Kanal havolasi: @{ch_tag} (Ma'lumot cheklangan)"
+
+            # 5. O'sha shaxs bilan bo'lgan so'nggi yozishmalardan (chatdan) kontekst olish
+            recent_user_messages = []
+            try:
+                # To'g'ridan-to'g'ri o'sha foydalanuvchi bilan yozishma
+                async for user_msg in client.iter_messages(entity, limit=5):
+                    if user_msg and user_msg.text:
+                        r_side = "U" if not user_msg.out else "Biz"
+                        recent_user_messages.append(f"{r_side}: {user_msg.text[:100].replace(chr(10), ' ')}")
+            except Exception:
+                pass
 
             return {
                 "user_id": user_id,
@@ -395,9 +464,14 @@ class ProfileIntelligenceService:
                 "phone": phone,
                 "bio": bio,
                 "photo_count": photo_count,
+                "has_video_avatar": has_video_avatar,
                 "has_stories": has_stories,
                 "channel_username": channel_username,
                 "channel_summary": channel_summary,
+                "channel_is_private": channel_is_private,
+                "channel_subscribers": channel_subscribers,
+                "channel_media_stats": channel_media_stats,
+                "recent_chat_context": " // ".join(recent_user_messages) if recent_user_messages else "Yozishmalar tarixi mavjud emas",
             }
         except Exception as e:
             logger.warning("Foydalanuvchi profilini o'qishda xatolik (%s): %s", user_id, e)
@@ -407,19 +481,24 @@ class ProfileIntelligenceService:
         """Miya 5 orqali foydalanuvchining to'liq kognitiv dosyesini sintez qiladi."""
         from services.ai_service import ai_service
 
+        video_avatar_str = "Ha (Video profil)" if profile.get("has_video_avatar") else "Yo'q"
         prompt = (
-            f"Foydalanuvchi Telegram ochiq ma'lumotlari:\n"
+            f"Telegram foydalanuvchisining ochiq profil ma'lumotlari:\n"
             f"• Ismi: {profile.get('full_name')}\n"
             f"• Username: @{profile.get('username') or 'yoq'}\n"
-            f"• Bio: {profile.get('bio') or 'Kiritilmagan'}\n"
-            f"• Profil rasmlari soni: {profile.get('photo_count')} ta\n"
+            f"• Bio / Status: {profile.get('bio') or 'Kiritilmagan'}\n"
+            f"• Profil rasmlari: {profile.get('photo_count', 0)} ta (Video avatar: {video_avatar_str})\n"
             f"• Stories: {'Mavjud' if profile.get('has_stories') else 'Yoq'}\n"
             f"• Bog'langan kanali: {profile.get('channel_username') or 'Yoq'}\n"
-            f"• Kanal mazmuni: {profile.get('channel_summary') or 'Yoq'}\n\n"
-            "Vazifa: Ushbu shaxs haqida Katta Dasturlash Mentori (Teacher) uchun 3-4 jumla lo'nda kognitiv xulosa yozing:\n"
-            "1. Kimligi (yoshi taxminan, o'quvchimi, dasturchimi yoki ota-onami?)\n"
-            "2. Qiziqish sohasi nima?\n"
-            "3. Muloqot uslubi va unga javob berishda nimalarga e'tibor berish kerak (sodda bolalar tili yoki professional IT kodi?)."
+            f"• Kanal ma'lumotlari (obunachilar, postlar, ovozli/video xabarlar): {profile.get('channel_summary') or 'Yoq'}\n"
+            f"• So'nggi yozishmalar konteksti: {profile.get('recent_chat_context') or 'Yozishmalar mavjud emas'}\n\n"
+            "DIQQAT QOIDASI: Ushbu shaxsni darhol dasturchi yoki o'quvchi deb O'YLAMANG! "
+            "Uning bio, yozishmalari, bog'langan kanali va profilidan kelib chiqib, haqiqiy kimligini aniqlang. "
+            "U tadbirkor, mebelchi, o'qituvchi, savdogar, shifokor, mijoz, talaba yoki boshqa kasb egasi bo'lishi mumkin.\n\n"
+            "Vazifa: Ushbu shaxs haqida aniq va lo'nda 3-4 jumla kognitiv xulosa yozing:\n"
+            "1. Haqiqiy kimligi va kasbi/sohasi (Bio, kanali va yozishmalaridan nima ko'rinmoqda?)\n"
+            "2. Asosiy qiziqishlari va faoliyati (Kanalida nimalar ulashadi, ovozli/video postlar, mavzulari nima?)\n"
+            "3. Muloqot uslubi va unga javob qaytarishda eng to'g'ri yondashuv (Unga qanday tilda va ohangda gapirish kerak?)."
         )
 
         try:
@@ -430,11 +509,17 @@ class ProfileIntelligenceService:
                 res = await client.chat.completions.create(
                     model=config.groq_model or "openai/gpt-oss-120b",
                     messages=[
-                        {"role": "system", "content": "Siz CoddyCamp Kognitiv Razvedka Tahlilchisisiz. Qisqa, aniq va foydali pedagogik xulosa yozing."},
+                        {
+                            "role": "system",
+                            "content": (
+                                "Siz professional Telegram Razvedka va Kognitiv Shaxs Tahlilchisisiz. "
+                                "Shablonlardan qoching, odamning haqiqiy yozishmalari, kanali va biosiga qarab xolis va chuqur tahlil bering."
+                            )
+                        },
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.3,
-                    max_tokens=350,
+                    max_tokens=400,
                 )
                 return res.choices[0].message.content.strip()
         except Exception as ai_err:
@@ -444,7 +529,7 @@ class ProfileIntelligenceService:
         return (
             f"Telegram profili tahlili: {profile.get('full_name')}. "
             f"Bio: {profile.get('bio') or 'Mavjud emas'}. "
-            f"Tavsiya: Standart muloyimlik va aniq yondashuv bilan muloqot qiling."
+            f"Tavsiya: Standart muloyimlik va uning sohasiga mos aniq yondashuv bilan muloqot qiling."
         )
 
     def _format_full_dossier_card(self, profile: dict[str, Any], ai_summary: str) -> str:
@@ -453,11 +538,14 @@ class ProfileIntelligenceService:
         phone_str = f"+{profile['phone']}" if profile.get("phone") else "Yashirilgan"
         bio_str = profile.get("bio") or "Kiritilmagan"
         stories_str = "Ha (Faol)" if profile.get("has_stories") else "Yo'q"
+        video_av_str = "Ha (Video profil)" if profile.get("has_video_avatar") else "Faqat rasm"
 
         channel_block = ""
         if profile.get("channel_username"):
+            ch_status = "🔒 Yopiq (Private)" if profile.get("channel_is_private") else "🌐 Ochiq (Public)"
+            subs_text = f" • Obunachilar: {profile.get('channel_subscribers')} ta" if profile.get("channel_subscribers") else ""
             channel_block = (
-                f"\n📢 **Bog'langan Kanali:** {profile['channel_username']}\n"
+                f"\n📢 **Bog'langan Kanali ({ch_status}{subs_text}):** {profile['channel_username']}\n"
                 f"• {profile.get('channel_summary') or 'Ma\'lumot olinmadi'}\n"
             )
 
@@ -471,11 +559,12 @@ class ProfileIntelligenceService:
             f"• **Telefon raqami:** {phone_str}\n\n"
             f"📝 **Bio va Statusi:**\n"
             f"_{bio_str}_\n\n"
-            f"🖼 **Profil Rasmlari va Stories:**\n"
+            f"🖼 **Profil Rasmlari, Video va Stories:**\n"
             f"• Rasmlar soni: {profile.get('photo_count', 0)} ta\n"
+            f"• Video Avatar: {video_av_str}\n"
             f"• Ochiq Stories: {stories_str}\n"
             f"{channel_block}\n"
-            f"🧠 **AI Kognitiv Xulosasi va Tavsiya:**\n"
+            f"🧠 **AI Kognitiv Tahlili va Tavsiya:**\n"
             f"{ai_summary}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"_Ushbu tahlil 100% yashirin o'tkazildi (foydalanuvchiga bildirilmagan)._"
