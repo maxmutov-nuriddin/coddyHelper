@@ -1803,27 +1803,24 @@
 
     <!-- ==================== SAHIFA: MIJOZLAR & OBUNALAR (FAQAT SUPER ADMIN) ==================== -->
     <div class="tab-pane" id="tab-clients">
-      <div class="section-header-badge" style="background: rgba(46, 166, 255, 0.15); color: var(--accent); border: 1px solid rgba(46, 166, 255, 0.3);">
-        👥 Mijozlar & Obunalar Boshqaruvi (Super Admin)
-      </div>
 
-      <!-- STATS CARDS -->
-      <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 14px;">
-        <div class="stat-card">
-          <div class="stat-value" id="clients-stat-total" style="color: var(--accent);">0</div>
-          <div class="stat-label">Jami Mijozlar</div>
+      <!-- STATS ROW -->
+      <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;">
+        <div class="metric-box" style="border: 1px solid rgba(46, 166, 255, 0.35); background: rgba(46, 166, 255, 0.08);">
+          <div class="metric-value" id="clients-stat-total" style="color: #2ea6ff;">0</div>
+          <div class="metric-label">Jami Mijozlar</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-value" id="clients-stat-active" style="color: var(--success);">0</div>
-          <div class="stat-label">Faol Obunalar</div>
+        <div class="metric-box" style="border: 1px solid rgba(34, 197, 94, 0.35); background: rgba(34, 197, 94, 0.08);">
+          <div class="metric-value" id="clients-stat-active" style="color: #22c55e;">0</div>
+          <div class="metric-label">Faol Obunalar</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-value" id="clients-stat-groups" style="color: var(--warning);">0</div>
-          <div class="stat-label">Ulangan Guruhlar</div>
+        <div class="metric-box" style="border: 1px solid rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08);">
+          <div class="metric-value" id="clients-stat-groups" style="color: #f59e0b;">0</div>
+          <div class="metric-label">Ulangan Guruhlar</div>
         </div>
       </div>
 
-      <!-- ACTION & SEARCH -->
+      <!-- SEARCH & FILTER CARD -->
       <div class="card">
         <div class="card-header">
           <span class="card-title">👥 Mijozlar Ro'yxati</span>
@@ -1831,14 +1828,14 @@
             ➕ Yangi Mijoz
           </button>
         </div>
-        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-          <input type="text" id="client-search-input" class="form-input" placeholder="🔍 Qidirish (ID, ism, @username, biznes)..." oninput="debounceClientSearch()" style="flex: 1;" />
+        <div style="margin-bottom: 10px;">
+          <input type="text" id="client-search-input" class="form-input" placeholder="🔍 Qidirish (ID, ism, @username, biznes)..." oninput="debounceClientSearch()" />
         </div>
-        <div class="chat-chips" style="padding-bottom: 0; overflow-x: auto; flex-wrap: wrap;">
+        <div class="chat-chips" style="padding-bottom: 0; overflow-x: auto; flex-wrap: wrap; gap: 6px;">
           <div class="chip active-chip" id="chip-client-all" onclick="filterClientStatus('all')">Barchasi</div>
           <div class="chip" id="chip-client-active" onclick="filterClientStatus('active')">🟢 Faol</div>
-          <div class="chip" id="chip-client-nogroup" onclick="filterClientStatus('nogroup')">⏳ Guruhi Ulanmagan</div>
-          <div class="chip" id="chip-client-expired" onclick="filterClientStatus('expired')">🔴 To'xtatilgan / Tugagan</div>
+          <div class="chip" id="chip-client-nogroup" onclick="filterClientStatus('nogroup')">⏳ Guruhi yo'q</div>
+          <div class="chip" id="chip-client-expired" onclick="filterClientStatus('expired')">🔴 Tugagan</div>
         </div>
       </div>
 
