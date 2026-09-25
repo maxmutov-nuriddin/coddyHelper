@@ -1573,7 +1573,7 @@ class MongoMemoryService:
                         )
                         stats["user_subscriptions"] += 1
             except Exception as e:
-                logger.debug("Restore user_subscriptions ogohlantirish: %s", e)
+                logger.warning("⚠️ Restore user_subscriptions xatolik: %s", e)
 
             conn.commit()
             conn.close()

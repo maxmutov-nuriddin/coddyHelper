@@ -36,11 +36,14 @@ class SQLiteMemoryService:
         try:
             if mongo_memory_service.is_connected():
                 # Dastlabki ishga tushishda: 1. Avval MongoDB Atlas'dan SQLite ga tiklash (Auto-Restore)
-                mongo_memory_service.restore_to_sqlite(self.db_path)
+                restore_stats = mongo_memory_service.restore_to_sqlite(self.db_path)
+                logger.info("🔄 [Startup] MongoDB→SQLite restore yakunlandi: %s", restore_stats)
                 # 2. So'ngra yangi lokal ma'lumotlarni MongoDB ga sinxronlash
                 mongo_memory_service.migrate_from_sqlite(self.db_path)
+            else:
+                logger.warning("⚠️ [Startup] MongoDB ulanmagan! Foydalanuvchi ro'yxati restore bo'lmadi.")
         except Exception as me:
-            logger.debug("MongoDB bilan avto-sinxronlashda ogohlantirish: %s", me)
+            logger.warning("⚠️ MongoDB bilan avto-sinxronlashda xatolik: %s", me)
         try:
             from services.obsidian_brain_service import obsidian_brain_service
             obsidian_brain_service.init_vault()
@@ -3780,7 +3783,33 @@ class SQLiteMemoryService:
                     })
         except Exception as e:
             logger.error("Barcha obunachilarni olishda xatolik: %s", e)
+
+        # Agar SQLite bo'sh bo'lsa (masalan, Render restart keyin), MongoDB'dan o'qi
+        if not subs and mongo_memory_service.is_connected():
+            try:
+                logger.info("📋 SQLite bo'sh — MongoDB'dan user_subscriptions o'qilmoqda...")
+                for doc in mongo_memory_service._db["system_core.user_subscriptions"].find():
+                    uid = doc.get("user_id")
+                    if uid:
+                        subs.append({
+                            "user_id": uid,
+                            "username": doc.get("username", ""),
+                            "full_name": doc.get("full_name", ""),
+                            "business_name": doc.get("business_name", ""),
+                            "profession": doc.get("profession", ""),
+                            "system_prompt": doc.get("system_prompt", ""),
+                            "group_id": doc.get("group_id") or 0,
+                            "active": int(doc.get("active", 1)),
+                            "expires_at": str(doc.get("expires_at") or ""),
+                            "role": doc.get("role", "client"),
+                            "created_at": str(doc.get("created_at") or ""),
+                        })
+                logger.info("✅ MongoDB'dan %d ta obunachi yuklandi", len(subs))
+            except Exception as me:
+                logger.error("MongoDB'dan obunachilarni olishda xatolik: %s", me)
+
         return subs
+
 
 
 # Global xotira instansiyasi
