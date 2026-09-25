@@ -375,6 +375,12 @@ class SQLiteMemoryService:
                         conn.execute(col_def)
                     except Exception:
                         pass  # Ustun allaqachon mavjud
+                # Standart doimiy sozlamalar (Render restart bo'lganda ham avto-javoblar doimo YOQIQ turishi uchun)
+                conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_reply_enabled', 'true')")
+                conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('group_reply_enabled', 'true')")
+                conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('voice_reply_enabled', 'true')")
+                conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('web_search_enabled', 'true')")
+                conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('silent_mode_enabled', 'false')")
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)

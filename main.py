@@ -266,17 +266,15 @@ async def main():
     global CURRENT_CLIENT
     CURRENT_CLIENT = client
 
-    # Doimiy SQLite sozlamalarini yuklash (restart bo'lganda ham to'xtagan holatda qolishi uchun)
+    # Doimiy SQLite sozlamalarini yuklash (standart: doimo YOQILGAN bo'ladi)
     from services.memory_service import memory_service
-    saved_auto = memory_service.get_setting("auto_reply_enabled")
-    if saved_auto is not None:
-        config.auto_reply_enabled = (saved_auto == "true")
-        logger.info("Xotiradan avto-javob holati tiklandi: %s", config.auto_reply_enabled)
+    saved_auto = memory_service.get_setting("auto_reply_enabled", "true")
+    config.auto_reply_enabled = (saved_auto != "false")
+    logger.info("Avto-javob holati: %s", config.auto_reply_enabled)
 
-    saved_group = memory_service.get_setting("group_reply_enabled")
-    if saved_group is not None:
-        config.group_reply_enabled = (saved_group == "true")
-        logger.info("Xotiradan guruhlar javobi holati tiklandi: %s", config.group_reply_enabled)
+    saved_group = memory_service.get_setting("group_reply_enabled", "true")
+    config.group_reply_enabled = (saved_group != "false")
+    logger.info("Guruhlar javobi holati: %s", config.group_reply_enabled)
 
     # Handlerlarni ro'yxatga olish
     register_command_handlers(client)
@@ -288,12 +286,10 @@ async def main():
 
     # Render restartida bazani avtomatik zaxiradan tiklash (agar baza yangi/bo'sh bo'lsa)
     await auto_restore_database_on_startup(client)
-    restored_auto = memory_service.get_setting("auto_reply_enabled")
-    if restored_auto is not None:
-        config.auto_reply_enabled = (restored_auto == "true")
-    restored_group = memory_service.get_setting("group_reply_enabled")
-    if restored_group is not None:
-        config.group_reply_enabled = (restored_group == "true")
+    restored_auto = memory_service.get_setting("auto_reply_enabled", "true")
+    config.auto_reply_enabled = (restored_auto != "false")
+    restored_group = memory_service.get_setting("group_reply_enabled", "true")
+    config.group_reply_enabled = (restored_group != "false")
 
     # Render o'chishi (SIGTERM/SIGINT) oldidan oxirgi bazani zaxiraga yuborish tinglovchisi
     try:

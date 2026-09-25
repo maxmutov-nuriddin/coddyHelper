@@ -183,6 +183,26 @@ class ClientSessionManager:
 
                 # Config'dagi auto_reply kabi ishlaydi
                 text = event.raw_text or ""
+                # Ovozli xabar bo'lsa Whisper STT
+                if not text.strip():
+                    has_voice = bool(
+                        getattr(event.message, "voice", False)
+                        or (
+                            event.message.document
+                            and event.message.file
+                            and getattr(event.message.file, "mime_type", "").startswith("audio/")
+                        )
+                    )
+                    if has_voice:
+                        try:
+                            audio_bytes = await event.message.download_media(bytes)
+                            if audio_bytes:
+                                transcribed = await ai_service.transcribe_audio(audio_bytes)
+                                if transcribed:
+                                    text = f"[Ovozli xabar (STT)]: {transcribed.strip()}"
+                        except Exception as v_err:
+                            logger.debug("Client ovozli xabarni STT qilishda xatolik: %s", v_err)
+
                 if not text.strip():
                     return
 
@@ -192,14 +212,13 @@ class ClientSessionManager:
                 )
 
                 # AI javob generatsiyasi
-                reply = await ai_service.generate_reply(
-                    message=text,
+                ai_res = await ai_service.generate_reply(
                     chat_id=chat_id,
+                    user_message=text,
                     user_id=sender_id,
-                    client=client,
                 )
-                if reply:
-                    await event.reply(reply)
+                if ai_res and ai_res.text:
+                    await event.reply(ai_res.text)
 
             except Exception as e:
                 logger.error("Client handler xatolik [user_id=%s]: %s", user_id, e)
