@@ -2575,9 +2575,15 @@ class AIService:
                     return AIResult(ans_text)
 
         # Javob berilayotgan kontekst
-        effective_prompt = user_message
+        effective_prompt = (user_message or "").strip()
         if file_name and file_text:
-            effective_prompt = f"[Yuklangan fayl: {file_name}]\n```\n{file_text[:6000]}\n```\n\n{effective_prompt}"
+            f_content = file_text[:6000]
+            if not effective_prompt:
+                effective_prompt = f"[Yuklangan fayl: {file_name}]\n```\n{f_content}\n```\n\nUshbu topshiriq / dastur kodini ko'rib chiqib, o'quvchiga tushunarli tahlil, xatolar bo'lsa yo'nalish va maslahat bering."
+            else:
+                effective_prompt = f"[Yuklangan fayl: {file_name}]\n```\n{f_content}\n```\n\n{effective_prompt}"
+        elif image_bytes and not effective_prompt:
+            effective_prompt = "Ushbu skrinshotdagi kod, dastur natijasi yoki topshiriqni tahlil qilib, dars dasturimiz bo'yicha to'g'ri yo'nalish va tushuntirish bering."
 
         if reply_to_context:
             effective_prompt = f"[Javob berilayotgan xabar: \"{reply_to_context}\"]\n{effective_prompt}"
@@ -2886,15 +2892,10 @@ class AIService:
 
                 # Agar model o'quvchiga ustozni ogohlantirdim degan bo'lsa (tag qo'yishni unutgan bo'lsa ham)
                 mention_mentor_phrases = [
-                    r"mentorimizga\s+.*?yetkazdim",
-                    r"ustozga\s+.*?yetkazdim",
-                    r"ustozni\s+ogohlantirdim",
-                    r"nuriddin\s+akaga\s+.*?yetkazdim",
-                    r"наставнику\s+.*?передал",
-                    r"передал\s+.*?учителю",
-                    r"передал\s+.*?наставнику",
-                    r"сообщил\s+.*?наставнику",
-                    r"сообщил\s+.*?учителю",
+                    r"(?:mentor\w*|ustoz\w*|nuriddin\w*|o['’`]?qituvchi\w*)\s*.*?(?:yetkaz\w*|xabar\s+qil\w*|bildir\w*|yo['’`]?naltir\w*|ogohlantir\w*|ayt\w*|yubor\w*|jo['’`]?nat\w*)",
+                    r"(?:yetkaz\w*|xabar\s+qil\w*|yo['’`]?naltir\w*|ogohlantir\w*)\s*.*?(?:mentor\w*|ustoz\w*|nuriddin\w*|o['’`]?qituvchi\w*)",
+                    r"(?:передал\w*|сообщил\w*|направил\w*|передам\w*)\s*.*?(?:учител\w*|наставник\w*|нуриддин\w*|ментор\w*)",
+                    r"(?:учител\w*|наставник\w*|нуриддин\w*|ментор\w*)\s*.*?(?:передал\w*|сообщил\w*|направил\w*|передам\w*)",
                 ]
                 if any(re.search(p, answer, re.IGNORECASE) for p in mention_mentor_phrases):
                     if not escalation_info:

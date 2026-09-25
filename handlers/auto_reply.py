@@ -346,13 +346,19 @@ async def dispatch_vazifalar_alert(client: TelegramClient, alert_text: str) -> b
     # 2. Agar guruh ID orqali yetkazilmagan bo'lsa, dialoglar orqali qidirib yuborish
     if not delivered_to_group:
         try:
-            dialogs = await client.get_dialogs(limit=50)
+            dialogs = await client.get_dialogs(limit=100)
             for d in dialogs:
+                d_id_str = str(d.id)
                 title = (d.name or "").lower()
-                if "vazifa" in title or "boshqaruv" in title:
+                if "5388159517" in d_id_str or "vazifa" in title or "boshqaruv" in title:
                     await client.send_message(d.entity, alert_text)
                     logger.info("✅ Dialog orqali topilgan Vazifalar guruhiga yetkazildi: %s (%s)", d.name, d.id)
                     delivered_to_group = True
+                    try:
+                        from services.memory_service import memory_service
+                        memory_service.set_setting("vazifalar_group_id", str(d.id))
+                    except Exception:
+                        pass
                     break
         except Exception as diag_err:
             logger.warning("Dialoglar orqali Vazifalar guruhini topishda xatolik: %s", diag_err)
@@ -1698,12 +1704,20 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             await event.reply("⛔️ **Xavfsizlik tizimi:** AI tizimidan g'arazli maqsadlarda foydalanish va tokenlarni qasddan sarflashga urinish aniqlandi. Siz butunlay bloklandingiz.")
             return
 
+        # Xavfli fayllar (.apk, .exe, .bat, .cmd va h.k.) tekshiruvi
+        doc_name = getattr(event.message.file, "name", "") or ""
+        doc_ext = (Path(doc_name).suffix.lower() if doc_name else "") or (
+            getattr(event.message.file, "ext", "").lower() if event.message.file else ""
+        )
+        mime_type = (getattr(event.message.file, "mime_type", "") or "").lower()
+
+        is_image_ext = doc_ext in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".heic", ".gif"}
         has_photo = bool(
             event.message.photo
             or (
                 event.message.document
                 and event.message.file
-                and getattr(event.message.file, "mime_type", "").startswith("image/")
+                and (mime_type.startswith("image/") or is_image_ext)
             )
         )
         has_voice = bool(
@@ -1711,16 +1725,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             or (
                 event.message.document
                 and event.message.file
-                and getattr(event.message.file, "mime_type", "").startswith("audio/")
+                and (mime_type.startswith("audio/") or doc_ext in {".ogg", ".oga", ".mp3", ".wav", ".m4a"})
             )
         )
-
-        # Xavfli fayllar (.apk, .exe, .bat, .cmd va h.k.) tekshiruvi
-        doc_name = getattr(event.message.file, "name", "") or ""
-        doc_ext = (Path(doc_name).suffix.lower() if doc_name else "") or (
-            getattr(event.message.file, "ext", "").lower() if event.message.file else ""
-        )
-        mime_type = (getattr(event.message.file, "mime_type", "") or "").lower()
 
         DANGEROUS_EXTS = {
             ".apk", ".xapk", ".apkm", ".exe", ".msi", ".bat",
@@ -1744,15 +1751,25 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             )
             return
 
-        # Kod yoki hujjat fayllarini aniqlash (.py, .txt, .html, .sql, .pdf, .zip, ...)
+        # Kod yoki hujjat fayllarini aniqlash (.py, .ipynb, .docx, .zip, .rar, .sql, ...)
         supported_code_exts = {
-            ".py", ".txt", ".html", ".css", ".js", ".ts",
-            ".json", ".sql", ".java", ".c", ".cpp", ".md",
-            ".xml", ".sh", ".yml", ".yaml", ".pdf", ".zip",
+            # Python & Data Science
+            ".py", ".ipynb", ".json", ".csv", ".tsv",
+            # Web & Frontend / Backend
+            ".html", ".htm", ".css", ".scss", ".sass", ".js", ".jsx", ".ts", ".tsx", ".vue", ".php",
+            # System & Compiled
+            ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".cs", ".java", ".go", ".rs", ".swift", ".kt", ".dart", ".rb",
+            # Scripts & Configs
+            ".sql", ".sh", ".bash", ".zsh", ".bat", ".cmd", ".ps1", ".xml", ".yml", ".yaml", ".toml", ".ini", ".env", ".md", ".txt",
+            # Documents & Archives
+            ".pdf", ".docx", ".doc", ".zip", ".rar", ".7z", ".tar", ".gz",
         }
-        is_zip = (doc_ext == ".zip")
+        is_zip = (doc_ext in {".zip", ".rar", ".7z", ".tar", ".gz"})
         has_doc_file = bool(
-            event.message.document and not has_photo and not has_voice and doc_ext in supported_code_exts
+            event.message.document
+            and not has_photo
+            and not has_voice
+            and (doc_ext in supported_code_exts or (not is_dangerous and bool(doc_ext or doc_name)))
         )
         has_github = bool("github.com/" in message_text)
 
@@ -2154,20 +2171,29 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                 wait_sec = 0 if is_admin_chat else base_wait
 
+                is_task_submission = bool(
+                    has_photo
+                    or has_doc_file
+                    or is_dangerous
+                    or any(w in (input_text or message_text).lower() for w in [
+                        "vazifa", "uyga vazifa", "topshiriq", "tekshir", "qarab ber", "kodim", "kod", "xatolik", "ishlamayapti", "yordam", "homework"
+                    ])
+                )
+
                 # Shaxsiy chatda (Lichkada) aqlli kutish:
-                # Agar mentor yaqinda xabar yozgan bo'lsa, AI darhol suhbatga aralashmaydi,
-                # balki mentor yana yozishi uchun belgilangan vaqt (quiet_window, masalan 3 daqiqa) kutadi.
-                # Agar mentor shu vaqt ichida boshqa yozmasa (chiqib ketgan bo'lsa), AI o'sha savolga o'zi avtomatik to'liq javob beradi!
+                # Agar mentor yaqinda xabar yozgan bo'lsa, AI darhol suhbatga aralashmaydi.
+                # Lekin agar o'quvchi vazifa, kod yoki skrinshot yuborgan bo'lsa, 3 daqiqa kutmasdan, 5-8s debounce bilan tezkor ko'rib chiqadi!
                 if is_private and not is_admin_chat:
                     last_m_time = LAST_MENTOR_ACTIVITY.get(chat_id, 0.0)
                     time_since_mentor = time.time() - last_m_time
                     quiet_window = float(memory_service.get_private_quiet_window())
-                    if time_since_mentor < quiet_window:
-                        remaining_wait = quiet_window - time_since_mentor
+                    effective_quiet = min(quiet_window, 8.0) if is_task_submission else min(quiet_window, 30.0)
+                    if time_since_mentor < effective_quiet:
+                        remaining_wait = effective_quiet - time_since_mentor
                         wait_sec = max(wait_sec, remaining_wait)
                         logger.info(
-                            "Chat [%s]: Mentor yaqinda yozgan (%ds oldin). AI mentor javobini %ds kutadi...",
-                            chat_id, int(time_since_mentor), int(wait_sec)
+                            "Chat [%s]: Mentor yaqinda yozgan (%ds oldin, vazifa=%s). AI mentor javobini %ds kutadi...",
+                            chat_id, int(time_since_mentor), is_task_submission, int(wait_sec)
                         )
 
                 # Guruhlarda Sokratik kutish (Peer delay):
@@ -2187,7 +2213,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                     # Kutish vaqti tugadi: tekshiramiz, mentor ushbu xabardan keyin o'zi yozdimi?
                     last_m_time = LAST_MENTOR_ACTIVITY.get(chat_id, 0.0)
-                    if last_m_time >= message_received_time:
+                    if last_m_time > message_received_time + 0.5:
                         MESSAGE_ACCUMULATOR.pop(debounce_key, None)
                         log_activity(f"Mentor o'zi javob yozgani uchun AI aralashmadi [{chat_id}]")
                         logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", chat_id)
@@ -2320,6 +2346,41 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                                 file_name = z_name
                                 file_text = z_text
                                 logger.info("ZIP arxiv muvaffaqiyatli tahlil qilindi [%s]: %s", chat_id, file_name)
+                            elif doc_ext_eff == ".ipynb":
+                                import json
+                                try:
+                                    nb = json.loads(file_bytes.decode("utf-8", errors="ignore"))
+                                    cells_text = []
+                                    for cell in nb.get("cells", []):
+                                        ctype = cell.get("cell_type", "")
+                                        source = "".join(cell.get("source", []))
+                                        if ctype == "code" and source.strip():
+                                            cells_text.append(f"# [Notebook Kod Katagi]:\n{source}")
+                                        elif ctype == "markdown" and source.strip():
+                                            cells_text.append(f"<!-- Notebook Matn -->\n{source}")
+                                    file_text = "\n\n".join(cells_text)
+                                    file_name = doc_name_eff or "notebook.ipynb"
+                                    logger.info("Jupyter Notebook muvaffaqiyatli tahlil qilindi [%s]: %d katak", chat_id, len(cells_text))
+                                except Exception as nb_err:
+                                    file_text = file_bytes.decode("utf-8", errors="ignore")
+                                    file_name = doc_name_eff or "notebook.ipynb"
+                            elif doc_ext_eff == ".docx":
+                                import zipfile, io, xml.etree.ElementTree as ET
+                                try:
+                                    with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+                                        xml_content = z.read("word/document.xml")
+                                        tree = ET.fromstring(xml_content)
+                                        texts = [node.text for node in tree.iter() if node.tag.endswith("t") and node.text]
+                                        file_text = "\n".join(texts)
+                                        file_name = doc_name_eff or "document.docx"
+                                except Exception as docx_err:
+                                    file_text = f"[Word fayl: {doc_name_eff}]"
+                                    file_name = doc_name_eff or "document.docx"
+                            elif doc_ext_eff in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".heic"}:
+                                image_bytes = file_bytes
+                                has_photo_eff = True
+                                file_name = doc_name_eff or "screenshot.png"
+                                logger.info("Hujjat sifatida yuborilgan rasm tahlil uchun qabul qilindi [%s]", chat_id)
                             elif doc_ext_eff == ".pdf":
                                 import io
                                 from pypdf import PdfReader
@@ -2333,13 +2394,16 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     except Exception as f_err:
                         logger.warning("Faylni o'qishda xatolik: %s", f_err)
 
-                if not input_text.strip() and not has_photo_eff and not file_text:
-                    return
+                # Agar rasm bo'lsa va hali yuklanmagan bo'lsa, yuklab olish
+                image_bytes = locals().get("image_bytes") or None
+                if has_photo_eff and not image_bytes:
+                    try:
+                        image_bytes = await active_media_event.message.download_media(bytes)
+                    except Exception as img_err:
+                        logger.warning("Rasmni yuklab olishda ogohlantirish: %s", img_err)
 
-                # Agar rasm bo'lsa, yuklab olish
-                image_bytes = None
-                if has_photo_eff:
-                    image_bytes = await active_media_event.message.download_media(bytes)
+                if not input_text.strip() and not has_photo_eff and not file_text and not image_bytes:
+                    return
 
                 # GitHub linkini aniqlash
                 github_match = re.search(r"https?://github\.com/[\w\-]+/[\w\-]+/?", input_text)
@@ -3039,21 +3103,26 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
 
                 # Yakuniy tekshiruv: agar shu orada mentor o'zi yozgan bo'lsa, yubormaslik
                 last_m_time = LAST_MENTOR_ACTIVITY.get(chat_id, 0.0)
-                if last_m_time >= message_received_time:
+                if last_m_time > message_received_time + 0.5:
                     log_activity(f"Mentor o'zi yozgani aniqlandi [{chat_id}], AI javobi bekor qilindi.")
                     logger.info("Mentor o'zi javob yozgan ekan [%s]. AI javobi yuborilmadi.", chat_id)
                     return
 
-                # Telegramning o'zidan jonli tekshiruv (Mentor so'nggi xabarni yuborgan bo'lsa, AI mutlaqo aralashmasin):
+                # Telegramning o'zidan jonli tekshiruv (Mentor o'quvchining so'nggi xabaridan KEYIN yozgan bo'lsagina):
                 if not is_admin_chat:
                     try:
-                        latest_msgs = await client.get_messages(chat_id, limit=4)
+                        latest_msgs = await client.get_messages(chat_id, limit=5)
                         my_uid = await get_my_id()
+                        max_student_msg_id = max(
+                            (getattr(b.get("event"), "id", 0) for b in buffered_msgs),
+                            default=getattr(event.message, "id", 0)
+                        )
                         for lm in latest_msgs:
                             if lm.out or lm.sender_id == my_uid or lm.sender_id in (config.mentor_user_id, 8105823872):
-                                if lm.date.timestamp() >= (message_received_time - 1.0):
-                                    log_activity(f"Telegram jonli tekshiruvi: Mentor o'zi javob yozgani aniqlandi [{chat_id}]. AI aralashmadi.")
-                                    logger.info("Telegram jonli tekshiruvi: Mentor chatda [%s] o'zi yozgan. AI javobi to'xtatildi.", chat_id)
+                                # Faqat o'quvchining eng so'nggi xabaridan keyin yuborilgan yangi xabar bo'lsa
+                                if lm.id > max_student_msg_id:
+                                    log_activity(f"Telegram jonli tekshiruvi: Mentor o'zi yangi javob yozgani aniqlandi [{chat_id}]. AI aralashmadi.")
+                                    logger.info("Telegram jonli tekshiruvi: Mentor chatda [%s] yangi javob yozgan (Msg ID: %s > %s). AI javobi to'xtatildi.", chat_id, lm.id, max_student_msg_id)
                                     return
                     except Exception as lm_err:
                         logger.debug("Oxirgi xabarlarni tekshirishda ogohlantirish: %s", lm_err)
@@ -3080,7 +3149,8 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     except Exception as st_err:
                         logger.debug("Student faolligini yozishda ogohlantirish: %s", st_err)
 
-                # Javob matnini tozalash (agar maxsus teglar bo'lsa)
+                # Asl eskalatsiya ma'lumotini saqlab qolamiz (stringga o'tganda yo'qolib ketmasligi uchun)
+                orig_escalation = getattr(answer, "escalation", None)
                 raw_ans = str(answer)
                 if "<<<OFF_TOPIC>>>" in raw_ans:
                     raw_ans = raw_ans.replace("<<<OFF_TOPIC>>>", "").strip()
@@ -3096,15 +3166,16 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 )
                 if is_refusal:
                     is_ru = is_russian_text(input_text)
-                    answer = (
+                    answer_text = (
                         "🤝 **Ваш вопрос принят!**\n\n"
                         "Я передал ваше обращение лично учителю Нуриддину (@mentor_cc). В скором времени он лично вам ответит 😊"
                         if is_ru else
                         "🤝 **Xabaringizni qabul qildim!**\n\n"
                         "Savolingizni ustozimiz Nuriddin akaga (@mentor_cc) yetkazdim. Tez orada shaxsan o'zlari sizga javob beradilar 😊"
                     )
+                    orig_escalation = orig_escalation or "Foydalanuvchi rad javobi o'rniga ustozga yo'naltirildi"
                 else:
-                    answer = raw_ans
+                    answer_text = raw_ans
 
                 # Javobni yuborish (reply tarzida, Voice-to-Voice va fallback bilan)
                 sent_reply = None
@@ -3117,7 +3188,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     if (has_voice_eff or is_voice_requested) and voice_reply_enabled and not is_admin_contact:
                         try:
                             from services.tts_service import generate_voice_message
-                            voice_path = await generate_voice_message(str(answer))
+                            voice_path = await generate_voice_message(str(answer_text))
                             if voice_path and voice_path.exists():
                                 sent_voice = await reply_event.reply(file=str(voice_path), voice_note=True)
                                 if sent_voice:
@@ -3127,15 +3198,15 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         except Exception as v_send_err:
                             logger.warning("Ovozli javob yuborishda ogohlantirish: %s", v_send_err)
 
-                    sent_reply = await reply_event.reply(answer)
+                    sent_reply = await reply_event.reply(answer_text)
                     if sent_reply:
                         BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
-                    log_activity(f"Javob muvaffaqiyatli yuborildi [{chat_id}]: {str(answer)[:40]}")
+                    log_activity(f"Javob muvaffaqiyatli yuborildi [{chat_id}]: {str(answer_text)[:40]}")
                     logger.info("Chat %s ga AI javobi yuborildi.", chat_id)
                 except Exception as reply_err:
                     log_activity(f"reply_event.reply xatolik [{chat_id}]: {reply_err}, send_message bilan urinilmoqda")
                     try:
-                        sent_reply = await client.send_message(chat_id, answer)
+                        sent_reply = await client.send_message(chat_id, answer_text)
                         if sent_reply:
                             BOT_SENT_MESSAGE_IDS.add(sent_reply.id)
                         log_activity(f"send_message orqali yuborildi [{chat_id}]")
@@ -3144,85 +3215,102 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 finally:
                     CURRENT_SENDING_CHATS.discard(chat_id)
 
-                # 📌 Agar rad javobi o'rniga eskalatsiya bo'lgan bo'lsa, Vazifalar guruhiga xabar jo'natish:
-                if is_refusal:
-                    try:
-                        s_name = getattr(sender, "first_name", "") or "Foydalanuvchi"
-                        if getattr(sender, "last_name", None):
-                            s_name += f" {sender.last_name}"
-                        s_user = f"@{sender.username}" if getattr(sender, "username", None) else f"ID: `{sender_id}`"
-                        chat_source = "Shaxsiy xabar (Lichka)"
-                        if is_group:
-                            try:
-                                chat_entity = await reply_event.get_chat()
-                                chat_source = f"Guruh: {getattr(chat_entity, 'title', 'Guruh')}"
-                            except Exception:
-                                chat_source = f"Guruh ID: `{chat_id}`"
-
-                        alert_text = (
-                            "📌 #DarsdanTashqariMurojaat #UstozgaYetkazildi\n\n"
-                            f"📍 **Manba:** {chat_source}\n"
-                            f"👤 **O'quvchi:** [{s_name}](tg://user?id={sender_id}) ({s_user})\n"
-                            f"🆔 **ID:** `{sender_id}`\n"
-                            f"⏰ **Vaqti:** {_get_tashkent_time()}\n\n"
-                            f"❓ **Foydalanuvchi xabari:**\n\"{input_text}\"\n\n"
-                            "ℹ️ *Foydalanuvchiga 'Xabar ustozga yetkazildi' deb xushmuomala javob berildi ('qilolmayman' deyilmadi).*"
-                        )
-                        await dispatch_vazifalar_alert(client, alert_text)
-                        logger.info("📌 Rad javobi o'rniga Vazifalar guruhiga eskalatsiya muvaffaqiyatli jo'natildi.")
-                    except Exception as ref_err:
-                        logger.warning("Rad javobini Vazifalarga yetkazishda xatolik: %s", ref_err)
-
                 # 🏛 Agar Ma'muriyat (@coddycamp_sergeli) bilan muloqot bo'lsa, Vazifalar guruhiga DARHOL to'liq hisobot yetkazish
                 if is_admin_contact:
                     report_tag = "📋 #Davomat #Ma'muriyatXabari" if is_absence_message(input_text) else "🏛 #Ma'muriyatMuloqoti"
                     admin_report = (
                         f"🏛 **MA'MURIYAT BILAN MULOQOT (@coddycamp_sergeli):** {report_tag}\n\n"
                         f"📩 **Ma'muriyat xabari:**\n\"{input_text}\"\n\n"
-                        f"🤖 **Agent javobi:**\n{answer}\n"
+                        f"🤖 **Agent javobi:**\n{answer_text}\n"
                     )
-                    if getattr(answer, "escalation", None):
-                        admin_report += f"\n🚨 **DIQQAT (Ustoz qarori lozim):**\n{answer.escalation}\n"
+                    if orig_escalation:
+                        admin_report += f"\n🚨 **DIQQAT (Ustoz qarori lozim):**\n{orig_escalation}\n"
                     try:
                         await dispatch_vazifalar_alert(client, admin_report)
                         logger.info("🏛 Ma'muriyat muloqoti xabari Vazifalar guruhiga yetkazildi.")
                     except Exception as adm_e:
                         logger.warning("Vazifalar guruhiga ma'muriyat hisoboti yuborishda xatolik: %s", adm_e)
 
-                # Mentorga yo'naltirish (Eskalyatsiya - faqat oddiy foydalanuvchilar/o'quvchilar uchun)
-                if not is_admin_contact and getattr(answer, "escalation", None):
-                    sender_name = getattr(sender, "first_name", "") or "Noma'lum"
-                    if getattr(sender, "last_name", None):
-                        sender_name += f" {sender.last_name}"
-                    sender_user = (
-                        f"@{sender.username}" if getattr(sender, "username", None) else "Mavjud emas"
-                    )
+                # 🚨 Oddiy o'quvchilar/suhbatdoshlar uchun Vazifalar guruhiga KAFOLATLI eskalatsiya:
+                # Agar AI javobida ustozga yetkazilgani aytilgan bo'lsa, yoki rad javobi bo'lsa, yoki orig_escalation mavjud bo'lsa:
+                mention_mentor_patterns = [
+                    r"(?:mentor\w*|ustoz\w*|nuriddin\w*|o['’`]?qituvchi\w*)\s*.*?(?:yetkaz\w*|xabar\s+qil\w*|bildir\w*|yo['’`]?naltir\w*|ogohlantir\w*|ayt\w*|yubor\w*|jo['’`]?nat\w*)",
+                    r"(?:yetkaz\w*|xabar\s+qil\w*|yo['’`]?naltir\w*|ogohlantir\w*)\s*.*?(?:mentor\w*|ustoz\w*|nuriddin\w*|o['’`]?qituvchi\w*)",
+                    r"(?:передал\w*|сообщил\w*|направил\w*|передам\w*)\s*.*?(?:учител\w*|наставник\w*|нуриддин\w*|ментор\w*)",
+                    r"(?:учител\w*|наставник\w*|нуриддин\w*|ментор\w*)\s*.*?(?:передал\w*|сообщил\w*|направил\w*|передам\w*)",
+                ]
+                has_mentor_promise = any(re.search(p, answer_text, re.I) for p in mention_mentor_patterns)
 
-                    chat_source = "Shaxsiy xabar (Lichka)"
-                    if is_group:
-                        try:
-                            chat_entity = await event.get_chat()
-                            chat_source = f"Guruh: {getattr(chat_entity, 'title', 'Guruh')}"
-                        except Exception:
-                            chat_source = f"Guruh ID: `{event.chat_id}`"
+                is_escalation_needed = (
+                    not is_admin_contact
+                    and not is_admin_chat
+                    and (bool(orig_escalation) or is_refusal or has_mentor_promise)
+                )
 
-                    alert_text = (
-                        "🚨 **O'quvchi murojaati (Mentor aralashuvi kerak):**\n\n"
-                        f"📍 **Manba:** {chat_source}\n"
-                        f"👤 **O'quvchi:** {sender_name} ({sender_user})\n"
-                        f"🆔 **ID:** `{sender_id}`\n\n"
-                        f"❓ **O'quvchi xabari:**\n\"{input_text}\"\n\n"
-                        f"📋 **AI Xulosasi:**\n{answer.escalation}"
-                    )
+                if is_escalation_needed:
+                    try:
+                        sender_name = getattr(sender, "first_name", "") or "O'quvchi"
+                        if getattr(sender, "last_name", None):
+                            sender_name += f" {sender.last_name}"
+                        sender_user = f"@{sender.username}" if getattr(sender, "username", None) else f"ID: `{sender_id}`"
 
-                    if is_escalation_chat(event.chat_id):
-                        logger.info("Murojaat 'Vazifalar' guruhining o'zida bo'lgani uchun qayta ogohlantirish yuborilmadi.")
-                    else:
-                        try:
+                        chat_source = "Shaxsiy xabar (Lichka)"
+                        if is_group:
+                            try:
+                                chat_entity = await reply_event.get_chat()
+                                chat_source = f"Guruh: {getattr(chat_entity, 'title', 'Guruh')}"
+                            except Exception:
+                                chat_source = f"Guruh ID: `{event.chat_id}`"
+
+                        # Biriktirilgan fayllar/skrinshotlar
+                        media_notes = []
+                        if file_name:
+                            media_notes.append(f"📁 **Fayl:** `{file_name}`")
+                        if has_photo_eff or image_bytes:
+                            media_notes.append("📷 **Skrinshot/Rasm ilova qilingan**")
+                        if has_voice_eff:
+                            media_notes.append("🎤 **Ovozli xabar mavjud**")
+                        media_info_str = ("\n" + "\n".join(media_notes)) if media_notes else ""
+
+                        # Suhbat konteksti (so'nggi 5-6 ta xabar)
+                        history_msgs = memory_service.get_history(chat_id)[-6:]
+                        hist_snippets = []
+                        for hm in history_msgs:
+                            h_role = "👤 O'quvchi" if hm.role == "user" else "🤖 Agent"
+                            h_text = (hm.content or "").strip().replace("\n", " ")
+                            if len(h_text) > 100:
+                                h_text = h_text[:97] + "..."
+                            if h_text:
+                                hist_snippets.append(f"• **{h_role}:** {h_text}")
+                        dialog_context_str = "\n".join(hist_snippets) if hist_snippets else "Yangi murojaat"
+
+                        esc_reason = orig_escalation or (
+                            "Foydalanuvchi rad javobi o'rniga ustozga yo'naltirildi" if is_refusal
+                            else "AI o'quvchiga ustozga yetkazilganini bildirdi"
+                        )
+
+                        tag_header = "🚨 #Vazifa #UstozgaYetkazildi" if (file_name or has_photo_eff or is_task_submission) else "📌 #Murojaat #UstozgaYetkazildi"
+
+                        alert_text = (
+                            f"{tag_header}\n\n"
+                            f"📍 **Manba:** {chat_source}\n"
+                            f"👤 **O'quvchi:** [{sender_name}](tg://user?id={sender_id}) ({sender_user})\n"
+                            f"🆔 **ID:** `{sender_id}`\n"
+                            f"⏰ **Vaqti:** {_get_tashkent_time()}\n"
+                            f"{media_info_str}\n"
+                            f"❓ **O'quvchi xabari:**\n\"{input_text}\"\n\n"
+                            f"🤖 **Agentning bergan javobi:**\n\"{str(answer_text)[:400]}\"\n\n"
+                            f"📜 **Umumiy suhbat konteksti:**\n{dialog_context_str}\n\n"
+                            f"📋 **Eskalatsiya xulosasi:** {esc_reason}"
+                        )
+
+                        if is_escalation_chat(event.chat_id):
+                            logger.info("Murojaat 'Vazifalar' guruhining o'zida bo'lgani uchun qayta ogohlantirish yuborilmadi.")
+                        else:
                             await dispatch_vazifalar_alert(client, alert_text)
-                            logger.info("Eskalyatsiya xabari Vazifalar guruhiga/mentorga yetkazildi")
-                        except Exception as exc:
-                            logger.error("Eskalyatsiya xabarini yetkazishda xatolik: %s", exc)
+                            logger.info("✅ Eskalatsiya xabari (to'liq kontekst bilan) Vazifalar guruhiga/mentorga yetkazildi")
+                    except Exception as esc_full_err:
+                        logger.error("Eskalatsiya xabarini shakllantirish yoki yetkazishda xatolik: %s", esc_full_err)
 
             except asyncio.CancelledError:
                 log_activity(f"Kutish bekor qilindi (Mentor yozdi) [{chat_id}]")
