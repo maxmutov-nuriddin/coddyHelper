@@ -2660,20 +2660,91 @@ class SQLiteMemoryService:
                 cursor.execute("SELECT COUNT(*) FROM daily_plans WHERE is_completed = 1")
                 completed_plans = cursor.fetchone()[0]
 
-                # Tajriba ballari (XP) formulasi:
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM precomputed_answers")
+                    total_precomputed = cursor.fetchone()[0]
+                except Exception:
+                    total_precomputed = 0
+
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM self_mistakes")
+                    total_mistakes = cursor.fetchone()[0]
+                except Exception:
+                    total_mistakes = 0
+
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM user_dossiers")
+                    total_dossiers = cursor.fetchone()[0]
+                except Exception:
+                    total_dossiers = 0
+
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM mentor_lexicon")
+                    total_lexicon = cursor.fetchone()[0]
+                except Exception:
+                    total_lexicon = 0
+
+                # Agar MongoDB ulangan bo'lsa, haqiqiy barcha kognitiv xotiralar sonini hisoblash
+                try:
+                    if mongo_memory_service.is_connected():
+                        db = mongo_memory_service._db
+                        mongo_cnt = db["brain_frontline.conversations"].count_documents({})
+                        if mongo_cnt > total_msgs:
+                            total_msgs = mongo_cnt
+
+                        m_precomp = db["brain_knowledge.precomputed_answers"].count_documents({})
+                        if m_precomp > total_precomputed:
+                            total_precomputed = m_precomp
+
+                        m_mistakes = db["brain_cognitive.self_mistakes"].count_documents({})
+                        if m_mistakes > total_mistakes:
+                            total_mistakes = m_mistakes
+
+                        m_dossiers = db["brain_frontline.user_dossiers"].count_documents({})
+                        if m_dossiers > total_dossiers:
+                            total_dossiers = m_dossiers
+
+                        m_lex = db["brain_cognitive.mentor_lexicon"].count_documents({})
+                        if m_lex > total_lexicon:
+                            total_lexicon = m_lex
+
+                        m_learned = db["brain_cognitive.learned_insights"].count_documents({})
+                        if m_learned > total_learned:
+                            total_learned = m_learned
+
+                        m_loc = db["brain_mentor.saved_locations"].count_documents({})
+                        if m_loc > total_locations:
+                            total_locations = m_loc
+                except Exception as m_cnt_err:
+                    logger.debug("Mongo count xatosi: %s", m_cnt_err)
+
+                # Tajriba ballari (XP) formulasi (Barcha kognitiv miya modullari hisobga olingan):
                 # Har bir xabar: 1 XP
                 # Har bir o'quvchi: 10 XP
                 # Har bir bajarilgan eslatma/reja: 15 XP
                 # Har bir o'rganilgan fakt/manzil: 25 XP
-                xp = (total_msgs * 1) + (total_students * 10) + ((sent_reminders + completed_plans) * 15) + ((total_locations + total_learned) * 25)
+                # Har bir precomputed kognitiv yechim: 15 XP
+                # Har bir o'rganilgan xato (self_mistakes): 10 XP
+                # Har bir chuqur shaxsiy dosye: 15 XP
+                # Har bir mentor uslubi / leksikoni: 10 XP
+                xp = (
+                    (total_msgs * 1)
+                    + (total_students * 10)
+                    + ((sent_reminders + completed_plans) * 15)
+                    + ((total_locations + total_learned) * 25)
+                    + (total_precomputed * 15)
+                    + (total_mistakes * 10)
+                    + (total_dossiers * 15)
+                    + (total_lexicon * 10)
+                )
                 
                 # Level hisoblash: Har 250 XP da yangi Level
                 level = max(1, (xp // 250) + 1)
                 xp_current_level = xp % 250
                 progress_pct = int((xp_current_level / 250) * 100)
 
-                # IQ Indeksi va Tahlilini hisoblash (Base: 115 IQ + tajriba/o'rganishlar orqali cheksiz oshib boradi)
-                iq_bonus = int((level * 2.5) + (total_learned * 2.0) + (total_students * 1.5) + (total_locations * 2.0) + (completed_plans * 1.5))
+                # IQ Indeksi va Tahlilini hisoblash (Base 115 IQ + Level va kognitiv miya zaxirasi)
+                iq_bonus = int((level * 10.5) + (total_learned * 2.5) + (total_locations * 2.0) + (total_dossiers * 0.1))
                 iq_score = 115 + iq_bonus
 
                 if iq_score < 125:
@@ -2682,30 +2753,32 @@ class SQLiteMemoryService:
                     iq_status = "Yuqori Intellekt (High IQ)"
                 elif iq_score < 155:
                     iq_status = "Katta Strategik Hamkor (Superior IQ)"
-                elif iq_score < 175:
+                elif iq_score < 250:
                     iq_status = "Daho Avtonom AI (Genius Level)"
-                elif iq_score < 200:
+                elif iq_score < 1000:
                     iq_status = "Super-Kognitiv Intellekt (Polymath AI)"
                 else:
-                    iq_status = "Mutlaq Kiber-Intellekt (Superhuman AGI)"
+                    iq_status = "Mutlaq Kiber-Intellekt (Superhuman AGI - 1600+ IQ)"
 
                 # Kognitiv qobiliyatlar tahlili (0-100% shkalada)
                 cognitive_metrics = {
-                    "memory_depth": min(100, max(20, int(35 + (total_learned * 5) + (total_locations * 6)))),
-                    "pedagogical_analysis": min(100, max(20, int(45 + (total_students * 6)))),
-                    "adaptive_intelligence": min(100, max(30, int(50 + (level * 4)))),
+                    "memory_depth": min(100, max(20, int(35 + (total_learned * 5) + (total_locations * 6) + (total_precomputed * 0.05)))),
+                    "pedagogical_analysis": min(100, max(20, int(45 + (total_students * 6) + (total_dossiers * 0.15)))),
+                    "adaptive_intelligence": min(100, max(30, int(50 + (min(50, level * 0.4))))),
                     "execution_discipline": min(100, max(20, int(40 + (completed_plans * 10) + (sent_reminders * 5)))),
                 }
 
                 # Unvonlar
                 if level < 5:
                     title = "Kichik AI Yordamchi (Junior Co-Pilot)"
-                elif level < 12:
+                elif level < 15:
                     title = "O'rta Darajadagi Shaxsiy Assistent (Middle Co-Pilot)"
-                elif level < 25:
+                elif level < 50:
                     title = "Katta Hayotiy va Ish Boshqaruvchisi (Senior Executive Co-Pilot)"
-                else:
+                elif level < 100:
                     title = "Master Avtonom AI Hamkor (Master Autonomous AI)"
+                else:
+                    title = "Mutlaq Kognitiv AGI Hamkor (Superhuman AGI Co-Pilot)"
 
                 emergency_id = self.get_setting("emergency_contact_id", "")
                 emergency_wakeup_enabled = self.get_setting("emergency_wakeup_enabled", "true").lower() == "true"
@@ -2724,8 +2797,12 @@ class SQLiteMemoryService:
                     "total_students": total_students,
                     "sent_reminders": sent_reminders,
                     "total_locations": total_locations,
-                    "total_learned_facts": total_learned,
+                    "total_learned_facts": total_learned + total_precomputed,
                     "completed_plans": completed_plans,
+                    "total_precomputed": total_precomputed,
+                    "total_mistakes": total_mistakes,
+                    "total_dossiers": total_dossiers,
+                    "total_lexicon": total_lexicon,
                     "emergency_contact_id": emergency_id,
                     "emergency_wakeup_enabled": emergency_wakeup_enabled,
                 }
