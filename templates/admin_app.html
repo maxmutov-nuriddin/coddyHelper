@@ -6298,7 +6298,7 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         if (res && res.ok) {
           showToast('Guruh ID muvaffaqiyatli saqlandi ✅');
         } else {
-          showToast('Xatolik: ' + (res?.error || 'Noma'lum xato'), true);
+          showToast('Xatolik: ' + (res?.error || "Noma'lum xato"), true);
         }
       } catch (e) {
         showToast('Tizim xatosi', true);
