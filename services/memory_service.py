@@ -353,6 +353,8 @@ class SQLiteMemoryService:
                         active INTEGER DEFAULT 1,
                         expires_at TIMESTAMP,
                         role TEXT DEFAULT 'client',
+                        session_string TEXT DEFAULT '',
+                        session_active INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -364,6 +366,15 @@ class SQLiteMemoryService:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_subs_active ON user_subscriptions (active, expires_at)"
                 )
+                # Mavjud DB ga yangi ustunlar qo'shish (migration)
+                for col_def in [
+                    "ALTER TABLE user_subscriptions ADD COLUMN session_string TEXT DEFAULT ''",
+                    "ALTER TABLE user_subscriptions ADD COLUMN session_active INTEGER DEFAULT 0",
+                ]:
+                    try:
+                        conn.execute(col_def)
+                    except Exception:
+                        pass  # Ustun allaqachon mavjud
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -3551,7 +3562,8 @@ class SQLiteMemoryService:
                 cursor.execute(
                     """
                     SELECT user_id, username, full_name, phone, business_name,
-                           profession, system_prompt, group_id, active, expires_at, role, created_at
+                           profession, system_prompt, group_id, active, expires_at, role, created_at,
+                           session_string, session_active
                     FROM user_subscriptions WHERE user_id = ?
                     """,
                     (user_id,)
@@ -3590,6 +3602,8 @@ class SQLiteMemoryService:
                     "role": row[10] or "client",
                     "created_at": str(row[11]) if row[11] else "",
                     "is_expired": is_expired,
+                    "session_string": row[12] or "",
+                    "session_active": int(row[13] or 0),
                 }
         except Exception as e:
             logger.error("Obunani o'qishda xatolik [%s]: %s", user_id, e)
@@ -3713,6 +3727,46 @@ class SQLiteMemoryService:
             logger.error("Guruhni biriktirishda xatolik: %s", e)
             return False
 
+    def save_session_string(self, user_id: int, session_string: str) -> bool:
+        """Mijozning Telethon string session kodini saqlaydi."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE user_subscriptions SET session_string = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (session_string or "", user_id)
+                )
+                conn.commit()
+            # MongoDB ga ham sync
+            if mongo_memory_service.is_connected():
+                try:
+                    mongo_memory_service._db["system_core.user_subscriptions"].update_one(
+                        {"user_id": user_id},
+                        {"$set": {"session_string": session_string or "", "updated_at": __import__("datetime").datetime.now()}},
+                        upsert=True,
+                    )
+                except Exception:
+                    pass
+            logger.info("Mijoz sessiya kodi saqlandi: user_id=%s", user_id)
+            return True
+        except Exception as e:
+            logger.error("Sessiya kodini saqlashda xatolik [%s]: %s", user_id, e)
+            return False
+
+    def set_session_active(self, user_id: int, active: bool) -> bool:
+        """Mijozning session holatini yangilaydi (ishlamoqda / to'xtagan)."""
+        try:
+            val = 1 if active else 0
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE user_subscriptions SET session_active = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (val, user_id)
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error("Session holatini o'zgartirishda xatolik [%s]: %s", user_id, e)
+            return False
+
     def get_subscription_by_group(self, group_id: int) -> dict | None:
         """Guruh ID bo'yicha uning egasi (obunachi)ni topadi."""
         if str(group_id) in (str(config.escalation_chat), "-1005388159517", "-5388159517"):
@@ -3763,7 +3817,8 @@ class SQLiteMemoryService:
                 cursor.execute(
                     """
                     SELECT user_id, username, full_name, business_name, profession,
-                           system_prompt, group_id, active, expires_at, role, created_at
+                           system_prompt, group_id, active, expires_at, role, created_at,
+                           session_string, session_active
                     FROM user_subscriptions ORDER BY created_at DESC
                     """
                 )
@@ -3780,6 +3835,8 @@ class SQLiteMemoryService:
                         "expires_at": str(r[8]) if r[8] else "",
                         "role": r[9] or "client",
                         "created_at": str(r[10]) if r[10] else "",
+                        "session_string": r[11] or "",
+                        "session_active": int(r[12] or 0),
                     })
         except Exception as e:
             logger.error("Barcha obunachilarni olishda xatolik: %s", e)

@@ -314,6 +314,14 @@ async def main():
         from services.bot_service import start_bot_service
         asyncio.create_task(start_bot_service())
 
+    # Barcha mijoz sessionlarini ishga tushirish (har biri o'z akkauntidan ishlaydi)
+    try:
+        from services.client_session_manager import client_session_manager
+        asyncio.create_task(client_session_manager.start_all_saved_sessions())
+        logger.info("🔄 Mijoz sessionlari startup'da ishga tushirilmoqda...")
+    except Exception as csm_err:
+        logger.warning("Client session manager ishga tushirishda ogohlantirish: %s", csm_err)
+
     me = await client.get_me()
     first_name = getattr(me, "first_name", "Foydalanuvchi")
     username = f"@{me.username}" if getattr(me, "username", None) else f"ID: {me.id}"

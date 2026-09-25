@@ -1823,6 +1823,71 @@ self.addEventListener('fetch', (event) => {
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_api_save_session_string(request: web.Request):
+        """Mijozning Telethon string session kodini saqlaydi."""
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        user_info = get_current_user(request)
+        if not user_info["is_super_admin"]:
+            return web.json_response({"ok": False, "error": "Faqat Super Admin sessiya kodini saqlaydi!"}, status=403)
+        try:
+            data = await request.json()
+            user_id = int(data.get("user_id", 0))
+            session_string = str(data.get("session_string", "")).strip()
+            if not user_id:
+                return web.json_response({"ok": False, "error": "user_id kiritilishi shart"}, status=400)
+            if not session_string:
+                return web.json_response({"ok": False, "error": "session_string bo'sh bo'lmasligi kerak"}, status=400)
+            ok = memory_service.save_session_string(user_id, session_string)
+            return web.json_response({"ok": ok, "message": "Sessiya kodi saqlandi ✅"})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_start_client_session(request: web.Request):
+        """Mijozning Telegram sessionini ishga tushiradi."""
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        user_info = get_current_user(request)
+        if not user_info["is_super_admin"]:
+            return web.json_response({"ok": False, "error": "Faqat Super Admin session ishga tushira oladi!"}, status=403)
+        try:
+            data = await request.json()
+            user_id = int(data.get("user_id", 0))
+            if not user_id:
+                return web.json_response({"ok": False, "error": "user_id kiritilishi shart"}, status=400)
+            sub = memory_service.get_subscription(user_id)
+            if not sub:
+                return web.json_response({"ok": False, "error": "Mijoz topilmadi"}, status=404)
+            session_string = sub.get("session_string", "")
+            if not session_string:
+                return web.json_response({"ok": False, "error": "Sessiya kodi kiritilmagan. Avval HSS kodni saqlang."}, status=400)
+            from services.client_session_manager import client_session_manager
+            ok = await client_session_manager.start_session(user_id, session_string)
+            if ok:
+                return web.json_response({"ok": True, "message": f"Mijoz sessiyasi ishga tushdi ✅"})
+            else:
+                return web.json_response({"ok": False, "error": "Sessiyani ishga tushirishda xatolik. HSS kodni tekshiring."}, status=500)
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_stop_client_session(request: web.Request):
+        """Mijozning Telegram sessionini to'xtatadi."""
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        user_info = get_current_user(request)
+        if not user_info["is_super_admin"]:
+            return web.json_response({"ok": False, "error": "Faqat Super Admin session to'xtata oladi!"}, status=403)
+        try:
+            data = await request.json()
+            user_id = int(data.get("user_id", 0))
+            if not user_id:
+                return web.json_response({"ok": False, "error": "user_id kiritilishi shart"}, status=400)
+            from services.client_session_manager import client_session_manager
+            ok = await client_session_manager.stop_session(user_id)
+            return web.json_response({"ok": ok, "message": "Sessiya to'xtatildi 🛑"})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_get("/manifest.json", handle_manifest_json)
@@ -1882,6 +1947,9 @@ self.addEventListener('fetch', (event) => {
     app.router.add_post("/api/subscriptions", handle_api_upsert_subscription)
     app.router.add_post("/api/subscriptions/revoke", handle_api_revoke_subscription)
     app.router.add_post("/api/subscriptions/delete", handle_api_delete_subscription)
+    app.router.add_post("/api/subscriptions/session/save", handle_api_save_session_string)
+    app.router.add_post("/api/subscriptions/session/start", handle_api_start_client_session)
+    app.router.add_post("/api/subscriptions/session/stop", handle_api_stop_client_session)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

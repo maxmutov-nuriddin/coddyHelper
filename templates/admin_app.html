@@ -2370,6 +2370,21 @@
         <textarea id="modal-client-prompt" class="form-input" rows="4" placeholder="Ixtiyoriy: Ushbu mijozning sun'iy intellekti qanday javob berishi kerak (masalan: do'kon mahsulotlari, narxlar va xushmuomala xizmat ko'rsatish)"></textarea>
       </div>
 
+      <!-- HSS Session qismi — faqat Super Admin uchun -->
+      <div class="form-group" id="modal-session-section" style="border: 1px solid rgba(100,200,255,0.2); border-radius: 10px; padding: 12px; background: rgba(0,150,255,0.04);">
+        <label class="form-label" style="color: #60a5fa; font-weight: 700;">🔑 Telegram Session (HSS kodi)</label>
+        <textarea id="modal-client-session" class="form-input" rows="3" placeholder="Mijozning Telethon string session kodi (ixtiyoriy). Mijoz https://my.telegram.org orqali session yaratib beradi." style="font-family: monospace; font-size: 11px;"></textarea>
+        <div style="font-size: 11px; color: var(--hint-color); margin-top: 4px;">
+          ⚠️ Bu kod orqali mijoz akkauntidan agent ishlaydi. Faqat ishonchli mijozlar uchun.
+        </div>
+        <div id="modal-session-status" style="display:none; margin-top: 8px;"></div>
+        <div id="modal-session-controls" style="display:none; gap: 6px; margin-top: 8px; flex-wrap: wrap;">
+          <button class="btn btn-secondary" onclick="saveSessionString()" style="flex:1; font-size: 12px; padding: 6px 10px;">💾 HSS Saqlash</button>
+          <button class="btn btn-primary" onclick="startClientSession()" style="flex:1; font-size: 12px; padding: 6px 10px; background: #22c55e; border-color: #22c55e;">▶️ Ishga tushir</button>
+          <button class="btn btn-secondary" onclick="stopClientSession()" style="flex:1; font-size: 12px; padding: 6px 10px; background: #ef4444; border-color: #ef4444; color: #fff;">⏹ To'xtatish</button>
+        </div>
+      </div>
+
       <div style="display: flex; gap: 8px; margin-top: 16px;">
         <button class="btn btn-secondary" onclick="closeClientModal()" style="flex: 1;">Bekor qilish</button>
         <button class="btn btn-primary" onclick="saveClient()" style="flex: 1;">Saqlash</button>
@@ -5000,6 +5015,14 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
               <div>
                 <span style="color: var(--hint-color);">Roli:</span> <b style="color: #a855f7;">${c.role || 'client'}</b>
               </div>
+              <div style="grid-column: 1/-1;">
+                <span style="color: var(--hint-color);">🤖 Agent session:</span>
+                ${c.session_active === 1
+                  ? `<b style="color:#22c55e;">🟢 Faol — o'z akkauntidan ishlayapti</b>`
+                  : (c.session_string
+                      ? `<b style="color:#f59e0b;">🟡 Saqlangan, ishlamayapti</b>`
+                      : `<span style="color:#64748b;">⚪ Ulanmagan</span>`)}
+              </div>
             </div>
 
             ${c.system_prompt ? `
@@ -5055,6 +5078,9 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
       const title = document.getElementById("client-modal-title");
       const daysLabel = document.getElementById("modal-client-days-label");
       const daysHint = document.getElementById("modal-client-days-hint");
+      const sessionSection = document.getElementById("modal-session-section");
+      const sessionControls = document.getElementById("modal-session-controls");
+      const sessionStatus = document.getElementById("modal-session-status");
       modal.style.display = "flex";
 
       if (userId) {
@@ -5073,6 +5099,18 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
           document.getElementById("modal-client-profession").value = c.profession || "";
           document.getElementById("modal-client-days").value = 0;
           document.getElementById("modal-client-prompt").value = c.system_prompt || "";
+          // Session qismi
+          document.getElementById("modal-client-session").value = c.session_string || "";
+          if (sessionControls) sessionControls.style.display = "flex";
+          if (sessionStatus) {
+            const isActive = c.session_active === 1;
+            sessionStatus.style.display = "block";
+            sessionStatus.innerHTML = isActive
+              ? `<span style="color:#22c55e; font-weight:700;">🟢 Session faol — agent ishlayapti</span>`
+              : (c.session_string
+                  ? `<span style="color:#f59e0b; font-weight:700;">🟡 Session saqlangan, lekin ishlamayapti</span>`
+                  : `<span style="color:#94a3b8;">⚪ Session kiritilmagan</span>`);
+          }
           return;
         }
       }
@@ -5090,10 +5128,93 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
       document.getElementById("modal-client-profession").value = "";
       document.getElementById("modal-client-days").value = 30;
       document.getElementById("modal-client-prompt").value = "";
+      document.getElementById("modal-client-session").value = "";
+      if (sessionControls) sessionControls.style.display = "none";
+      if (sessionStatus) sessionStatus.style.display = "none";
     }
 
     function closeClientModal() {
       document.getElementById("client-modal").style.display = "none";
+    }
+
+    async function saveSessionString() {
+      haptic();
+      const userId = parseInt(document.getElementById("modal-client-user-id").value);
+      const sessionStr = document.getElementById("modal-client-session").value.trim();
+      if (!userId) return showToast("Avval mijozni saqlang!");
+      if (!sessionStr) return showToast("HSS kodni kiriting!");
+      const statusEl = document.getElementById("modal-session-status");
+      if (statusEl) { statusEl.style.display = "block"; statusEl.innerHTML = `<span style="color:#60a5fa;">💾 Saqlanmoqda...</span>`; }
+      try {
+        const r = await fetch("/api/subscriptions/session/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ user_id: userId, session_string: sessionStr })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          showToast("✅ HSS kodi saqlandi!");
+          if (statusEl) statusEl.innerHTML = `<span style="color:#f59e0b; font-weight:700;">🟡 Session saqlangan, lekin ishlamayapti — ▶️ Ishga tushiring</span>`;
+          // Cache yangilaymiz
+          const c = clientsCache.find(x => x.user_id === userId);
+          if (c) c.session_string = sessionStr;
+        } else {
+          showToast("❌ Xatolik: " + (d.error || "Noma'lum"));
+          if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">❌ ${d.error}</span>`;
+        }
+      } catch (e) { showToast("❌ Server xatosi"); }
+    }
+
+    async function startClientSession() {
+      haptic();
+      const userId = parseInt(document.getElementById("modal-client-user-id").value);
+      if (!userId) return showToast("Avval mijozni saqlang!");
+      const statusEl = document.getElementById("modal-session-status");
+      if (statusEl) { statusEl.style.display = "block"; statusEl.innerHTML = `<span style="color:#60a5fa;">▶️ Ishga tushirilmoqda...</span>`; }
+      try {
+        const r = await fetch("/api/subscriptions/session/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ user_id: userId })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          showToast("✅ Sessiya ishga tushdi!");
+          if (statusEl) statusEl.innerHTML = `<span style="color:#22c55e; font-weight:700;">🟢 Session faol — agent ishlayapti</span>`;
+          const c = clientsCache.find(x => x.user_id === userId);
+          if (c) c.session_active = 1;
+        } else {
+          showToast("❌ " + (d.error || "Ishga tushirishda xatolik"));
+          if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">❌ ${d.error}</span>`;
+        }
+      } catch (e) { showToast("❌ Server xatosi"); }
+    }
+
+    async function stopClientSession() {
+      haptic();
+      const userId = parseInt(document.getElementById("modal-client-user-id").value);
+      if (!userId) return showToast("user_id topilmadi!");
+      const statusEl = document.getElementById("modal-session-status");
+      if (statusEl) { statusEl.style.display = "block"; statusEl.innerHTML = `<span style="color:#f59e0b;">⏹ To'xtatilmoqda...</span>`; }
+      try {
+        const r = await fetch("/api/subscriptions/session/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ user_id: userId })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          showToast("🛑 Sessiya to'xtatildi");
+          if (statusEl) statusEl.innerHTML = `<span style="color:#94a3b8;">⚪ Session to'xtatildi</span>`;
+          const c = clientsCache.find(x => x.user_id === userId);
+          if (c) c.session_active = 0;
+        } else {
+          showToast("❌ " + (d.error || "Xatolik"));
+        }
+      } catch (e) { showToast("❌ Server xatosi"); }
     }
 
     async function saveClient() {
