@@ -482,10 +482,17 @@ self.addEventListener('fetch', (event) => {
             except Exception as e:
                 logger.debug("Telegram status olishda ogohlantirish: %s", e)
 
+
         telegram_me = _telegram_me_cache["me"]
         telegram_authorized = _telegram_me_cache["authorized"]
 
+        user_info = get_current_user(request)
+        current_group_id = 0
+        if user_info and user_info.get("subscription"):
+            current_group_id = user_info["subscription"].get("group_id", 0)
+
         active_ai = (
+
             f"Groq Multi-Key Cluster ({config.groq_model})"
             if (config.groq_api_keys or config.groq_api_key)
             else f"Gemini ({config.gemini_model})"
@@ -528,14 +535,17 @@ self.addEventListener('fetch', (event) => {
                 "escalation_chat": str(config.escalation_chat),
                 "mentor_wait_seconds": config.mentor_wait_seconds,
                 "active_chats_count": memory_service.total_active_chats(),
-                "active_reminders_count": memory_service.get_active_reminders_count(),
+
+                "active_reminders_count": memory_service.get_active_reminders_count(creator_id=(0 if user_info["is_super_admin"] else user_info["user_id"])),
                 "ignored_users_count": memory_service.get_ignored_users_count(),
                 "learned_facts_count": memory_service.get_learned_facts_count(),
                 "trusted_websites": memory_service.get_trusted_websites(),
                 "curriculum_topics": memory_service.get_curriculum_topics(),
                 "recent_activity_logs": list(reversed(RECENT_ACTIVITY_LOGS[-15:])),
+
                 "telegram_authorized": telegram_authorized,
                 "telegram_me": telegram_me,
+                "current_group_id": current_group_id,
                 "mentor": mentor_dict,
                 "ai_metrics": ai_service.get_metrics(),
                 "autonomous_brain": autonomous_brain_service.get_status(),
@@ -721,11 +731,15 @@ self.addEventListener('fetch', (event) => {
     # -----------------------------------------------------------
     # 5. Eslatmalar (Reminders) API
     # -----------------------------------------------------------
+
     async def handle_api_get_reminders(request: web.Request):
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
-        reminders = memory_service.get_active_reminders(50)
+        user_info = get_current_user(request)
+        uid = 0 if user_info["is_super_admin"] else user_info["user_id"]
+        reminders = memory_service.get_active_reminders(50, creator_id=uid)
         return web.json_response({"ok": True, "reminders": reminders})
+
 
     async def handle_api_add_reminder(request: web.Request):
         if not is_authenticated(request):
@@ -1708,11 +1722,15 @@ self.addEventListener('fetch', (event) => {
 
         return web.json_response({"ok": True, "photos": photo_urls, "count": len(photo_urls)})
 
+
     async def handle_api_get_precomputed_answers(request: web.Request):
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
-        items = memory_service.get_all_precomputed_answers(limit=60)
+        user_info = get_current_user(request)
+        uid = 0 if user_info["is_super_admin"] else user_info["user_id"]
+        items = memory_service.get_all_precomputed_answers(limit=60, owner_id=uid)
         return web.json_response({"ok": True, "items": items})
+
 
     async def handle_api_delete_precomputed_answer(request: web.Request):
         if not is_authenticated(request):
@@ -1810,6 +1828,29 @@ self.addEventListener('fetch', (event) => {
         else:
             sub = user_info["subscription"]
             return web.json_response({"ok": True, "subscriptions": [sub] if sub else [], "is_super_admin": False})
+
+    
+    async def handle_api_update_my_group_id(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        user_info = get_current_user(request)
+        try:
+            data = await request.json()
+            group_id = int(data.get("group_id", 0))
+            # Agar super admin bo'lsa va maxsus user_id yuborgan bo'lsa
+            target_user_id = int(data.get("user_id", 0))
+            if user_info["is_super_admin"] and target_user_id:
+                uid = target_user_id
+            else:
+                uid = user_info["user_id"]
+                
+            if not uid:
+                return web.json_response({"ok": False, "error": "Foydalanuvchi aniqlanmadi"}, status=400)
+                
+            memory_service.link_user_group(uid, group_id)
+            return web.json_response({"ok": True, "group_id": group_id, "user_id": uid})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
 
     async def handle_api_upsert_subscription(request: web.Request):
         if not is_authenticated(request):
@@ -2002,6 +2043,7 @@ self.addEventListener('fetch', (event) => {
     app.router.add_get("/api/gemini/settings", handle_api_gemini_settings)
     app.router.add_post("/api/gemini/settings", handle_api_gemini_settings)
     app.router.add_get("/api/subscriptions", handle_api_get_subscriptions)
+    app.router.add_post("/api/update-group-id", handle_api_update_my_group_id)
     app.router.add_post("/api/subscriptions", handle_api_upsert_subscription)
     app.router.add_post("/api/subscriptions/revoke", handle_api_revoke_subscription)
     app.router.add_post("/api/subscriptions/delete", handle_api_delete_subscription)

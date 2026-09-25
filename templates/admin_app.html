@@ -1318,7 +1318,7 @@
         </div>
 
         <!-- SILENT PROFILER & HISTORIC CRAWLER CONTROL ROW -->
-        <div style="background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px;">
+        <div id="dashboard-widget-profiler" style="background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 13px;">🕵️‍♂️</span>
@@ -1556,8 +1556,23 @@
           </label>
         </div>
 
+
+        <!-- USER GROUP ID CONFIGURATION -->
+        <div id="dashboard-widget-group-id" style="background: rgba(34, 197, 94, 0.05); border: 1px solid rgba(34, 197, 94, 0.28); border-radius: 10px; padding: 12px 14px; margin-top: 12px; display: none;">
+          <div style="font-size: 13px; font-weight: 700; color: #22c55e; display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+            <span>👥</span> Shaxsiy Guruh ID'ni sozlash
+          </div>
+          <div style="font-size: 11px; color: var(--hint-color); margin-bottom: 10px;">
+            Agent faqat shu guruhdagi savollarga e'tibor qaratadi va shu guruhga ishlaydi. Manfiy ishorali ID kiriting (masalan: -100123456789).
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="input-my-group-id" placeholder="-100..." class="form-input" style="flex: 1; padding: 6px 10px; font-size: 13px; background: rgba(0,0,0,0.3); border: 1px solid rgba(34, 197, 94, 0.3);">
+            <button onclick="saveMyGroupId()" class="btn-primary" style="padding: 6px 14px; border-radius: 6px; font-size: 12px;">Saqlash</button>
+          </div>
+        </div>
+
         <!-- GEMINI CONTROL HUB -->
-        <div style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.28); border-radius: 10px; padding: 12px 14px; margin-top: 4px; display: flex; flex-direction: column; gap: 10px;">
+        <div id="dashboard-widget-gemini" style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.28); border-radius: 10px; padding: 12px 14px; margin-top: 4px; display: flex; flex-direction: column; gap: 10px;">
           <!-- Top Row: Title + Status + Main Switch -->
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <div>
@@ -2819,7 +2834,64 @@
       const clientsBox = document.getElementById("metric-clients-box");
       if (clientsBox) clientsBox.style.display = isSuper ? "block" : "none";
 
+      const dashProfiler = document.getElementById("dashboard-widget-profiler");
+      if (dashProfiler) dashProfiler.style.display = isSuper ? "block" : "none";
+
+      const dashGemini = document.getElementById("dashboard-widget-gemini");
+      if (dashGemini) dashGemini.style.display = isSuper ? "flex" : "none";
+
+      const personaSelect = document.getElementById("select-ai-persona");
+      if (personaSelect) {
+        if (isSuper) {
+          personaSelect.innerHTML = `
+            <option value="socratic">🧑‍🏫 Sokratik Mentor (O'quvchini fikrlashga undaydi, yo'l ko'rsatadi)</option>
+            <option value="tech_lead">💻 Tech Lead (Aniq, lo'nda, to'g'ridan-to'g'ri texnik yechim)</option>
+            <option value="friendly">🤝 Do'stona & Sabrli (Sodda tilda, yangi boshlovchilar uchun)</option>
+          `;
+          personaSelect.previousElementSibling.innerText = "🧑‍🏫 Mentorlik Metodikasi";
+        } else {
+          personaSelect.innerHTML = `
+            <option value="friendly">🤝 Do'stona (Sodda tilda, xushmuomala yordam)</option>
+            <option value="assistant">🤖 Standart Yordamchi (Aniq va tezkor javoblar)</option>
+            <option value="tech_lead">💻 Mutaxassis (Professional va chuqur texnik tahlil)</option>
+          `;
+          personaSelect.previousElementSibling.innerText = "🤖 AI Xulqi & Uslubi";
+        }
+        if (data.ai_persona) personaSelect.value = data.ai_persona;
+      }
+
+
+      const codeModeSelect = document.getElementById("select-ai-code-mode");
+      if (codeModeSelect) {
+        if (isSuper) {
+          codeModeSelect.innerHTML = `
+            <option value="full_code">💻 To'liq ishlaydigan kod variantini taqdim etish</option>
+            <option value="hints_only">💡 Faqat maslahat va yo'nalish (Tayyor kod bermaslik)</option>
+          `;
+          codeModeSelect.previousElementSibling.innerText = "💻 Kod Berish Darajasi";
+        } else {
+          codeModeSelect.innerHTML = `
+            <option value="full_code">💻 To'liq ishlaydigan kod tayyorlab berish</option>
+            <option value="snippets_only">📝 Faqat qisqa qismlar (Snippetlar)</option>
+            <option value="hints_only">💡 Faqat tushuntirish va yo'nalish berish</option>
+          `;
+          codeModeSelect.previousElementSibling.innerText = "💻 Kod Yozish Yordami";
+        }
+        if (data.ai_code_mode) codeModeSelect.value = data.ai_code_mode;
+      }
+      
+      const inputGroupId = document.getElementById("input-my-group-id");
+      if (inputGroupId && data.current_group_id) {
+          inputGroupId.value = data.current_group_id !== 0 ? data.current_group_id : "";
+      }
+
+
+
+      const dashGroupId = document.getElementById("dashboard-widget-group-id");
+      if (dashGroupId) dashGroupId.style.display = isSuper ? "none" : "block";
+
       // Tab-Knowledge Customization for Client vs Super Admin
+
       const knowSectionBadge = document.querySelector("#tab-knowledge .section-header-badge");
       const topicsCardTitle = document.getElementById("curriculum-topics-title");
       const topicsDesc = document.getElementById("curriculum-topics-desc");
@@ -6215,6 +6287,23 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         refreshAiMetrics();
       }
     }, 10000);
+
+
+    async function saveMyGroupId() {
+      const val = document.getElementById('input-my-group-id').value.trim();
+      if (!val) { showToast('ID kiriting', true); return; }
+      haptic();
+      try {
+        const res = await apiRequest('/api/update-group-id', 'POST', { group_id: parseInt(val) });
+        if (res && res.ok) {
+          showToast('Guruh ID muvaffaqiyatli saqlandi ✅');
+        } else {
+          showToast('Xatolik: ' + (res?.error || 'Noma'lum xato'), true);
+        }
+      } catch (e) {
+        showToast('Tizim xatosi', true);
+      }
+    }
 
     // ==================== PWA & INSTALL SUPPORT ====================
     let deferredInstallPrompt = null;

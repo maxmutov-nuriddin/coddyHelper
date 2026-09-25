@@ -802,24 +802,26 @@ class MongoMemoryService:
     # ==========================================
     # Precomputed Answers (Kesh yechimlar)
     # ==========================================
+
+
     def save_precomputed_answer(
-        self, topic: str, question: str, answer: str, category: str = "dasturlash"
+        self, topic: str, question_pattern: str, answer_text: str, owner_id: int = 0
     ) -> bool:
-        if not self.is_connected() or not question or not answer:
+        if not self.is_connected() or not question_pattern or not answer_text:
             return False
         try:
             doc = {
                 "topic": topic,
-                "category": category,
-                "trigger_pattern": question,
-                "clean_question": question.strip().lower(),
-                "response_text": answer,
-                "updated_at": datetime.now(ZoneInfo("Asia/Tashkent")),
+                "question_pattern": question_pattern,
+                "answer_text": answer_text,
+                "owner_id": owner_id,
+                "usage_count": 0,
+                "created_at": datetime.utcnow()
             }
             self._db["brain_knowledge.precomputed_answers"].update_one(
-                {"clean_question": doc["clean_question"]},
-                {"$set": doc, "$setOnInsert": {"created_at": datetime.now(ZoneInfo("Asia/Tashkent")), "usage_count": 0}},
-                upsert=True,
+                {"question_pattern": question_pattern, "owner_id": owner_id},
+                {"$setOnInsert": doc},
+                upsert=True
             )
             return True
         except Exception as e:
@@ -843,11 +845,16 @@ class MongoMemoryService:
             logger.error("MongoDB delete_precomputed_answer xatolik: %s", e)
             return False
 
-    def get_all_precomputed_answers(self, limit: int = 100) -> list[dict]:
+
+    def get_all_precomputed_answers(self, limit: int = 100, owner_id: int = 0) -> list[dict]:
         if not self.is_connected():
             return []
         try:
-            return list(self._db["brain_knowledge.precomputed_answers"].find().limit(limit))
+            query = {}
+            if owner_id:
+                query["owner_id"] = owner_id
+            return list(self._db["brain_knowledge.precomputed_answers"].find(query).limit(limit))
+
         except Exception as e:
             logger.error("MongoDB get_all_precomputed_answers xatolik: %s", e)
             return []

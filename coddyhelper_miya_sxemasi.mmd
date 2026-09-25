@@ -1,0 +1,72 @@
+flowchart TD
+    %% 1-BOSQICH: XABAR KELISHI
+    subgraph S1["1. Xabar Kirib Kelishi (Telegram Ingestion)"]
+        A1["Telegram'dan yangi hodisa (event)"] --> A2{"Xabar qayerdan keldi?"}
+        A2 -- "Lichka (Shaxsiy chat)" --> A3["Lichka oqimi: To'g'ridan-to'g'ri qabul"]
+        A2 -- "Guruh (O'quvchilar chati)" --> B1["Guruh oqimi: Qalqonga yo'naltirish"]
+    end
+
+    %% 2-BOSQICH: GURUH QALQONI VA TEKSHIRUVLAR
+    subgraph S2["2. Kognitiv Guruh Qalqoni (4 Pog'onali Filtrlash)"]
+        B1 --> C1{"1-Pog'ona: Xavfli fayl yoki Botga reply bormi?"}
+        C1 -- "Ha" --> D_OK["Xabar qabul qilindi ✅"]
+        C1 -- "Yo'q" --> C2{"2-Pog'ona: Ustozga murojaat bormi?\n('Ustoz', 'Nuriddin aka', '@mentor_cc', 'ko'rib bering')"}
+        
+        C2 -- "Ha (Ustoz chaqirilgan)" --> D_OK
+        C2 -- "Yo'q" --> C3{"3-Pog'ona: O'quvchilar o'zaro gaplashyaptimi?\n(Boshqa o'quvchiga reply / 'sanda', 'bro', 'tashavor')"}
+        
+        C3 -- "Ha (O'quvchilar o'zaro suhbati)" --> SILENT["🚫 AI JIM TURADI\n(Suhbatga aslo aralashmaydi)"]
+        C3 -- "Yo'q" --> C4{"Mavzu dasturlash/kodga doirmi?\n(Off-topic: futbol, CS, ob-havo)"}
+        
+        C4 -- "Yo'q (Befoyda suhbat)" --> SILENT
+        C4 -- "Ha (Umumiy kod savoli)" --> C5["4-Pog'ona: Sokratik 12 soniya kutish oynasi"]
+        
+        C5 --> C6{"12s ichida boshqa o'quvchi javob berdimi?"}
+        C6 -- "Ha (Tengdosh yordam berdi)" --> SILENT
+        C6 -- "Yo'q (Hech kim bilmadi)" --> D_OK
+    end
+
+    A3 --> D_OK
+
+    %% 3-BOSQICH: BUFER VA AGREGATOR
+    subgraph S3["3. Xabarlar Agregatori (MESSAGE_ACCUMULATOR)"]
+        D_OK --> E1["O'quvchi bo'lib-bo'lib yozishini kutish (5 soniya)"]
+        E1 --> E2{"Yana qo'shimcha xabar yozdimi?"}
+        E2 -- "Ha" --> E3["Yangi xabarni buferga qo'shish va taymerni qayta boshlash"]
+        E3 --> E1
+        E2 -- "Yo'q (5s tugadi)" --> E4["Barcha bo'lingan xabarlarni yaxlit 1 ta savolga birlashtirish"]
+    end
+
+    %% 4-BOSQICH: XOTIRA VA KONTEKST
+    subgraph S4["4. Xotira va Kontekstni Boyitish (Dual Memory)"]
+        E4 --> M1["SQLite: Oxirgi suhbatlarni vaqt tamg'asi [HH:MM] bilan olish"]
+        E4 --> M2["MongoDB: O'quvchining profilini va dars darajasini yuklash"]
+        M1 --> M3["Yaxlit boyitilgan so'rov paketi"]
+        M2 --> M3
+    end
+
+    %% 5-BOSQICH: MIYA VA INTELLEKT
+    subgraph S5["5. Miya Marshrutizatori (5 Core Brains)"]
+        M3 --> R1{"So'rov turini aniqlash"}
+        
+        R1 -- "Rasm / Skrinshot xatolik" --> B_VIS["3-Miya: Gemini Vision OCR (Rasmdan kodni o'qish)"]
+        R1 -- "Ovozli xabar (Voice)" --> B_VOICE["3-Miya: Groq Whisper (Ovozni matnga aylantirish)"]
+        R1 -- "Dasturlash xatosi / Savol" --> B_CODE["1-Miya: Groq LLaMA-3.3 70B (Sokratik Mentor)"]
+        R1 -- "Murakkab loyiha / DB / Hisobot" --> B_VIP["2-Miya: Gemini 2.5 Pro (Chuqur tahlil)"]
+        R1 -- "Darsdan tashqari / Begona mavzu" --> B_OUT["5-Miya: Avtonom Eskalatsiya (Vazifalar)"]
+    end
+
+    %% 6-BOSQICH: NATIJA VA HARAKAT
+    subgraph S6["6. Harakat va Chiqish (Dual Output)"]
+        B_VIS --> B_CODE
+        B_VOICE --> B_CODE
+
+        B_CODE --> OUT_STUDENT["Telegram: O'quvchiga Sokratik yo'naltiruvchi javob\n(Tayyor kod emas, xatosini o'zi topishiga yordam)"]
+        B_VIP --> OUT_STUDENT
+
+        B_OUT --> OUT_NOTICE["Telegram: O'quvchiga muloyim javob:\n'Xabaringiz Ustozga yetkazildi'"]
+        B_OUT --> OUT_VAZIFA["Vazifalar Guruhi: Ustoz nazorati uchun maxsus kartochka 📋"]
+
+        OUT_STUDENT --> DB_SAVE["Yangi javobni SQLite [HH:MM] va MongoDB'ga yozib qo'yish"]
+        OUT_NOTICE --> DB_SAVE
+    end

@@ -775,17 +775,19 @@ class SQLiteMemoryService:
         except Exception:
             return 0
 
-    def get_active_reminders_count(self) -> int:
-        """Faol eslatmalar sonini SQLite'dan 0.1ms da hisoblaydi."""
-        now_str = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
+
+    def get_active_reminders_count(self, creator_id: int = 0) -> int:
+        """Hali yuborilmagan eslatmalar sonini qaytaradi."""
         try:
             with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM reminders WHERE is_sent = 0 AND remind_at >= ?", (now_str,))
-                row = cursor.fetchone()
-                return row[0] if row else 0
+                if creator_id and not self.is_super_admin(creator_id):
+                    res = conn.execute("SELECT count(*) FROM reminders WHERE is_sent = 0 AND creator_id = ?", (creator_id,)).fetchone()
+                else:
+                    res = conn.execute("SELECT count(*) FROM reminders WHERE is_sent = 0").fetchone()
+                return res[0] if res else 0
         except Exception:
             return 0
+
 
     def get_ignored_users_count(self) -> int:
         """Bloklanganlar sonini SQLite'dan 0.1ms da hisoblaydi."""
@@ -1487,31 +1489,18 @@ class SQLiteMemoryService:
             logger.error("Avtonom saboqni saqlashda xatolik: %s", e)
             return 0
 
-    def add_precomputed_answer(self, topic: str, question_pattern: str, answer_text: str, **kwargs) -> int | None:
+
+    def add_precomputed_answer(self, topic: str, question_pattern: str, answer_text: str, owner_id: int = 0, **kwargs) -> int | None:
         """Kelgusida so'ralishi mumkin bo'lgan savollarga oldindan tayyorlangan mukammal javobni saqlaydi."""
         try:
             with self._get_connection() as conn:
                 try:
-                    conn.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS precomputed_answers (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            topic TEXT NOT NULL,
-                            question_pattern TEXT NOT NULL,
-                            answer_text TEXT NOT NULL,
-                            usage_count INTEGER DEFAULT 0,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                        """
-                    )
-                except Exception:
-                    pass
-                try:
                     if mongo_memory_service.is_connected():
                         mongo_memory_service.save_precomputed_answer(
                             topic=topic.strip(),
-                            question=question_pattern.strip(),
-                            answer=answer_text.strip(),
+                            question_pattern=question_pattern.strip(),
+                            answer_text=answer_text.strip(),
+                            owner_id=owner_id
                         )
                 except Exception as me:
                     logger.debug("MongoDB ga precomputed answer yozishda ogohlantirish: %s", me)
@@ -1519,17 +1508,18 @@ class SQLiteMemoryService:
                 cur = conn.cursor()
                 cur.execute(
                     """
-                    INSERT INTO precomputed_answers (topic, question_pattern, answer_text)
-                    VALUES (?, ?, ?)
+                    INSERT INTO precomputed_answers (topic, question_pattern, answer_text, owner_id)
+                    VALUES (?, ?, ?, ?)
                     """,
-                    (topic.strip(), question_pattern.strip(), answer_text.strip()),
+                    (topic.strip(), question_pattern.strip(), answer_text.strip(), owner_id),
                 )
                 conn.commit()
-                logger.info("Avtonom Miya oldindan javob saqladi: [%s] -> %s", topic, question_pattern[:40])
+                logger.info("Avtonom Miya oldindan javob saqladi: [%s] -> %s (owner: %s)", topic, question_pattern[:40], owner_id)
                 return cur.lastrowid
         except Exception as e:
             logger.error("Oldindan tayyorlangan javobni saqlashda xatolik: %s", e)
             return None
+
 
     def find_precomputed_answer(self, query: str) -> dict | None:
         """
@@ -1617,19 +1607,34 @@ class SQLiteMemoryService:
             logger.error("Oldindan tayyorlangan javobni qidirishda xatolik: %s", e)
         return None
 
-    def get_all_precomputed_answers(self, limit: int = 50) -> list[dict]:
+
+
+    def get_all_precomputed_answers(self, limit: int = 50, owner_id: int = 0) -> list[dict]:
         """Oldindan tayyorlangan barcha yechimlar ro'yxatini qaytaradi."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT id, topic, question_pattern, answer_text, usage_count, created_at
-                    FROM precomputed_answers
-                    ORDER BY id DESC LIMIT ?
-                    """,
-                    (limit,),
-                )
+                if owner_id:
+                    cursor.execute(
+                        """
+                        SELECT id, topic, question_pattern, answer_text, usage_count, created_at
+                        FROM precomputed_answers
+                        WHERE owner_id = ? OR owner_id = 0
+                        ORDER BY id DESC LIMIT ?
+                        """,
+                        (owner_id, limit),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT id, topic, question_pattern, answer_text, usage_count, created_at
+                        FROM precomputed_answers
+                        WHERE owner_id = 0
+                        ORDER BY id DESC LIMIT ?
+                        """,
+                        (limit,),
+                    )
+
                 rows = cursor.fetchall()
                 return [
                     {
@@ -1637,15 +1642,15 @@ class SQLiteMemoryService:
                         "topic": r[1],
                         "question_pattern": r[2],
                         "answer_text": r[3],
-                        "answer_code": r[3],
                         "usage_count": r[4],
-                        "created_at": str(r[5]),
+                        "created_at": r[5],
                     }
                     for r in rows
                 ]
         except Exception as e:
-            logger.error("Precomputed answers olishda xatolik: %s", e)
+            logger.error("get_all_precomputed_answers xatosi (SQLite): %s", e)
             return []
+
 
     def delete_precomputed_answer(self, item_id: int | str) -> bool:
         """Oldindan tayyorlangan yechimni bazadan o'chiradi (MongoDB + SQLite)."""
@@ -1963,22 +1968,37 @@ class SQLiteMemoryService:
 
         return sqlite_id
 
-    def get_active_reminders(self, limit: int = 20) -> list[dict]:
+
+
+    def get_active_reminders(self, limit: int = 20, creator_id: int = 0) -> list[dict]:
         """Kutilayotgan faol eslatmalar ro'yxatini qaytaradi (Lokal SQLite -> Mongo fallback)."""
         now_str = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT id, chat_id, creator_id, reminder_text, remind_at, created_at
-                    FROM reminders
-                    WHERE is_sent = 0 AND remind_at >= ?
-                    ORDER BY remind_at ASC
-                    LIMIT ?
-                    """,
-                    (now_str, limit),
-                )
+                if creator_id:
+                    cursor.execute(
+                        """
+                        SELECT id, chat_id, creator_id, reminder_text, remind_at, created_at
+                        FROM reminders
+                        WHERE is_sent = 0 AND remind_at >= ? AND creator_id = ?
+                        ORDER BY remind_at ASC
+                        LIMIT ?
+                        """,
+                        (now_str, creator_id, limit),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT id, chat_id, creator_id, reminder_text, remind_at, created_at
+                        FROM reminders
+                        WHERE is_sent = 0 AND remind_at >= ?
+                        ORDER BY remind_at ASC
+                        LIMIT ?
+                        """,
+                        (now_str, limit),
+                    )
+
                 rows = cursor.fetchall()
                 if rows:
                     return [
@@ -1998,9 +2018,10 @@ class SQLiteMemoryService:
         # Fallback to Mongo if SQLite is empty
         try:
             if mongo_memory_service.is_connected():
-                m_rems = mongo_memory_service.get_all_active_reminders(limit=limit)
+                m_rems = mongo_memory_service.get_all_active_reminders(limit=limit, creator_id=creator_id)
                 if m_rems:
                     return [
+
                         {
                             "id": str(r.get("sqlite_id") or r.get("_id", "")),
                             "chat_id": r.get("chat_id"),

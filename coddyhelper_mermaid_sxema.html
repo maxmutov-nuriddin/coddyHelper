@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CoddyHelper - To'liq Mermaid Sxemasi (Yuklab Olish)</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background-color: #0b0f19;
+      color: #e2e8f0;
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #0b0f19 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+    .mermaid svg {
+      max-width: 100% !important;
+      height: auto !important;
+      border-radius: 12px;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-3 sm:p-6 font-sans">
+  <div class="max-w-6xl mx-auto space-y-4">
+    
+    <!-- Top Bar with Download Actions -->
+    <div class="no-print bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4 shadow-2xl backdrop-blur-md">
+      <div>
+        <h1 class="text-xl sm:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-400 via-indigo-300 to-emerald-400">
+          🧠 CoddyHelper — To'liq Mermaid Ishlash Sxemasi
+        </h1>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1">
+          Telegram kirishidan tortib, 4 pog'onali qalqon, xotira, 5 ta miya va javob qaytarishgacha bo'lgan barcha bosqichlar.
+        </p>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-wrap items-center gap-2.5">
+        <!-- PNG Button -->
+        <button onclick="downloadPNG()" id="btn-png" class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-sky-500/25 transition-all cursor-pointer hover:scale-105 active:scale-95">
+          <span>🖼️</span>
+          <span>PNG Rasm Yuklab Olish</span>
+        </button>
+
+        <!-- SVG Button -->
+        <button onclick="downloadSVG()" class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-purple-500/25 transition-all cursor-pointer hover:scale-105 active:scale-95">
+          <span>📐</span>
+          <span>SVG Vektor Yuklab Olish</span>
+        </button>
+
+        <!-- Print / PDF -->
+        <button onclick="window.print()" class="flex items-center gap-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs sm:text-sm font-medium border border-slate-700 transition-all cursor-pointer">
+          <span>🖨️</span>
+          <span>PDF / Chop Etish</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="no-print hidden fixed bottom-6 right-6 z-50 bg-emerald-500 text-white px-5 py-3 rounded-xl shadow-2xl font-semibold text-sm flex items-center gap-2 transition-all">
+      <span>✅</span>
+      <span id="toast-msg">Yuklab olindi!</span>
+    </div>
+
+    <!-- Diagram Box -->
+    <div id="diagram-container" class="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 sm:p-8 shadow-2xl overflow-x-auto flex justify-center">
+      <div class="mermaid w-full flex justify-center" id="mermaid-root">
+flowchart TD
+    %% 1-BOSQICH: XABAR KELISHI
+    subgraph S1["1. Xabar Kirib Kelishi (Telegram Ingestion)"]
+        A1["Telegram'dan yangi hodisa (event)"] --> A2{"Xabar qayerdan keldi?"}
+        A2 -- "Lichka (Shaxsiy chat)" --> A3["Lichka oqimi: To'g'ridan-to'g'ri qabul"]
+        A2 -- "Guruh (O'quvchilar chati)" --> B1["Guruh oqimi: Qalqonga yo'naltirish"]
+    end
+
+    %% 2-BOSQICH: GURUH QALQONI VA TEKSHIRUVLAR
+    subgraph S2["2. Kognitiv Guruh Qalqoni (4 Pog'onali Filtrlash)"]
+        B1 --> C1{"1-Pog'ona: Xavfli fayl yoki Botga reply bormi?"}
+        C1 -- "Ha" --> D_OK["Xabar qabul qilindi ✅"]
+        C1 -- "Yo'q" --> C2{"2-Pog'ona: Ustozga murojaat bormi?\n('Ustoz', 'Nuriddin aka', '@mentor_cc', 'ko'rib bering')"}
+        
+        C2 -- "Ha (Ustoz chaqirilgan)" --> D_OK
+        C2 -- "Yo'q" --> C3{"3-Pog'ona: O'quvchilar o'zaro gaplashyaptimi?\n(Boshqa o'quvchiga reply / 'sanda', 'bro', 'tashavor')"}
+        
+        C3 -- "Ha (O'quvchilar o'zaro suhbati)" --> SILENT["🚫 AI JIM TURADI\n(Suhbatga aslo aralashmaydi)"]
+        C3 -- "Yo'q" --> C4{"Mavzu dasturlash/kodga doirmi?\n(Off-topic: futbol, CS, ob-havo)"}
+        
+        C4 -- "Yo'q (Befoyda suhbat)" --> SILENT
+        C4 -- "Ha (Umumiy kod savoli)" --> C5["4-Pog'ona: Sokratik 12 soniya kutish oynasi"]
+        
+        C5 --> C6{"12s ichida boshqa o'quvchi javob berdimi?"}
+        C6 -- "Ha (Tengdosh yordam berdi)" --> SILENT
+        C6 -- "Yo'q (Hech kim bilmadi)" --> D_OK
+    end
+
+    A3 --> D_OK
+
+    %% 3-BOSQICH: BUFER VA AGREGATOR
+    subgraph S3["3. Xabarlar Agregatori (MESSAGE_ACCUMULATOR)"]
+        D_OK --> E1["O'quvchi bo'lib-bo'lib yozishini kutish (5 soniya)"]
+        E1 --> E2{"Yana qo'shimcha xabar yozdimi?"}
+        E2 -- "Ha" --> E3["Yangi xabarni buferga qo'shish va taymerni qayta boshlash"]
+        E3 --> E1
+        E2 -- "Yo'q (5s tugadi)" --> E4["Barcha bo'lingan xabarlarni yaxlit 1 ta savolga birlashtirish"]
+    end
+
+    %% 4-BOSQICH: XOTIRA VA KONTEKST
+    subgraph S4["4. Xotira va Kontekstni Boyitish (Dual Memory)"]
+        E4 --> M1["SQLite: Oxirgi suhbatlarni vaqt tamg'asi [HH:MM] bilan olish"]
+        E4 --> M2["MongoDB: O'quvchining profilini va dars darajasini yuklash"]
+        M1 --> M3["Yaxlit boyitilgan so'rov paketi"]
+        M2 --> M3
+    end
+
+    %% 5-BOSQICH: MIYA VA INTELLEKT
+    subgraph S5["5. Miya Marshrutizatori (5 Core Brains)"]
+        M3 --> R1{"So'rov turini aniqlash"}
+        
+        R1 -- "Rasm / Skrinshot xatolik" --> B_VIS["3-Miya: Gemini Vision OCR (Rasmdan kodni o'qish)"]
+        R1 -- "Ovozli xabar (Voice)" --> B_VOICE["3-Miya: Groq Whisper (Ovozni matnga aylantirish)"]
+        R1 -- "Dasturlash xatosi / Savol" --> B_CODE["1-Miya: Groq LLaMA-3.3 70B (Sokratik Mentor)"]
+        R1 -- "Murakkab loyiha / DB / Hisobot" --> B_VIP["2-Miya: Gemini 2.5 Pro (Chuqur tahlil)"]
+        R1 -- "Darsdan tashqari / Begona mavzu" --> B_OUT["5-Miya: Avtonom Eskalatsiya (Vazifalar)"]
+    end
+
+    %% 6-BOSQICH: NATIJA VA HARAKAT
+    subgraph S6["6. Harakat va Chiqish (Dual Output)"]
+        B_VIS --> B_CODE
+        B_VOICE --> B_CODE
+
+        B_CODE --> OUT_STUDENT["Telegram: O'quvchiga Sokratik yo'naltiruvchi javob\n(Tayyor kod emas, xatosini o'zi topishiga yordam)"]
+        B_VIP --> OUT_STUDENT
+
+        B_OUT --> OUT_NOTICE["Telegram: O'quvchiga muloyim javob:\n'Xabaringiz Ustozga yetkazildi'"]
+        B_OUT --> OUT_VAZIFA["Vazifalar Guruhi: Ustoz nazorati uchun maxsus kartochka 📋"]
+
+        OUT_STUDENT --> DB_SAVE["Yangi javobni SQLite [HH:MM] va MongoDB'ga yozib qo'yish"]
+        OUT_NOTICE --> DB_SAVE
+    end
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true,
+        background: '#0b0f19',
+        mainBkg: '#1e293b',
+        nodeBorder: '#38bdf8',
+        lineColor: '#818cf8',
+        textColor: '#f8fafc'
+      }
+    });
+
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      const msgEl = document.getElementById("toast-msg");
+      msgEl.innerText = msg;
+      toast.classList.remove("hidden");
+      setTimeout(() => toast.classList.add("hidden"), 3500);
+    }
+
+    function getSvgElement() {
+      return document.querySelector('#mermaid-root svg') || document.querySelector('#diagram-container svg');
+    }
+
+    function downloadSVG() {
+      const svg = getSvgElement();
+      if (!svg) {
+        alert("Sxema hali to'liq chizilmadi, iltimos 1 soniya kuting.");
+        return;
+      }
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+      if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+      source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+
+      const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
+      const downloadLink = document.createElement("a");
+      downloadLink.href = url;
+      downloadLink.download = "coddyhelper_mermaid_ishlash_sxemasi.svg";
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+
+      showToast("Mermaid SVG fayli yuklab olindi!");
+    }
+
+    function downloadPNG() {
+      const svg = getSvgElement();
+      if (!svg) {
+        alert("Sxema hali to'liq chizilmadi, iltimos 1 soniya kuting.");
+        return;
+      }
+
+      const btn = document.getElementById("btn-png");
+      const oldHtml = btn.innerHTML;
+      btn.innerHTML = "<span>⏳</span><span>Tayyorlanmoqda...</span>";
+      btn.disabled = true;
+
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+
+      const bbox = svg.getBoundingClientRect();
+      const scale = 2.5; // High definition
+      const width = Math.max(bbox.width * scale, 2400);
+      const height = Math.max(bbox.height * scale, 3000);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      const img = new Image();
+      const svgBlob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+      const DOMURL = window.URL || window.webkitURL || window;
+      const url = DOMURL.createObjectURL(svgBlob);
+
+      img.onload = function() {
+        ctx.fillStyle = "#0b0f19";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        DOMURL.revokeObjectURL(url);
+
+        const imgURI = canvas.toDataURL("image/png");
+        const downloadLink = document.createElement("a");
+        downloadLink.href = imgURI;
+        downloadLink.download = "coddyhelper_mermaid_ishlash_sxemasi.png";
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+
+        btn.innerHTML = oldHtml;
+        btn.disabled = false;
+        showToast("Mermaid PNG rasmi yuklab olindi!");
+      };
+
+      img.onerror = function(err) {
+        btn.innerHTML = oldHtml;
+        btn.disabled = false;
+        alert("PNG eksportida xatolik bo'ldi. SVG formatida yuklab olishingiz mumkin.");
+      };
+
+      img.src = url;
+    }
+  </script>
+</body>
+</html>
