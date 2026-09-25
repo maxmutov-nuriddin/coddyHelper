@@ -64,10 +64,23 @@ class MongoMemoryService:
             logger.warning("MongoDB Atlas'ga ulanishda ogohlantirish (Offline kesh ishlaydi): %s", e)
 
     def is_connected(self) -> bool:
+        now = time.time()
+        # Agar mijoz mavjud bo'lmasa yoki uzilgan bo'lsa, har 5 soniyada qayta ulanishga urinish
         if not self._is_connected or self._client is None:
-            return False
+            if now - getattr(self, "_last_reconnect_attempt", 0) > 5.0:
+                self._last_reconnect_attempt = now
+                self._init_mongo()
+            if not self._is_connected or self._client is None:
+                return False
+
+        # Har bir so'rovda Atlas'ga ping yubormaslik (30 soniyalik kesh)
+        if now - getattr(self, "_last_ping_time", 0) < 30.0:
+            return self._is_connected
+
         try:
             self._client.admin.command("ping")
+            self._last_ping_time = now
+            self._is_connected = True
             return True
         except Exception:
             self._is_connected = False
@@ -1586,8 +1599,9 @@ class MongoMemoryService:
                             INSERT INTO user_subscriptions (
                                 user_id, username, full_name, phone, business_name,
                                 profession, system_prompt, group_id, active, expires_at, role,
+                                session_string, session_active,
                                 created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(user_id) DO UPDATE SET
                                 username = CASE WHEN excluded.username != '' THEN excluded.username ELSE user_subscriptions.username END,
                                 full_name = CASE WHEN excluded.full_name != '' THEN excluded.full_name ELSE user_subscriptions.full_name END,
@@ -1599,6 +1613,8 @@ class MongoMemoryService:
                                 active = excluded.active,
                                 expires_at = excluded.expires_at,
                                 role = excluded.role,
+                                session_string = CASE WHEN excluded.session_string != '' THEN excluded.session_string ELSE user_subscriptions.session_string END,
+                                session_active = excluded.session_active,
                                 updated_at = excluded.updated_at
                             """,
                             (
@@ -1613,6 +1629,8 @@ class MongoMemoryService:
                                 doc.get("active", 1),
                                 str(doc.get("expires_at") or ""),
                                 doc.get("role", "client"),
+                                doc.get("session_string", ""),
+                                int(doc.get("session_active", 0)),
                                 str(doc.get("created_at") or ""),
                                 str(doc.get("updated_at") or ""),
                             ),
@@ -1806,6 +1824,8 @@ class MongoMemoryService:
                         "active": r["active"] if "active" in r_keys else 1,
                         "expires_at": str(r["expires_at"]) if "expires_at" in r_keys and r["expires_at"] else "",
                         "role": r["role"] if "role" in r_keys else "client",
+                        "session_string": r["session_string"] if "session_string" in r_keys and r["session_string"] else "",
+                        "session_active": r["session_active"] if "session_active" in r_keys and r["session_active"] else 0,
                         "created_at": str(r["created_at"]) if "created_at" in r_keys and r["created_at"] else "",
                         "updated_at": str(r["updated_at"]) if "updated_at" in r_keys and r["updated_at"] else "",
                     }

@@ -502,16 +502,33 @@ class ProfileIntelligenceService:
                         else:
                             channel_summary = f"Kanal havolasi: @{ch_tag} (Ma'lumot cheklangan)"
 
-            # 5. O'sha shaxs bilan bo'lgan so'nggi yozishmalardan (chatdan) kontekst olish
+            # 5. O'sha shaxs bilan bo'lgan so'nggi yozishmalardan (chatdan) chuqurroq kontekst olish
             recent_user_messages = []
             try:
-                # To'g'ridan-to'g'ri o'sha foydalanuvchi bilan yozishma
-                async for user_msg in client.iter_messages(entity, limit=5):
+                # To'g'ridan-to'g'ri o'sha foydalanuvchi bilan yozishma (12 tagacha xabar)
+                async for user_msg in client.iter_messages(entity, limit=12):
                     if user_msg and user_msg.text:
                         r_side = "U" if not user_msg.out else "Biz"
-                        recent_user_messages.append(f"{r_side}: {user_msg.text[:100].replace(chr(10), ' ')}")
+                        recent_user_messages.append(f"{r_side}: {user_msg.text[:220].replace(chr(10), ' ')}")
             except Exception:
                 pass
+
+            # 6. Yosh va shaxsiyatga doir avto-ishoralar (Username, ism va yozishmalardagi yillar/raqamlar)
+            age_clues = []
+            check_text = f"{username} {full_name} {bio}".lower()
+            # 1970-2015 yoki 2 xonali yillar (95, 98, 02, 04 va h.k.)
+            year_matches = re.findall(r'(?:19[7-9]\d|20[0-1]\d|\b[0-9]{2}\b)', check_text)
+            for ym in year_matches:
+                if len(ym) == 4:
+                    y_int = int(ym)
+                    if 1970 <= y_int <= 2012:
+                        age_clues.append(f"Tug'ilgan yil taxmini: {y_int} (~{2026 - y_int} yosh)")
+                elif len(ym) == 2:
+                    y_int = int(ym)
+                    if 70 <= y_int <= 99:
+                        age_clues.append(f"Tug'ilgan yil ehtimoli: 19{ym} (~{2026 - (1900 + y_int)} yosh)")
+                    elif 0 <= y_int <= 12:
+                        age_clues.append(f"Tug'ilgan yil ehtimoli: 20{ym:02d} (~{2026 - (2000 + y_int)} yosh)")
 
             return {
                 "user_id": user_id,
@@ -529,6 +546,7 @@ class ProfileIntelligenceService:
                 "channel_is_private": channel_is_private,
                 "channel_subscribers": channel_subscribers,
                 "channel_media_stats": channel_media_stats,
+                "age_clues": ", ".join(set(age_clues)) if age_clues else "Ism/username'da ochiq yil raqamlari topilmadi",
                 "recent_chat_context": " // ".join(recent_user_messages) if recent_user_messages else "Yozishmalar tarixi mavjud emas",
             }
         except Exception as e:
@@ -559,15 +577,20 @@ class ProfileIntelligenceService:
             f"• Stories: {'Mavjud' if profile.get('has_stories') else 'Yoq'}\n"
             f"• Bog'langan kanali: {profile.get('channel_username') or 'Yoq'}\n"
             f"• Kanal ma'lumotlari (obunachilar, postlar, ovozli/video xabarlar): {profile.get('channel_summary') or 'Yoq'}\n"
+            f"• Raqam/yil ishoralari: {profile.get('age_clues') or 'Yoq'}\n"
             f"• So'nggi yozishmalar konteksti: {profile.get('recent_chat_context') or 'Yozishmalar mavjud emas'}\n"
             f"{existing_info}\n"
             "DIQQAT QOIDASI: Ushbu shaxsni darhol dasturchi yoki o'quvchi deb O'YLAMANG! "
             "Uning bio, yozishmalari, bog'langan kanali va profilidan kelib chiqib, haqiqiy kimligini aniqlang. "
             "U tadbirkor, mebelchi, o'qituvchi, savdogar, shifokor, mijoz, talaba yoki boshqa kasb egasi bo'lishi mumkin.\n\n"
-            "Vazifa: Ushbu shaxs haqida aniq va lo'nda 3-4 jumla kognitiv xulosa yozing:\n"
-            "1. Haqiqiy kimligi va kasbi/sohasi (Bio, kanali va yozishmalaridan nima ko'rinmoqda?)\n"
-            "2. Asosiy qiziqishlari va faoliyati (Kanalida nimalar ulashadi, ovozli/video postlar, mavzulari nima?)\n"
-            "3. Muloqot uslubi va unga javob qaytarishda eng to'g'ri yondashuv (Unga qanday tilda va ohangda gapirish kerak?)."
+            "VAZIFA: Ushbu shaxs haqida maksimal darajada aniq, xolis va lo'nda kognitiv xulosa yozing:\n"
+            "1. 🎯 KIMLIGI, KASBI VA TAXMINIY YOSHI: "
+            "(Uning aniq taxminiy yoshi, masalan: ~16-19 yosh (maktab/litsey), ~20-25 yosh (talaba/yosh mutaxassis), ~28-38 yosh (tadbirkor/mustaqil mutaxassis), ~40-55 yosh (tajribali inson/ota-ona). "
+            "Yoshini uning ismi/username'dagi raqamlar, muloqot tili, so'z boyligi, kanali va faoliyatidan kelib chiqib maksimal aniq taxmin qiling. Haqiqiy kasbi nima?)\n"
+            "2. 🔍 ASOSIY QIZIQISHLARI VA FAOLIYATI: "
+            "(Kanalida nimalar ulashadi, qanday postlar/videolar qo'yadi, qanday muammolar bilan murojaat qilgan?)\n"
+            "3. 💡 MULOQOT STRATEGIYASI VA YONDASHUV: "
+            "(Unga qanday tilda va ohangda gapirish kerak? Hurmatli/rasmiy, do'stona, qisqa va lo'nda, yoki ustozdek yo'l ko'rsatuvchi?)."
         )
 
         try:
@@ -582,13 +605,14 @@ class ProfileIntelligenceService:
                             "role": "system",
                             "content": (
                                 "Siz professional Telegram Razvedka va Kognitiv Shaxs Tahlilchisisiz. "
-                                "Shablonlardan qoching, odamning haqiqiy yozishmalari, kanali va biosiga qarab xolis va chuqur tahlil bering."
+                                "Shablonlardan mutlaqo qoching. Har bir shaxsning yozishmalari, kanali, leksikasi va profiliga qarab, "
+                                "uning taxminiy yoshi, haqiqiy kasbi va xarakterini maksimal darajada to'g'ri va xolis aniqlang."
                             )
                         },
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.3,
-                    max_tokens=400,
+                    max_tokens=500,
                 )
                 return res.choices[0].message.content.strip()
         except Exception as ai_err:

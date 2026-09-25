@@ -3746,6 +3746,35 @@ class SQLiteMemoryService:
                     if mongo_memory_service.is_connected():
                         m_sub = mongo_memory_service.get_user_subscription(user_id)
                         if m_sub:
+                            try:
+                                conn.execute(
+                                    """
+                                    INSERT OR REPLACE INTO user_subscriptions (
+                                        user_id, username, full_name, phone, business_name,
+                                        profession, system_prompt, group_id, active, expires_at, role,
+                                        session_string, session_active, created_at, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                    """,
+                                    (
+                                        m_sub.get("user_id"),
+                                        m_sub.get("username", ""),
+                                        m_sub.get("full_name", ""),
+                                        m_sub.get("phone", ""),
+                                        m_sub.get("business_name", ""),
+                                        m_sub.get("profession", ""),
+                                        m_sub.get("system_prompt", ""),
+                                        m_sub.get("group_id", 0),
+                                        int(m_sub.get("active", 1)),
+                                        str(m_sub.get("expires_at") or ""),
+                                        m_sub.get("role", "client"),
+                                        m_sub.get("session_string", ""),
+                                        int(m_sub.get("session_active", 0)),
+                                        str(m_sub.get("created_at") or ""),
+                                    )
+                                )
+                                conn.commit()
+                            except Exception:
+                                pass
                             return m_sub
                     return None
 
@@ -3872,8 +3901,17 @@ class SQLiteMemoryService:
                 conn.commit()
 
             sub_data = self.get_subscription(user_id) or {}
-            if mongo_memory_service.is_connected() and sub_data:
-                mongo_memory_service.upsert_user_subscription(sub_data)
+            if sub_data:
+                try:
+                    if not mongo_memory_service.is_connected():
+                        mongo_memory_service._init_mongo()
+                    if mongo_memory_service.is_connected():
+                        mongo_memory_service.upsert_user_subscription(sub_data)
+                        logger.info("✅ Obuna MongoDB Atlas ga muvaffaqiyatli saqlandi: user_id=%s", user_id)
+                    else:
+                        logger.warning("⚠️ MongoDB ulanmagan! Obuna faqat SQLite ga saqlandi: user_id=%s", user_id)
+                except Exception as me:
+                    logger.error("MongoDB ga obuna yozishda xatolik: %s", me)
             return sub_data
         except Exception as e:
             logger.error("Obuna yaratishda xatolik [%s]: %s", user_id, e)
@@ -4014,27 +4052,63 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Barcha obunachilarni olishda xatolik: %s", e)
 
-        # Agar SQLite bo'sh bo'lsa (masalan, Render restart keyin), MongoDB'dan o'qi
-        if not subs and mongo_memory_service.is_connected():
+        # Agar SQLite bo'sh bo'lsa (masalan, Render restart keyin), MongoDB'dan o'qi va SQLite ga qayta tikla
+        if not subs:
             try:
-                logger.info("📋 SQLite bo'sh — MongoDB'dan user_subscriptions o'qilmoqda...")
-                for doc in mongo_memory_service._db["system_core.user_subscriptions"].find():
-                    uid = doc.get("user_id")
-                    if uid:
-                        subs.append({
-                            "user_id": uid,
-                            "username": doc.get("username", ""),
-                            "full_name": doc.get("full_name", ""),
-                            "business_name": doc.get("business_name", ""),
-                            "profession": doc.get("profession", ""),
-                            "system_prompt": doc.get("system_prompt", ""),
-                            "group_id": doc.get("group_id") or 0,
-                            "active": int(doc.get("active", 1)),
-                            "expires_at": str(doc.get("expires_at") or ""),
-                            "role": doc.get("role", "client"),
-                            "created_at": str(doc.get("created_at") or ""),
-                        })
-                logger.info("✅ MongoDB'dan %d ta obunachi yuklandi", len(subs))
+                if not mongo_memory_service.is_connected():
+                    mongo_memory_service._init_mongo()
+                if mongo_memory_service.is_connected():
+                    logger.info("📋 SQLite bo'sh — MongoDB'dan user_subscriptions o'qilmoqda...")
+                    for doc in mongo_memory_service._db["system_core.user_subscriptions"].find():
+                        uid = doc.get("user_id")
+                        if uid:
+                            sub_obj = {
+                                "user_id": uid,
+                                "username": doc.get("username", ""),
+                                "full_name": doc.get("full_name", ""),
+                                "business_name": doc.get("business_name", ""),
+                                "profession": doc.get("profession", ""),
+                                "system_prompt": doc.get("system_prompt", ""),
+                                "group_id": doc.get("group_id") or 0,
+                                "active": int(doc.get("active", 1)),
+                                "expires_at": str(doc.get("expires_at") or ""),
+                                "role": doc.get("role", "client"),
+                                "created_at": str(doc.get("created_at") or ""),
+                                "session_string": doc.get("session_string", ""),
+                                "session_active": int(doc.get("session_active", 0)),
+                            }
+                            subs.append(sub_obj)
+                            # Zudlik bilan SQLite ga ham yozib qo'yamiz
+                            try:
+                                with self._get_connection() as conn:
+                                    conn.execute(
+                                        """
+                                        INSERT OR REPLACE INTO user_subscriptions (
+                                            user_id, username, full_name, business_name, profession,
+                                            system_prompt, group_id, active, expires_at, role,
+                                            session_string, session_active, created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                        """,
+                                        (
+                                            uid,
+                                            doc.get("username", ""),
+                                            doc.get("full_name", ""),
+                                            doc.get("business_name", ""),
+                                            doc.get("profession", ""),
+                                            doc.get("system_prompt", ""),
+                                            doc.get("group_id", 0),
+                                            int(doc.get("active", 1)),
+                                            str(doc.get("expires_at") or ""),
+                                            doc.get("role", "client"),
+                                            doc.get("session_string", ""),
+                                            int(doc.get("session_active", 0)),
+                                            str(doc.get("created_at") or ""),
+                                        )
+                                    )
+                                    conn.commit()
+                            except Exception:
+                                pass
+                    logger.info("✅ MongoDB'dan %d ta obunachi yuklandi va SQLite ga tiklandi", len(subs))
             except Exception as me:
                 logger.error("MongoDB'dan obunachilarni olishda xatolik: %s", me)
 
