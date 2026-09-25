@@ -1393,22 +1393,32 @@ class MongoMemoryService:
             except Exception as e:
                 logger.debug("Restore precomputed_answers ogohlantirish: %s", e)
 
-            # 9. messages (oxirgi 200 ta dialog)
+            # 9. messages (barcha tahlil qilingan dialoglar va xabarlar)
             try:
                 cursor.execute("SELECT COUNT(*) FROM messages")
                 existing_msg_count = cursor.fetchone()[0]
-                if existing_msg_count == 0:
-                    recent_convs = list(self._db["brain_frontline.conversations"].find().sort("timestamp", -1).limit(50000))
-                    recent_convs.reverse()
-                    for doc in recent_convs:
-                        cid = doc.get("chat_id")
-                        role = doc.get("role")
-                        cnt = doc.get("content")
-                        if cid and role and cnt:
-                            cursor.execute(
-                                "INSERT INTO messages (chat_id, role, content) VALUES (?, ?, ?)",
-                                (cid, role, cnt),
-                            )
+                # Agar messages bo'sh bo'lsa yoki to'liq tiklanmagan bo'lsa
+                for doc in self._db["brain_frontline.conversations"].find().sort("_id", 1):
+                    cid = doc.get("chat_id")
+                    role = doc.get("role")
+                    cnt = doc.get("content")
+                    created_at = doc.get("created_at")
+                    if cid and role and cnt:
+                        cursor.execute(
+                            "SELECT id FROM messages WHERE chat_id = ? AND role = ? AND content = ? LIMIT 1",
+                            (cid, role, cnt),
+                        )
+                        if not cursor.fetchone():
+                            if created_at:
+                                cursor.execute(
+                                    "INSERT INTO messages (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+                                    (cid, role, cnt, str(created_at)),
+                                )
+                            else:
+                                cursor.execute(
+                                    "INSERT INTO messages (chat_id, role, content) VALUES (?, ?, ?)",
+                                    (cid, role, cnt),
+                                )
                             stats["messages"] += 1
             except Exception as e:
                 logger.debug("Restore messages ogohlantirish: %s", e)
