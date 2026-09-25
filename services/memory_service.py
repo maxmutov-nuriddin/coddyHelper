@@ -151,13 +151,21 @@ class SQLiteMemoryService:
                         topic TEXT NOT NULL,
                         content TEXT NOT NULL,
                         source TEXT DEFAULT 'mentor',
+                        user_id INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                     """
                 )
+                try:
+                    conn.execute("ALTER TABLE learned_memory ADD COLUMN user_id INTEGER DEFAULT 0")
+                except Exception:
+                    pass
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_learned_topic ON learned_memory (topic)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_learned_user ON learned_memory (user_id)"
                 )
                 conn.execute(
                     """
@@ -532,9 +540,22 @@ class SQLiteMemoryService:
         "Pictoblox",
     ]
 
-    def get_curriculum_topics(self) -> list[str]:
-        """O'quv markazining rasmiy o'quv mavzulari va texnologiyalari ro'yxatini qaytaradi."""
+    def get_curriculum_topics(self, user_id: int = 0) -> list[str]:
+        """O'quv yoki biznes mavzulari ro'yxatini qaytaradi.
+        user_id=0 (Super Admin) bo'lsa CoddyCamp steki.
+        user_id>0 bo'lsa, o'sha mijozning shaxsiy biznes mavzulari (dastlab toza / bo'sh).
+        """
         import json
+        if user_id and not self.is_super_admin(user_id):
+            raw = self.get_setting(f"client_topics_{user_id}")
+            if not raw:
+                return []
+            try:
+                topics = json.loads(raw)
+                return topics if isinstance(topics, list) else []
+            except Exception:
+                return []
+
         raw = self.get_setting("curriculum_topics")
         if not raw:
             return list(self.DEFAULT_CURRICULUM_TOPICS)
@@ -544,36 +565,37 @@ class SQLiteMemoryService:
         except Exception:
             return list(self.DEFAULT_CURRICULUM_TOPICS)
 
-    def set_curriculum_topics(self, topics: list[str]) -> None:
-        """O'quv mavzulari ro'yxatini saqlaydi."""
+    def set_curriculum_topics(self, topics: list[str], user_id: int = 0) -> None:
+        """Mavzular ro'yxatini saqlaydi."""
         import json
         clean_topics = []
         for t in topics:
             val = str(t).strip()
             if val and val not in clean_topics:
                 clean_topics.append(val)
-        self.set_setting("curriculum_topics", json.dumps(clean_topics))
+        setting_key = f"client_topics_{user_id}" if (user_id and not self.is_super_admin(user_id)) else "curriculum_topics"
+        self.set_setting(setting_key, json.dumps(clean_topics))
 
-    def add_curriculum_topic(self, topic: str) -> bool:
-        """Yangi o'quv mavzusini qo'shadi."""
+    def add_curriculum_topic(self, topic: str, user_id: int = 0) -> bool:
+        """Yangi mavzuni qo'shadi."""
         t = str(topic).strip()
         if not t:
             return False
-        current = self.get_curriculum_topics()
+        current = self.get_curriculum_topics(user_id=user_id)
         if any(c.lower() == t.lower() for c in current):
             return True
         current.append(t)
-        self.set_curriculum_topics(current)
+        self.set_curriculum_topics(current, user_id=user_id)
         return True
 
-    def remove_curriculum_topic(self, topic: str) -> bool:
-        """O'quv mavzusini ro'yxatdan olib tashlaydi."""
+    def remove_curriculum_topic(self, topic: str, user_id: int = 0) -> bool:
+        """Mavzuni ro'yxatdan olib tashlaydi."""
         t = str(topic).strip().lower()
-        current = self.get_curriculum_topics()
+        current = self.get_curriculum_topics(user_id=user_id)
         filtered = [c for c in current if c.lower() != t]
         if len(filtered) == len(current):
             return False
-        self.set_curriculum_topics(filtered)
+        self.set_curriculum_topics(filtered, user_id=user_id)
         return True
 
     def add_message(self, chat_id: int, role: Literal["user", "model"], content: str, user_id: Optional[int] = None) -> None:
@@ -1094,26 +1116,29 @@ class SQLiteMemoryService:
     # -----------------------------------------------------------
     # O'z ustida ishlash va Bilimlar Bazasi (Continuous Learning)
     # -----------------------------------------------------------
-    def add_learned_fact(self, topic: str, content: str, category: str = "rule") -> int:
-        """Mentor ko'rsatmasi, qoidasi yoki yangi faktni doimiy xotiraga yozadi (Dual-Persistence)."""
+    def add_learned_fact(self, topic: str, content: str, category: str = "rule", user_id: int = 0) -> int:
+        """Mentor ko'rsatmasi, qoidasi yoki yangi faktni doimiy xotiraga yozadi (Dual-Persistence).
+        user_id=0 (Super Admin/Global), user_id>0 bo'lsa o'sha mijozning shaxsiy bilimi.
+        """
         t = topic.strip()
         c = content.strip()
         if not t or not c:
             return 0
 
-        # 1. MongoDB Atlas'ga saqlash va XP/IQ oshirish
-        try:
-            if mongo_memory_service.is_connected():
-                mongo_memory_service.save_learned_insight(key=t, content=c, category=category)
-                mongo_memory_service.update_cognitive_growth(xp_gain=15, iq_points=1, reason=f"O'rganildi: {t}")
-        except Exception as me:
-            logger.debug("MongoDB ga saboq yozishda ogohlantirish: %s", me)
+        # 1. MongoDB Atlas'ga saqlash va XP/IQ oshirish (faqat Super Admin uchun)
+        if not user_id or self.is_super_admin(user_id):
+            try:
+                if mongo_memory_service.is_connected():
+                    mongo_memory_service.save_learned_insight(key=t, content=c, category=category)
+                    mongo_memory_service.update_cognitive_growth(xp_gain=15, iq_points=1, reason=f"O'rganildi: {t}")
+            except Exception as me:
+                logger.debug("MongoDB ga saboq yozishda ogohlantirish: %s", me)
 
         # 2. Mahalliy SQLite keshiga saqlash
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT id FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (t,))
+                cursor.execute("SELECT id FROM learned_memory WHERE LOWER(topic) = LOWER(?) AND user_id = ?", (t, user_id))
                 existing = cursor.fetchone()
                 if existing:
                     cursor.execute(
@@ -1124,30 +1149,39 @@ class SQLiteMemoryService:
                     return existing[0]
                 else:
                     cursor.execute(
-                        "INSERT INTO learned_memory (category, topic, content) VALUES (?, ?, ?)",
-                        (category, t, c),
+                        "INSERT INTO learned_memory (category, topic, content, user_id) VALUES (?, ?, ?, ?)",
+                        (category, t, c, user_id),
                     )
                     conn.commit()
                     res_id = cursor.lastrowid
-                try:
-                    from services.obsidian_brain_service import obsidian_brain_service
-                    obsidian_brain_service.export_rule(t, c, source="mentor")
-                except Exception:
-                    pass
+                if not user_id or self.is_super_admin(user_id):
+                    try:
+                        from services.obsidian_brain_service import obsidian_brain_service
+                        obsidian_brain_service.export_rule(t, c, source="mentor")
+                    except Exception:
+                        pass
                 return res_id
         except Exception as e:
             logger.error("Yangi bilimni saqlashda xatolik: %s", e)
             return 0
 
-    def get_all_learned_facts(self, limit: int = 50) -> list[dict]:
-        """Barcha o'rganilgan bilimlar va qoidalarni qaytaradi (Lokal SQLite -> Mongo fallback)."""
+    def get_all_learned_facts(self, limit: int = 50, user_id: int = 0) -> list[dict]:
+        """Barcha o'rganilgan bilimlar va qoidalarni qaytaradi.
+        user_id > 0 bo'lsa faqat o'sha mijozning bilimlari qaytadi (dastlab toza / bo'sh).
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT id, category, topic, content, created_at, updated_at FROM learned_memory ORDER BY id DESC LIMIT ?",
-                    (limit,),
-                )
+                if user_id and not self.is_super_admin(user_id):
+                    cursor.execute(
+                        "SELECT id, category, topic, content, created_at, updated_at FROM learned_memory WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                        (user_id, limit),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT id, category, topic, content, created_at, updated_at FROM learned_memory WHERE user_id = 0 OR user_id IS NULL ORDER BY id DESC LIMIT ?",
+                        (limit,),
+                    )
                 rows = cursor.fetchall()
                 if rows:
                     return [
@@ -1164,7 +1198,11 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.debug("O'rganilgan bilimlarni SQLite'dan olishda ogohlantirish: %s", e)
 
-        # Fallback to Mongo if SQLite is empty
+        # Agar bu mijoz bo'lsa, global CoddyCamp Mongo fallback kerak EMAS! Mijoz toza bo'lishi shart!
+        if user_id and not self.is_super_admin(user_id):
+            return []
+
+        # Fallback to Mongo if SQLite is empty (faqat Super Admin uchun)
         try:
             if mongo_memory_service.is_connected():
                 docs = mongo_memory_service.get_all_learned_insights()
@@ -1184,44 +1222,52 @@ class SQLiteMemoryService:
             logger.debug("MongoDB dan saboqlarni olishda ogohlantirish: %s", me)
         return []
 
-    def delete_learned_fact(self, target: str | int, topic: str = None) -> bool:
+    def delete_learned_fact(self, target: str | int, topic: str = None, user_id: int = 0) -> bool:
         """Bilimni mavzusi yoki ID si bo'yicha o'chiradi (MongoDB + SQLite)."""
         deleted = False
         target_str = str(target).strip() if target is not None else ""
         topic_str = str(topic).strip() if topic is not None else ""
 
-        # 1. MongoDB Atlas dan o'chirish
-        try:
-            if mongo_memory_service.is_connected():
-                if target_str and mongo_memory_service.delete_learned_insight(target_str):
-                    deleted = True
-                if topic_str and mongo_memory_service.delete_learned_insight(topic_str):
-                    deleted = True
-        except Exception as me:
-            logger.debug("MongoDB dan bilim o'chirishda ogohlantirish: %s", me)
+        # 1. MongoDB Atlas dan o'chirish (faqat Super Admin uchun)
+        if not user_id or self.is_super_admin(user_id):
+            try:
+                if mongo_memory_service.is_connected():
+                    if target_str and mongo_memory_service.delete_learned_insight(target_str):
+                        deleted = True
+                    if topic_str and mongo_memory_service.delete_learned_insight(topic_str):
+                        deleted = True
+            except Exception as me:
+                logger.debug("MongoDB dan bilim o'chirishda ogohlantirish: %s", me)
 
         # 2. SQLite dan ham o'chirish
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                if target_str.isdigit():
-                    cursor.execute("DELETE FROM learned_memory WHERE id = ?", (int(target_str),))
-                    if cursor.rowcount > 0:
-                        deleted = True
-                elif target_str:
-                    cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (target_str,))
-                    if cursor.rowcount > 0:
-                        deleted = True
-                
+                if user_id and not self.is_super_admin(user_id):
+                    if target_str.isdigit():
+                        cursor.execute("DELETE FROM learned_memory WHERE id = ? AND user_id = ?", (int(target_str), user_id))
+                    elif target_str:
+                        cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?) AND user_id = ?", (target_str, user_id))
+                else:
+                    if target_str.isdigit():
+                        cursor.execute("DELETE FROM learned_memory WHERE id = ?", (int(target_str),))
+                    elif target_str:
+                        cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (target_str,))
+                if cursor.rowcount > 0:
+                    deleted = True
+
                 if topic_str:
-                    cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (topic_str,))
+                    if user_id and not self.is_super_admin(user_id):
+                        cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?) AND user_id = ?", (topic_str, user_id))
+                    else:
+                        cursor.execute("DELETE FROM learned_memory WHERE LOWER(topic) = LOWER(?)", (topic_str,))
                     if cursor.rowcount > 0:
                         deleted = True
                 conn.commit()
         except Exception as e:
             logger.error("SQLite bilimni o'chirishda xatolik: %s", e)
 
-        if deleted and (target_str or topic_str):
+        if deleted and (target_str or topic_str) and (not user_id or self.is_super_admin(user_id)):
             try:
                 from services.obsidian_brain_service import obsidian_brain_service
                 if topic_str:

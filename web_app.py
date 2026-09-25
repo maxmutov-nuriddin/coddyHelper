@@ -1045,8 +1045,10 @@ self.addEventListener('fetch', (event) => {
     async def handle_api_get_learned_facts(request: web.Request):
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
-        facts = memory_service.get_all_learned_facts(limit=100)
-        return web.json_response({"ok": True, "facts": facts})
+        user_info = get_current_user(request)
+        uid = 0 if user_info["is_super_admin"] else user_info["user_id"]
+        facts = memory_service.get_all_learned_facts(limit=100, user_id=uid)
+        return web.json_response({"ok": True, "facts": facts, "is_super_admin": user_info["is_super_admin"]})
 
     async def handle_api_add_learned_fact(request: web.Request):
         if not is_authenticated(request):
@@ -1063,8 +1065,10 @@ self.addEventListener('fetch', (event) => {
         if not topic or not content:
             return web.json_response({"ok": False, "error": "Mavzu va mazmun kiritilishi shart!"}, status=400)
 
-        fact_id = memory_service.add_learned_fact(topic, content, category=category)
-        return web.json_response({"ok": True, "id": fact_id, "message": "Qoida/bilim saqlandi"})
+        user_info = get_current_user(request)
+        uid = 0 if user_info["is_super_admin"] else user_info["user_id"]
+        fact_id = memory_service.add_learned_fact(topic, content, category=category, user_id=uid)
+        return web.json_response({"ok": bool(fact_id), "id": fact_id, "message": "Qoida/bilim saqlandi"})
 
     async def handle_api_delete_learned_fact(request: web.Request):
         if not is_authenticated(request):
@@ -1079,7 +1083,9 @@ self.addEventListener('fetch', (event) => {
         if not target and not topic:
             return web.json_response({"ok": False, "error": "Qoida identifikatori kiritilmadi"}, status=400)
 
-        ok = memory_service.delete_learned_fact(target, topic=topic)
+        user_info = get_current_user(request)
+        uid = 0 if user_info["is_super_admin"] else user_info["user_id"]
+        ok = memory_service.delete_learned_fact(target, topic=topic, user_id=uid)
         return web.json_response({"ok": ok, "message": "Qoida o'chirildi"})
 
     # -----------------------------------------------------------
@@ -1132,8 +1138,10 @@ self.addEventListener('fetch', (event) => {
     async def handle_api_get_curriculum_topics(request: web.Request):
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
-        topics = memory_service.get_curriculum_topics()
-        return web.json_response({"ok": True, "topics": topics})
+        user_info = get_current_user(request)
+        uid = 0 if user_info["is_super_admin"] else user_info["user_id"]
+        topics = memory_service.get_curriculum_topics(user_id=uid)
+        return web.json_response({"ok": True, "topics": topics, "is_super_admin": user_info["is_super_admin"]})
 
     async def handle_api_add_curriculum_topic(request: web.Request):
         if not is_authenticated(request):
@@ -1145,8 +1153,10 @@ self.addEventListener('fetch', (event) => {
         topic = str(data.get("topic", "")).strip()
         if not topic:
             return web.json_response({"ok": False, "error": "Mavzu nomi kiritilmadi"}, status=400)
-        ok = memory_service.add_curriculum_topic(topic)
-        topics = memory_service.get_curriculum_topics()
+        user_info = get_current_user(request)
+        uid = 0 if user_info["is_super_admin"] else user_info["user_id"]
+        ok = memory_service.add_curriculum_topic(topic, user_id=uid)
+        topics = memory_service.get_curriculum_topics(user_id=uid)
         return web.json_response({"ok": ok, "topics": topics, "message": "Mavzu muvaffaqiyatli qo'shildi"})
 
     async def handle_api_delete_curriculum_topic(request: web.Request):
@@ -1159,8 +1169,10 @@ self.addEventListener('fetch', (event) => {
         topic = str(data.get("topic", "")).strip()
         if not topic:
             return web.json_response({"ok": False, "error": "Mavzu nomi kiritilmadi"}, status=400)
-        ok = memory_service.remove_curriculum_topic(topic)
-        topics = memory_service.get_curriculum_topics()
+        user_info = get_current_user(request)
+        uid = 0 if user_info["is_super_admin"] else user_info["user_id"]
+        ok = memory_service.remove_curriculum_topic(topic, user_id=uid)
+        topics = memory_service.get_curriculum_topics(user_id=uid)
         return web.json_response({"ok": ok, "topics": topics, "message": "Mavzu olib tashlandi"})
 
     # -----------------------------------------------------------

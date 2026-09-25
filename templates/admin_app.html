@@ -1676,9 +1676,9 @@
       <!-- CURRICULUM TOPICS -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title">🎓 O'quv Dasturi & Mavzular Chegarasi</span>
+          <span class="card-title" id="curriculum-topics-title">🎓 O'quv Dasturi & Mavzular Chegarasi</span>
         </div>
-        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
+        <p id="curriculum-topics-desc" style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
           AI faqat shu stekingiz bo'yicha javob beradi (masalan: <i>for</i> sikli so'ralsa faqat JavaScript bo'yicha tushuntiradi, Python/C++ ga chalg'imaydi).
         </p>
         <div id="curriculum-topics-container" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;">
@@ -1691,7 +1691,7 @@
       </div>
 
       <!-- TARGET WEBSITES (KASKADLI QIDIRUV UCHUN MANBALAR) -->
-      <div class="card">
+      <div class="card" id="card-trusted-sites">
         <div class="card-header">
           <span class="card-title">🎯 Ishonchli Manbalar (Kaskadli Qidiruv)</span>
         </div>
@@ -1712,7 +1712,7 @@
         <div class="card-header">
           <span class="card-title">🧠 Yangi Qoida / Fakt Qo'shish</span>
         </div>
-        <p style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
+        <p id="add-know-desc" style="font-size: 12px; color: var(--hint-color); margin-bottom: 10px;">
           AI bu qoidalarni xotirasiga saqlaydi va barcha o'quvchilarga javob berishda ularga qat'iy amal qiladi.
         </p>
         <div class="form-group">
@@ -2778,6 +2778,33 @@
 
       const clientsBox = document.getElementById("metric-clients-box");
       if (clientsBox) clientsBox.style.display = isSuper ? "block" : "none";
+
+      // Tab-Knowledge Customization for Client vs Super Admin
+      const knowSectionBadge = document.querySelector("#tab-knowledge .section-header-badge");
+      const topicsCardTitle = document.getElementById("curriculum-topics-title");
+      const topicsDesc = document.getElementById("curriculum-topics-desc");
+      const newTopicInput = document.getElementById("new-curriculum-topic");
+      const trustedSitesCard = document.getElementById("card-trusted-sites");
+      const addKnowDesc = document.getElementById("add-know-desc");
+      const knowTopicInput = document.getElementById("know-topic");
+      const knowContentInput = document.getElementById("know-content");
+
+      if (!isSuper) {
+        if (knowSectionBadge) knowSectionBadge.innerText = "🧠 Shaxsiy AI Bilimlar Bazasi";
+        if (topicsCardTitle) topicsCardTitle.innerText = "🎯 Biznes Mavzulari & AI Chegaralari";
+        if (topicsDesc) topicsDesc.innerHTML = "AI faqat siz belgilagan quyidagi biznes mavzulari bo'yicha mijozlarga javob beradi (aloqasiz mavzularda chalg'imaydi).";
+        if (newTopicInput) newTopicInput.placeholder = "Masalan: Mahsulotlar, Narxlar, Yetkazib berish...";
+        if (trustedSitesCard) trustedSitesCard.style.display = "none";
+        if (addKnowDesc) addKnowDesc.innerText = "AI ushbu qoidalarni xotirasiga saqlaydi va mijozlaringizga javob berishda ularga qat'iy amal qiladi.";
+        if (knowTopicInput) knowTopicInput.placeholder = "Masalan: ish_vaqti, tolov_usullari, kafolat...";
+        if (knowContentInput) knowContentInput.placeholder = "Masalan: Toshkent bo'ylab yetkazib berish bepul. Ish vaqtimiz 09:00 dan 20:00 gacha.";
+      } else {
+        if (knowSectionBadge) knowSectionBadge.innerText = "🧠 Bilimlar & O'quv Steki";
+        if (topicsCardTitle) topicsCardTitle.innerText = "🎓 O'quv Dasturi & Mavzular Chegarasi";
+        if (topicsDesc) topicsDesc.innerHTML = "AI faqat shu stekingiz bo'yicha javob beradi (masalan: <i>for</i> sikli so'ralsa faqat JavaScript bo'yicha tushuntiradi, Python/C++ ga chalg'imaydi).";
+        if (newTopicInput) newTopicInput.placeholder = "Masalan: Vue.js yoki Docker";
+        if (trustedSitesCard) trustedSitesCard.style.display = "block";
+      }
 
       if (isSuper) {
         apiRequest("/api/subscriptions").then(res => {
