@@ -217,11 +217,19 @@ def get_current_user(request: web.Request) -> dict:
     is_super = memory_service.is_super_admin(user_id) if user_id else (token == MASTER_ADMIN_TOKEN)
     sub = memory_service.get_subscription(user_id) if user_id else None
 
+    biz_name = "Coddy IT Academy" if is_super else (sub.get("business_name") if sub else "Mening Boshqaruvim")
+    prof = "Senior AI Mentor" if is_super else (sub.get("profession") if sub else "Tadbirkor / Mijoz")
+    full_name = "Teacher" if is_super else (sub.get("full_name") if sub else "Foydalanuvchi")
+    username = "mentor_cc" if is_super else (sub.get("username") if sub else "")
+
     return {
-        "user_id": user_id,
+        "user_id": user_id or (config.mentor_user_id if is_super else 0),
         "is_super_admin": is_super,
         "subscription": sub,
-        "business_name": (sub.get("business_name") if sub else "Coddy IT Academy") if not is_super else "Coddy IT Academy",
+        "business_name": biz_name,
+        "profession": prof,
+        "full_name": full_name,
+        "username": username,
         "role": "super_admin" if is_super else (sub.get("role", "client") if sub else "client"),
     }
 
@@ -242,7 +250,7 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             )
         try:
             content = html_file.read_text(encoding="utf-8")
-            token = request.query.get("token") or MASTER_ADMIN_TOKEN
+            token = request.query.get("token") or ""
             content = content.replace("/*__INITIAL_TOKEN__*/", f'window.__INITIAL_TOKEN__ = "{token}";')
             return web.Response(text=content, content_type="text/html")
         except Exception as e:
@@ -367,49 +375,85 @@ self.addEventListener('fetch', (event) => {
             except Exception:
                 pass
 
-        # Token tekshiruvi
-        token_valid = verify_admin_token(token)
-
-        # Telegram WebApp ID si yoki username orqali to'g'ridan-to'g'ri tekshirish
-        tg_valid = False
+        # 1. Super Admin tekshiruvi
+        tg_username = (telegram_user.get("username") or "").strip().lower().lstrip("@")
+        is_super = False
         if tg_id is not None:
             try:
-                tg_valid = int(tg_id) in allowed_mentor_ids
+                is_super = int(tg_id) in allowed_mentor_ids or memory_service.is_super_admin(int(tg_id))
             except (ValueError, TypeError):
-                tg_valid = False
+                is_super = False
+        if not is_super and (tg_username == "mentor_cc" or token == MASTER_ADMIN_TOKEN):
+            is_super = True
 
-        tg_username = (telegram_user.get("username") or "").strip().lower().lstrip("@")
-        if not tg_valid and tg_username == "mentor_cc":
-            tg_valid = True
-
-        if not token_valid and not tg_valid:
-            logger.warning(
-                "Ruxsatsiz Mini App kirish urinishi! tg_id=%s, token=%s",
-                tg_id,
-                token[:8] if token else "none",
-            )
+        if is_super:
+            super_profile = {
+                "user_id": config.mentor_user_id or 8105823872,
+                "username": "mentor_cc",
+                "full_name": "Teacher",
+                "business_name": "Coddy IT Academy",
+                "profession": "Senior AI Mentor",
+                "is_super_admin": True,
+                "role": "super_admin",
+            }
             return web.json_response(
                 {
-                    "ok": False,
-                    "error": "🚫 Ruxsat berilmagan! Ushbu boshqaruv paneli faqat mentor (@mentor_cc) uchun himoyalangan.",
-                },
-                status=403,
+                    "ok": True,
+                    "token": MASTER_ADMIN_TOKEN,
+                    "user": super_profile,
+                    "current_user": super_profile,
+                    "mentor": super_profile,
+                }
             )
 
-        # Muvaffaqiyatli: doimiy ishonchli tokenni qaytaramiz
-        if not token_valid:
-            token = MASTER_ADMIN_TOKEN
+        # 2. Obunachi (Mijoz) tekshiruvi: tg_id yoki mavjud token orqali
+        sub = None
+        if tg_id is not None:
+            try:
+                sub = memory_service.get_subscription(int(tg_id))
+            except Exception:
+                pass
 
+        if not sub and token:
+            token_uid = get_token_user_id(token)
+            if token_uid:
+                sub = memory_service.get_subscription(token_uid)
+
+        if sub and sub.get("active") and not sub.get("is_expired"):
+            client_uid = sub["user_id"]
+            client_token = generate_admin_token(user_id=client_uid)
+            client_profile = {
+                "user_id": client_uid,
+                "username": sub.get("username") or telegram_user.get("username") or "",
+                "full_name": sub.get("full_name") or telegram_user.get("first_name") or "Mijoz",
+                "business_name": sub.get("business_name") or "Mening Boshqaruvim",
+                "profession": sub.get("profession") or "Tadbirkor / Mijoz",
+                "is_super_admin": False,
+                "role": "client",
+                "subscription": sub,
+            }
+            return web.json_response(
+                {
+                    "ok": True,
+                    "token": client_token,
+                    "user": client_profile,
+                    "current_user": client_profile,
+                    "mentor": client_profile,
+                }
+            )
+
+        # 3. Ruxsatsiz
+        logger.warning(
+            "Ruxsatsiz Mini App kirish urinishi! tg_id=%s, token=%s",
+            tg_id,
+            token[:8] if token else "none",
+        )
         return web.json_response(
             {
-                "ok": True,
-                "token": token,
-                "mentor": {
-                    "id": config.mentor_user_id,
-                    "username": "mentor_cc",
-                    "name": "Teacher",
-                },
-            }
+                "ok": False,
+                "error": "🚫 Kechirasiz, sizda faol obuna topilmadi! Iltimos, bot (@coddyassistanstbot) orqali /start bosib obunani faollashtiring yoki administrator (@mentor_cc) bilan bog'laning.",
+            },
+            status=403,
         )
 
     # -----------------------------------------------------------
@@ -447,6 +491,21 @@ self.addEventListener('fetch', (event) => {
             else f"Gemini ({config.gemini_model})"
         )
 
+        current_u = get_current_user(request)
+        if not current_u["is_super_admin"]:
+            telegram_me = f"{current_u['business_name']} ({current_u.get('profession', 'Mijoz')}) ID:{current_u['user_id']}"
+            mentor_dict = {
+                "id": current_u["user_id"],
+                "username": current_u.get("username", ""),
+                "name": current_u["business_name"],
+            }
+        else:
+            mentor_dict = {
+                "id": config.mentor_user_id or 8105823872,
+                "username": "mentor_cc",
+                "name": "Teacher",
+            }
+
         return web.json_response(
             {
                 "ok": True,
@@ -477,14 +536,10 @@ self.addEventListener('fetch', (event) => {
                 "recent_activity_logs": list(reversed(RECENT_ACTIVITY_LOGS[-15:])),
                 "telegram_authorized": telegram_authorized,
                 "telegram_me": telegram_me,
-                "mentor": {
-                    "id": config.mentor_user_id,
-                    "username": "mentor_cc",
-                    "name": "Teacher",
-                },
+                "mentor": mentor_dict,
                 "ai_metrics": ai_service.get_metrics(),
                 "autonomous_brain": autonomous_brain_service.get_status(),
-                "current_user": get_current_user(request),
+                "current_user": current_u,
             }
         )
 
@@ -1144,6 +1199,88 @@ self.addEventListener('fetch', (event) => {
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
         try:
+            user_info = get_current_user(request)
+            if not user_info["is_super_admin"] and user_info.get("subscription"):
+                sub = user_info["subscription"]
+                biz_name = user_info.get("business_name") or "Mening Boshqaruvim"
+                prof = user_info.get("profession") or "Tadbirkor / Mijoz"
+                prompt = sub.get("system_prompt") or ""
+                group_id = sub.get("group_id") or 0
+                expires_at = sub.get("expires_at", "—")
+                days_left = sub.get("days_left", 30)
+
+                client_skills = [
+                    {
+                        "id": "business_persona",
+                        "name": f"{prof} Sohaviy Bilimlari",
+                        "desc": (prompt[:70] + "...") if len(prompt) > 70 else (prompt or f"{biz_name} uchun moslashtirilgan sun'iy intellekt"),
+                        "icon": "🎯",
+                        "unlocked": True,
+                    },
+                    {
+                        "id": "group_assistant",
+                        "name": "Telegram Guruh Avto-Yordamchisi",
+                        "desc": f"Ulangan Guruh ID: {group_id}" if group_id else "Guruhga qo'shilmagan (Botni guruhingizga qo'shing)",
+                        "icon": "👥",
+                        "unlocked": bool(group_id),
+                    },
+                    {
+                        "id": "24_7_smart_replies",
+                        "name": "24/7 Avtomatik Muloqot & Savol-Javob",
+                        "desc": "Mijozlarning savollariga o'zbek tilida xushmuomala va aniq javob",
+                        "icon": "⚡",
+                        "unlocked": True,
+                    },
+                    {
+                        "id": "subscription_guarantee",
+                        "name": f"Obuna: {days_left} kun qoldi ({expires_at.split(' ')[0] if expires_at else 'Faol'})",
+                        "desc": "Doimiy avtonom ishlash va uzluksiz AI quvvati",
+                        "icon": "💎",
+                        "unlocked": True,
+                    },
+                ]
+
+                return web.json_response({
+                    "ok": True,
+                    "level": 2 if group_id else 1,
+                    "title": f"{biz_name} AI Hamkori",
+                    "iq_score": 135 if group_id else 120,
+                    "iq_status": "Faol Avtonom Hamkor" if group_id else "Dastlabki Bosqich",
+                    "cognitive_metrics": {
+                        "memory_depth": 85 if prompt else 60,
+                        "pedagogical_analysis": 80,
+                        "adaptive_intelligence": 90 if group_id else 70,
+                        "execution_discipline": 95,
+                    },
+                    "xp": 350 if group_id else 120,
+                    "current_level_xp": 100 if group_id else 120,
+                    "next_level_xp": 250,
+                    "progress_pct": 80 if group_id else 48,
+                    "emergency_contact_id": "",
+                    "emergency_wakeup_enabled": False,
+                    "stats": {
+                        "saved_locations": 0,
+                        "today_plans": 0,
+                        "learned_knowledge": 1 if prompt else 0,
+                        "autonomous_insights": 0,
+                        "total_messages": 0,
+                        "total_students": 0,
+                        "sent_reminders": 0,
+                    },
+                    "skills": client_skills,
+                    "saved_locations_list": [],
+                    "today_plans_list": [],
+                    "learned_knowledge_list": [],
+                    "client_info": {
+                        "business_name": biz_name,
+                        "profession": prof,
+                        "group_id": group_id,
+                        "system_prompt": prompt,
+                        "expires_at": expires_at,
+                        "days_left": days_left,
+                    },
+                })
+
             stats = memory_service.get_agent_stats()
             saved_locations = memory_service.list_saved_locations(limit=20)
             tashkent_tz = ZoneInfo("Asia/Tashkent")

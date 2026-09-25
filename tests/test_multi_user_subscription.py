@@ -135,6 +135,14 @@ class TestMultiUserSubscription(unittest.TestCase):
         master_uid = get_token_user_id(MASTER_ADMIN_TOKEN)
         self.assertEqual(master_uid, config.mentor_user_id)
 
+    def test_delete_subscription(self):
+        """Obunani bazadan butunlay o'chirish."""
+        memory_service.upsert_subscription(user_id=self.test_user_id, days=30)
+        self.assertTrue(memory_service.is_subscription_active(self.test_user_id))
+        ok = memory_service.delete_subscription(self.test_user_id)
+        self.assertTrue(ok)
+        self.assertIsNone(memory_service.get_subscription(self.test_user_id))
+
 
 if __name__ == "__main__":
     unittest.main()

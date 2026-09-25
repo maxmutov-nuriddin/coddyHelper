@@ -2495,7 +2495,13 @@
     // Autentifikatsiya tokenini aniqlash
     const urlParams = new URLSearchParams(window.location.search);
     const tokenFromUrl = urlParams.get("token");
-    let authToken = window.__INITIAL_TOKEN__ || tokenFromUrl || localStorage.getItem("coddy_admin_token") || "mentor_cc_master_8105823872";
+    const tgUserId = tg?.initDataUnsafe?.user?.id;
+    let authToken = tokenFromUrl || window.__INITIAL_TOKEN__;
+    if (!authToken && !tgUserId) {
+      authToken = localStorage.getItem("coddy_admin_token") || "mentor_cc_master_8105823872";
+    } else if (!authToken && tgUserId) {
+      authToken = localStorage.getItem("coddy_admin_token") || "";
+    }
     if (authToken) {
       localStorage.setItem("coddy_admin_token", authToken);
     }
@@ -2669,7 +2675,7 @@
     async function initAuth() {
       const user = tg?.initDataUnsafe?.user;
       const payload = {
-        token: authToken,
+        token: authToken || "",
         user_id: user?.id,
         user: user || null,
         initData: tg?.initData || ""
@@ -2683,10 +2689,10 @@
         });
 
         if (res.status === 403) {
-          if (authToken !== "mentor_cc_master_8105823872") {
-            authToken = "mentor_cc_master_8105823872";
-            localStorage.setItem("coddy_admin_token", authToken);
-            return initAuth();
+          const errData = await res.json().catch(() => null);
+          const lockMsg = document.getElementById("lock-message") || document.querySelector(".lock-card p");
+          if (lockMsg && errData?.error) {
+            lockMsg.innerText = errData.error;
           }
           showLockScreen();
           return;
@@ -2696,6 +2702,7 @@
         if (data.ok && data.token) {
           authToken = data.token;
           localStorage.setItem("coddy_admin_token", authToken);
+          window.__CURRENT_USER__ = data.user || data.mentor;
           hideLockScreen();
           loadAllData();
         } else {
@@ -2715,16 +2722,62 @@
       const data = await apiRequest("/api/status");
       if (!data || !data.ok) return;
 
-      // Multi-User: Only Super Admin (support) sees the "Mijozlar" navigation tab and metric box
-      const isSuper = Boolean(data.is_super_admin || data.current_user?.is_super_admin);
+      // Multi-User: Update top header dynamically for the current user!
+      const user = data.current_user || window.__CURRENT_USER__ || {};
+      const isSuper = Boolean(user.is_super_admin || data.is_super_admin);
+
+      const headerTitle = document.getElementById("header-title");
+      const headerSub = document.getElementById("header-sub");
+      const headerAvatar = document.getElementById("header-avatar");
+
+      if (headerTitle) {
+        if (isSuper) {
+          headerTitle.innerText = "Teacher (@mentor_cc)";
+        } else {
+          headerTitle.innerText = user.business_name || user.full_name || "Mening Boshqaruvim";
+        }
+      }
+
+      if (headerSub) {
+        if (isSuper) {
+          headerSub.innerText = "ID: 8105823872 • Bosh Administrator (Super Admin)";
+        } else {
+          const sub = user.subscription || {};
+          const prof = user.profession || sub.profession || "Shaxsiy AI Yordamchi";
+          const exp = sub.expires_at ? sub.expires_at.split(" ")[0] : "Faol";
+          headerSub.innerText = `ID: ${user.user_id || user.id || "—"} • ${prof} • Obuna: ${exp} gacha`;
+        }
+      }
+
+      if (headerAvatar) {
+        if (isSuper) {
+          headerAvatar.innerText = "TC";
+          headerAvatar.style.background = "linear-gradient(135deg, #2481cc, #38bdf8)";
+        } else {
+          const name = user.business_name || user.full_name || "M";
+          const words = name.trim().split(/\s+/);
+          const initials = words.length > 1 ? (words[0][0] + words[1][0]).toUpperCase() : name.slice(0, 2).toUpperCase();
+          headerAvatar.innerText = initials || "AI";
+          headerAvatar.style.background = "linear-gradient(135deg, #10b981, #059669)";
+        }
+      }
+
+      // Role-Based Navigation: Only Super Admin sees full management tabs
       const navClients = document.getElementById("nav-clients");
-      if (navClients) {
-        navClients.style.display = isSuper ? "flex" : "none";
-      }
+      if (navClients) navClients.style.display = isSuper ? "flex" : "none";
+
+      const navSecurity = document.getElementById("nav-security");
+      if (navSecurity) navSecurity.style.display = isSuper ? "flex" : "none";
+
+      const navDossiers = document.getElementById("nav-dossiers");
+      if (navDossiers) navDossiers.style.display = isSuper ? "flex" : "none";
+
+      const navStudents = document.getElementById("nav-students");
+      if (navStudents) navStudents.style.display = isSuper ? "flex" : "none";
+
       const clientsBox = document.getElementById("metric-clients-box");
-      if (clientsBox) {
-        clientsBox.style.display = isSuper ? "block" : "none";
-      }
+      if (clientsBox) clientsBox.style.display = isSuper ? "block" : "none";
+
       if (isSuper) {
         apiRequest("/api/subscriptions").then(res => {
           if (res && res.ok && res.subscriptions) {
@@ -5528,6 +5581,40 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
 
         const titleDisplay = document.getElementById("agent-title-display");
         if (titleDisplay) titleDisplay.innerText = res.title || "Coddy Executive Co-Pilot";
+
+        // Multi-User: Show Client Configuration Card if available
+        const existingInfoBox = document.getElementById("client-agent-info-box");
+        if (res.client_info) {
+          const ci = res.client_info;
+          const heroCard = document.querySelector("#tab-agent .card");
+          if (heroCard) {
+            let infoBox = existingInfoBox;
+            if (!infoBox) {
+              infoBox = document.createElement("div");
+              infoBox.id = "client-agent-info-box";
+              heroCard.appendChild(infoBox);
+            }
+            infoBox.style.cssText = "background: rgba(0,0,0,0.3); border: 1px solid rgba(46,166,255,0.3); border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-size: 12px;";
+            infoBox.innerHTML = `
+              <div style="font-weight: 700; color: #2ea6ff; margin-bottom: 6px; display: flex; justify-content: space-between;">
+                <span>💼 Shaxsiy Biznes Agent Konfiguratsiyasi</span>
+                <span class="badge badge-success" style="font-size: 10px;">${ci.days_left || 0} kun qoldi</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+                <div><span style="color: var(--hint-color);">Soha:</span> <b>${escapeHtml(ci.profession || '—')}</b></div>
+                <div><span style="color: var(--hint-color);">Guruh:</span> <b style="color: ${ci.group_id ? '#22c55e' : '#f59e0b'};">${ci.group_id ? '✅ Ulangan' : '⏳ Ulanmagan'}</b></div>
+              </div>
+              ${ci.system_prompt ? `
+                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+                  <span style="color: var(--hint-color);">Yo'riqnoma (Prompt):</span>
+                  <div style="color: #cbd5e1; font-style: italic; margin-top: 2px;">${escapeHtml(ci.system_prompt)}</div>
+                </div>
+              ` : ''}
+            `;
+          }
+        } else if (existingInfoBox) {
+          existingInfoBox.remove();
+        }
 
         const xpText = document.getElementById("agent-xp-text");
         const curLvlXp = res.current_level_xp !== undefined ? res.current_level_xp : ((res.xp || 0) % 250);
