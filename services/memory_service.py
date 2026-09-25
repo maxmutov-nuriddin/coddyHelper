@@ -804,12 +804,17 @@ class SQLiteMemoryService:
         except Exception:
             return 0
 
-    def get_learned_facts_count(self) -> int:
+    def get_learned_facts_count(self, user_id: int = 0) -> int:
         """Bilimlar (insights) sonini SQLite'dan 0.1ms da hisoblaydi."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM learned_memory")
+                if user_id and not self.is_super_admin(user_id):
+                    cursor.execute("SELECT COUNT(*) FROM learned_memory WHERE user_id = ?", (user_id,))
+                    row = cursor.fetchone()
+                    return row[0] if row else 0
+
+                cursor.execute("SELECT COUNT(*) FROM learned_memory WHERE user_id = 0 OR user_id IS NULL")
                 row = cursor.fetchone()
                 cnt = row[0] if row else 0
                 try:
