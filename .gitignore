@@ -39,3 +39,6 @@ Thumbs.db
 # Obsidian Brain Vault (Maxfiy shaxsiy ma'lumotlar va o'quvchilar dosyelari - faqat lokal saqlanadi)
 brain_vault/
 
+
+# Mijozlar (tenant) bazalari — shaxsiy ma'lumotlar, faqat server va bulut snapshotida saqlanadi
+tenants/

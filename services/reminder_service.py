@@ -40,6 +40,12 @@ async def send_due_reminder_notification(
     clean_task = re.sub(r"^\[.*?ga xabar\]:\s*", "", clean_task, flags=re.I)
     clean_task = re.sub(r"^🔔\s*(?:Eslatma|Напоминание):\s*", "", clean_task, flags=re.I).strip()
 
+    # Multi-tenant: mijoz eslatmasi mentorning Vazifalar guruhiga EMAS, faqat o'z egasiga yetkaziladi
+    from services.tenant_context import get_tenant_id
+    tenant_id = get_tenant_id()
+    if tenant_id:
+        return await send_tenant_reminder(tenant_id, rem_id, clean_task, remind_at, client)
+
     target_user = config.mentor_user_id or 8105823872
 
     # 3. Guruh ID sini aniqlash:
@@ -97,3 +103,35 @@ async def send_due_reminder_notification(
             logger.error("Telethon orqali Vazifalar guruhiga eslatma yuborishda xatolik (%s): %s", target_chat, c_err)
 
     return sent_any
+
+
+async def send_tenant_reminder(tenant_id: int, rem_id: int, task_text: str, remind_at: str, client=None) -> bool:
+    """
+    Mijoz eslatmasini faqat o'sha mijozga yetkazadi:
+      1. Bot orqali mijozning shaxsiy chatiga (push-bildirishnoma bilan)
+      2. Zaxira: mijozning o'z Telethon clienti orqali "Saqlangan xabarlar" (Saved Messages) ga
+    """
+    text = (
+        "🔔 **ESLATMA!**\n\n"
+        f"📌 **Vazifa:** {task_text}\n"
+        f"⏰ **Vaqt:** `{remind_at}`"
+    )
+    if config.bot_token:
+        try:
+            bot_inst = Bot(token=config.bot_token)
+            try:
+                await bot_inst.send_message(chat_id=int(tenant_id), text=text, parse_mode="Markdown", disable_notification=False)
+                logger.info("🔔 Tenant %s eslatmasi #%s bot orqali yetkazildi.", tenant_id, rem_id)
+                return True
+            finally:
+                await bot_inst.session.close()
+        except Exception as b_err:
+            logger.debug("Tenant %s eslatmasini bot orqali yuborib bo'lmadi: %s", tenant_id, b_err)
+    if client:
+        try:
+            await client.send_message("me", text)
+            logger.info("🔔 Tenant %s eslatmasi Saved Messages ga yetkazildi.", tenant_id)
+            return True
+        except Exception as c_err:
+            logger.error("Tenant %s eslatmasini yetkazishda xatolik: %s", tenant_id, c_err)
+    return False

@@ -1192,10 +1192,12 @@ def register_command_handlers(client: TelegramClient) -> None:
             except Exception as b_err:
                 logger.warning("Incoming handlerda bot tugmasi chiqarishda xatolik: %s", b_err)
 
+        # XAVFSIZLIK: guruhga tokenli havola yozilmaydi (guruhdagi hamma ko'radi) — faqat shaxsiy chatda
+        direct_line = f"👉 To'g'ridan-to'g'ri ochish: [Boshqaruv Paneli]({app_url})\n\n" if event.is_private else ""
         await event.reply(
             "🔐 **coddyHelper Admin Panel**\n\n"
             "Boshqaruv paneli havolasi shaxsiy xabarlaringizga ([Saved Messages](tg://user?id=8105823872)) yuborildi!\n"
-            f"👉 To'g'ridan-to'g'ri ochish: [Boshqaruv Paneli]({app_url})\n\n"
+            f"{direct_line}"
             "⚠️ *Eslatma: Faqat @mentor_cc boshqarishi mumkin.*"
         )
 

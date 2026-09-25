@@ -64,6 +64,18 @@ class MongoMemoryService:
             logger.warning("MongoDB Atlas'ga ulanishda ogohlantirish (Offline kesh ishlaydi): %s", e)
 
     def is_connected(self) -> bool:
+        """
+        Asosiy (Super Admin) kolleksiyalari uchun ulanish holati.
+        Tenant (mijoz) kontekstida doimo False: mijoz ma'lumotlari hech qachon mentorning
+        umumiy kolleksiyalariga aralashmaydi — ular tenant snapshoti orqali alohida saqlanadi.
+        """
+        from services.tenant_context import is_main_tenant
+        if not is_main_tenant():
+            return False
+        return self.is_core_connected()
+
+    def is_core_connected(self) -> bool:
+        """Kontekstdan qat'iy nazar haqiqiy MongoDB ulanish holati (control-plane uchun)."""
         now = time.time()
         # Agar mijoz mavjud bo'lmasa yoki uzilgan bo'lsa, har 5 soniyada qayta ulanishga urinish
         if not self._is_connected or self._client is None:
@@ -1173,7 +1185,7 @@ class MongoMemoryService:
     # ==========================================
     def upsert_user_subscription(self, doc: dict) -> bool:
         """Foydalanuvchi obunasini MongoDB Atlas ga yozadi / yangilaydi."""
-        if not self.is_connected() or not doc.get("user_id"):
+        if not self.is_core_connected() or not doc.get("user_id"):
             return False
         try:
             now = datetime.now(ZoneInfo("Asia/Tashkent"))
@@ -1191,7 +1203,7 @@ class MongoMemoryService:
 
     def link_user_group(self, user_id: int, group_id: int) -> bool:
         """Foydalanuvchiga shaxsiy guruh ID sini MongoDB da biriktiradi."""
-        if not self.is_connected() or not user_id:
+        if not self.is_core_connected() or not user_id:
             return False
         try:
             self._db["system_core.user_subscriptions"].update_one(
@@ -1206,7 +1218,7 @@ class MongoMemoryService:
 
     def revoke_user_subscription(self, user_id: int) -> bool:
         """Foydalanuvchi obunasini MongoDB da to'xtatadi."""
-        if not self.is_connected() or not user_id:
+        if not self.is_core_connected() or not user_id:
             return False
         try:
             self._db["system_core.user_subscriptions"].update_one(
@@ -1220,7 +1232,7 @@ class MongoMemoryService:
 
     def delete_user_subscription(self, user_id: int) -> bool:
         """Foydalanuvchi obunasini MongoDB dan butunlay o'chiradi."""
-        if not self.is_connected() or not user_id:
+        if not self.is_core_connected() or not user_id:
             return False
         try:
             self._db["system_core.user_subscriptions"].delete_one({"user_id": user_id})
@@ -1231,7 +1243,7 @@ class MongoMemoryService:
 
     def get_user_subscription(self, user_id: int) -> dict | None:
         """Foydalanuvchi obunasini MongoDB dan oladi."""
-        if not self.is_connected() or not user_id:
+        if not self.is_core_connected() or not user_id:
             return None
         try:
             doc = self._db["system_core.user_subscriptions"].find_one({"user_id": user_id})
@@ -1245,6 +1257,147 @@ class MongoMemoryService:
     # ==========================================
     # 5. Zero-Loss SQLite <-> MongoDB Synchronization
     # ==========================================
+    # ==========================================
+    # Qo'shimcha o'chirish metodlari (Render restartdan keyin "tirilib" qolmasligi uchun)
+    # ==========================================
+    def delete_location(self, name_clean: str) -> bool:
+        if not self.is_connected() or not name_clean:
+            return False
+        try:
+            import re as _re
+            self._db["brain_mentor.saved_locations"].delete_many(
+                {"name": {"$regex": f"^{_re.escape(name_clean)}$", "$options": "i"}}
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB delete_location xatolik: %s", e)
+            return False
+
+    def delete_daily_plan(self, title: str, date_str: str) -> bool:
+        if not self.is_connected() or not title:
+            return False
+        try:
+            self._db["brain_mentor.daily_plans"].delete_many({"title": title, "date": date_str})
+            return True
+        except Exception as e:
+            logger.error("MongoDB delete_daily_plan xatolik: %s", e)
+            return False
+
+    # ==========================================
+    # Multi-Tenant: mijoz bazalarining bulutdagi snapshotlari
+    # ==========================================
+    _SNAPSHOT_INLINE_LIMIT = 14 * 1024 * 1024
+
+    def save_tenant_snapshot(self, tenant_id: int, data: bytes) -> bool:
+        """Mijozning SQLite bazasini (gzip) bulutga saqlaydi. Katta bo'lsa GridFS ishlatiladi."""
+        if not self.is_core_connected() or not tenant_id or not data:
+            return False
+        try:
+            import gzip
+            from bson import Binary
+            packed = gzip.compress(data, compresslevel=6)
+            col = self._db["system_core.tenant_snapshots"]
+            now_dt = datetime.now(ZoneInfo("Asia/Tashkent"))
+            if len(packed) <= self._SNAPSHOT_INLINE_LIMIT:
+                col.update_one(
+                    {"_id": int(tenant_id)},
+                    {"$set": {"data": Binary(packed), "gridfs_id": None, "size": len(data), "updated_at": now_dt}},
+                    upsert=True,
+                )
+            else:
+                import gridfs
+                fs = gridfs.GridFS(self._db, collection="tenant_snapshot_files")
+                old = col.find_one({"_id": int(tenant_id)}, {"gridfs_id": 1})
+                file_id = fs.put(packed, filename=f"tenant_{int(tenant_id)}.db.gz")
+                col.update_one(
+                    {"_id": int(tenant_id)},
+                    {"$set": {"data": None, "gridfs_id": file_id, "size": len(data), "updated_at": now_dt}},
+                    upsert=True,
+                )
+                if old and old.get("gridfs_id"):
+                    try:
+                        fs.delete(old["gridfs_id"])
+                    except Exception:
+                        pass
+            return True
+        except Exception as e:
+            logger.error("Tenant %s snapshotini saqlashda xatolik: %s", tenant_id, e)
+            return False
+
+    def load_tenant_snapshot(self, tenant_id: int) -> bytes | None:
+        """Mijoz bazasining so'nggi snapshotini bulutdan oladi."""
+        if not self.is_core_connected() or not tenant_id:
+            return None
+        try:
+            import gzip
+            doc = self._db["system_core.tenant_snapshots"].find_one({"_id": int(tenant_id)})
+            if not doc:
+                return None
+            if doc.get("data"):
+                return gzip.decompress(bytes(doc["data"]))
+            if doc.get("gridfs_id"):
+                import gridfs
+                fs = gridfs.GridFS(self._db, collection="tenant_snapshot_files")
+                return gzip.decompress(fs.get(doc["gridfs_id"]).read())
+        except Exception as e:
+            logger.error("Tenant %s snapshotini o'qishda xatolik: %s", tenant_id, e)
+        return None
+
+    def delete_tenant_snapshot(self, tenant_id: int) -> bool:
+        if not self.is_core_connected() or not tenant_id:
+            return False
+        try:
+            doc = self._db["system_core.tenant_snapshots"].find_one_and_delete({"_id": int(tenant_id)})
+            if doc and doc.get("gridfs_id"):
+                import gridfs
+                gridfs.GridFS(self._db, collection="tenant_snapshot_files").delete(doc["gridfs_id"])
+            return True
+        except Exception as e:
+            logger.error("Tenant %s snapshotini o'chirishda xatolik: %s", tenant_id, e)
+            return False
+
+    # ==========================================
+    # Instance Lease: bir vaqtda faqat BITTA server mijoz sessiyalarini yuritadi.
+    # Bir xil StringSession ikki joyda ulansa Telegram AUTH_KEY_DUPLICATED beradi va
+    # sessiyani butunlay bekor qiladi (mijoz akkauntdan "chiqarib yuboriladi").
+    # ==========================================
+    def acquire_lease(self, name: str, holder: str, ttl_seconds: int = 90) -> bool:
+        if not self.is_core_connected():
+            return False
+        try:
+            from pymongo.errors import DuplicateKeyError
+            now_ts = time.time()
+            try:
+                self._db["system_core.instance_leases"].find_one_and_update(
+                    {"_id": name, "$or": [{"holder": holder}, {"expires_at": {"$lt": now_ts}}]},
+                    {"$set": {"holder": holder, "expires_at": now_ts + ttl_seconds, "renewed_at": now_ts}},
+                    upsert=True,
+                )
+                return True
+            except DuplicateKeyError:
+                return False
+        except Exception as e:
+            logger.warning("Lease '%s' olishda ogohlantirish: %s", name, e)
+            return False
+
+    def get_lease_holder(self, name: str) -> dict | None:
+        if not self.is_core_connected():
+            return None
+        try:
+            return self._db["system_core.instance_leases"].find_one({"_id": name})
+        except Exception:
+            return None
+
+    def release_lease(self, name: str, holder: str) -> bool:
+        if not self.is_core_connected():
+            return False
+        try:
+            self._db["system_core.instance_leases"].delete_one({"_id": name, "holder": holder})
+            return True
+        except Exception:
+            return False
+
+
     def restore_to_sqlite(self, sqlite_path: Path) -> dict[str, int]:
         """MongoDB Atlas bulutidagi barcha ma'lumotlarni SQLite bazasiga 100% tiklaydi (Render Auto-Restore)."""
         stats = {
@@ -1775,7 +1928,7 @@ class MongoMemoryService:
                     }
                     self._db["brain_frontline.student_profiles"].update_one(
                         {"user_id": r["user_id"]},
-                        {"$set": doc},
+                        {"$setOnInsert": doc},
                         upsert=True,
                     )
                     stats["students"] += 1
@@ -1849,9 +2002,10 @@ class MongoMemoryService:
                         "created_at": str(r["created_at"]) if "created_at" in r_keys and r["created_at"] else "",
                         "updated_at": str(r["updated_at"]) if "updated_at" in r_keys and r["updated_at"] else "",
                     }
+                    # Bulut — asosiy manba: lokal (eskirgan) nusxa bulutdagi yangi ma'lumotni bosib ketmasin
                     self._db["system_core.user_subscriptions"].update_one(
                         {"user_id": r["user_id"]},
-                        {"$set": doc},
+                        {"$setOnInsert": doc},
                         upsert=True,
                     )
                     stats["user_subscriptions"] += 1

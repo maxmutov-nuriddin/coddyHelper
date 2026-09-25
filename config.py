@@ -4,6 +4,7 @@ Loyiha konfiguratsiyasi va muhit o'zgaruvchilari
 
 import os
 from dataclasses import dataclass
+from typing import Any
 from pathlib import Path
 
 # .env faylini yuklash

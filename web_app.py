@@ -5,10 +5,14 @@ Faqat mentor (@mentor_cc / ID: 8105823872) uchun xavfsiz boshqaruv API va WebApp
 
 import os
 import re
+import hmac
+import json
 import time
+import hashlib
 import secrets
 import logging
 import asyncio
+from urllib.parse import parse_qsl
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -27,13 +31,28 @@ from services.telegram_agent_service import (
     execute_agent_action,
 )
 from handlers.auto_reply import RECENT_ACTIVITY_LOGS, BOT_SENT_MESSAGE_IDS
+from services.tenant_context import tenant_scope
 
 logger = logging.getLogger(__name__)
 
 # Faol autentifikatsiya tokenlari (xotira + SQLite)
 ACTIVE_ADMIN_TOKENS: dict[str, dict] = {}
 TOKEN_LIFETIME = 86400 * 30  # 30 kun
-MASTER_ADMIN_TOKEN = "mentor_cc_master_8105823872"
+# XAVFSIZLIK: avval bu yerda qattiq yozilgan (hamma biladigan) master token bor edi — endi faqat
+# muhit o'zgaruvchisidan olinadi. O'rnatilmagan bo'lsa master token umuman ishlamaydi.
+MASTER_ADMIN_TOKEN = os.getenv("MASTER_ADMIN_TOKEN", "").strip()
+TELEGRAM_INIT_DATA_MAX_AGE = 86400 * 7
+
+# Faqat Super Admin (@mentor_cc) uchun endpointlar — mijoz tokeni bilan 403 (role_forbidden)
+SUPER_ADMIN_ONLY_PATHS = {
+    "/api/backup", "/api/backup/send_bot", "/api/upload_db", "/api/restart", "/api/broadcast",
+    "/api/gemini/settings", "/api/ai_metrics", "/api/mentor-lexicon", "/api/mentor-lexicon/delete",
+    "/api/self-mistakes", "/api/agent/settings", "/api/agent/insights/approve", "/api/agent/insights/delete",
+    "/api/students", "/api/students/delete", "/api/system/lease",
+}
+SUPER_ADMIN_ONLY_PREFIXES = (
+    "/api/mac/", "/api/autonomous-brain/", "/api/user-photo/", "/api/user-avatar/", "/api/user-photos-info/",
+)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
@@ -132,7 +151,7 @@ def verify_admin_token(token: str) -> bool:
     if not token or not isinstance(token, str):
         return False
     token = token.strip()
-    if token == MASTER_ADMIN_TOKEN:
+    if MASTER_ADMIN_TOKEN and hmac.compare_digest(token, MASTER_ADMIN_TOKEN):
         return True
 
     now = time.time()
@@ -191,7 +210,7 @@ def get_token_user_id(token: str) -> int:
     if not token or not isinstance(token, str):
         return 0
     token = token.strip()
-    if token == MASTER_ADMIN_TOKEN:
+    if MASTER_ADMIN_TOKEN and hmac.compare_digest(token, MASTER_ADMIN_TOKEN):
         return config.mentor_user_id or 8105823872
     if token in ACTIVE_ADMIN_TOKENS:
         return ACTIVE_ADMIN_TOKENS[token].get("user_id", 0)
@@ -203,6 +222,48 @@ def get_token_user_id(token: str) -> int:
     except Exception:
         pass
     return 0
+
+
+def verify_telegram_init_data(init_data: str) -> dict | None:
+    """
+    Telegram Mini App `initData` imzosini bot tokeni bilan tekshiradi (HMAC-SHA256).
+    Faqat shu tekshiruvdan o'tgan foydalanuvchi ID siga ishoniladi — `initDataUnsafe`,
+    `user_id` yoki `username` kabi mijoz yuborgan maydonlar soxtalashtirilishi mumkin.
+    """
+    if not init_data or not config.bot_token:
+        return None
+    try:
+        params = dict(parse_qsl(init_data, keep_blank_values=True, strict_parsing=False))
+        received_hash = params.pop("hash", "")
+        if not received_hash:
+            return None
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
+        secret_key = hmac.new(b"WebAppData", config.bot_token.encode("utf-8"), hashlib.sha256).digest()
+        calc_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc_hash, received_hash):
+            return None
+        auth_date = int(params.get("auth_date", "0") or 0)
+        if not auth_date or time.time() - auth_date > TELEGRAM_INIT_DATA_MAX_AGE:
+            return None
+        user = json.loads(params.get("user", "{}") or "{}")
+        return user if user.get("id") else None
+    except Exception as e:
+        logger.debug("initData tekshiruvida xatolik: %s", e)
+        return None
+
+
+def sanitize_subscription(sub: dict | None) -> dict | None:
+    """API javoblaridan maxfiy maydonlarni (HSS / StringSession) olib tashlaydi."""
+    if not sub:
+        return sub
+    clean = {k: v for k, v in sub.items() if k != "session_string"}
+    clean["has_session"] = bool(sub.get("session_string"))
+    return clean
+
+
+def json_forbidden_role(message: str = "Bu bo'lim faqat Super Admin uchun.") -> web.Response:
+    # role_forbidden=True — frontend buni "sessiya tugadi" deb qabul qilib, qulf ekraniga o'tmaydi
+    return web.json_response({"ok": False, "error": message, "role_forbidden": True}, status=403)
 
 
 def get_current_user(request: web.Request) -> dict:
@@ -225,8 +286,8 @@ def get_current_user(request: web.Request) -> dict:
         }
 
     user_id = get_token_user_id(token)
-    is_super = memory_service.is_super_admin(user_id) if user_id else (token == MASTER_ADMIN_TOKEN)
-    sub = memory_service.get_subscription(user_id) if user_id else None
+    is_super = memory_service.is_super_admin(user_id) if user_id else False
+    sub = sanitize_subscription(memory_service.get_subscription(user_id)) if user_id else None
 
     biz_name = "Coddy IT Academy" if is_super else (sub.get("business_name") if sub else "Mening Boshqaruvim")
     prof = "Senior AI Mentor" if is_super else (sub.get("profession") if sub else "Tadbirkor / Mijoz")
@@ -245,8 +306,96 @@ def get_current_user(request: web.Request) -> dict:
     }
 
 
+def _handle_client_toggle(user_info: dict, feature: str, enabled: bool, data: dict) -> web.Response:
+    """
+    Mijoz sozlamalari: faqat O'Z tenant bazasiga yoziladi (middleware tenant_scope ichida).
+    Avval mijoz avto-javobni o'chirsa global config o'zgarib, mentorning agenti ham o'chib qolardi.
+    """
+    uid = user_info["user_id"]
+    if feature == "all_optimal":
+        memory_service.set_setting("auto_reply_enabled", "true")
+        memory_service.set_setting("group_reply_mode", "mention")
+        memory_service.set_setting("web_search_enabled", "true")
+    elif feature == "auto_reply":
+        memory_service.set_setting("auto_reply_enabled", "true" if enabled else "false")
+    elif feature == "group_reply":
+        memory_service.set_setting("group_reply_mode", "mention" if enabled else "off")
+    elif feature == "group_reply_mode":
+        val = str(data.get("value", "mention")).strip().lower()
+        memory_service.set_setting("group_reply_mode", val if val in ("off", "mention", "all") else "mention")
+    elif feature == "web_search":
+        memory_service.set_setting("web_search_enabled", "true" if enabled else "false")
+    elif feature == "debounce_seconds":
+        try:
+            val = max(0, min(30, int(data.get("value", 4))))
+        except Exception:
+            val = 4
+        memory_service.set_setting("debounce_seconds", str(val))
+    elif feature in ("private_quiet_window", "owner_pause_seconds"):
+        try:
+            val = max(0, min(86400, int(data.get("value", 600))))
+        except Exception:
+            val = 600
+        memory_service.set_setting("owner_pause_seconds", str(val))
+    elif feature == "ai_persona":
+        val = str(data.get("value", "friendly")).strip()
+        memory_service.set_setting(f"ai_persona_{uid}", val)
+        return web.json_response({"ok": True, "ai_persona": val})
+    elif feature == "ai_code_mode":
+        val = str(data.get("value", "detailed")).strip()
+        memory_service.set_setting(f"ai_code_mode_{uid}", val)
+        return web.json_response({"ok": True, "ai_code_mode": val})
+    else:
+        return json_forbidden_role("Bu sozlama faqat Super Admin uchun.")
+
+    return web.json_response({
+        "ok": True,
+        "feature": feature,
+        "enabled": enabled,
+        "auto_reply_enabled": memory_service.get_setting("auto_reply_enabled", "true").lower() == "true",
+        "group_reply_enabled": memory_service.get_setting("group_reply_mode", "mention") != "off",
+        "group_reply_mode": memory_service.get_setting("group_reply_mode", "mention"),
+        "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
+        "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "4") or 4),
+        "private_quiet_window": int(memory_service.get_setting("owner_pause_seconds", "600") or 600),
+    })
+
+
 def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     """Aiohttp ilovasiga WebApp va API endpointlarini bog'laydi."""
+
+    @web.middleware
+    async def api_tenant_guard(request: web.Request, handler):
+        """
+        Barcha /api/* so'rovlari uchun yagona himoya qatlami:
+          • token tekshiruvi;
+          • mijoz (obunachi) so'rovlari FAQAT o'z tenant bazasida bajariladi (tenant_scope);
+          • Super Admin'ga xos endpointlar mijozlar uchun yopiq.
+        Super Admin so'rovlari avvalgidek asosiy bazada ishlaydi (hech narsa o'zgarmaydi).
+        """
+        path = request.path
+        if not path.startswith("/api/") or path == "/api/auth":
+            return await handler(request)
+        token = get_request_token(request)
+        if not verify_admin_token(token):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        uid = get_token_user_id(token)
+        if memory_service.is_super_admin(uid):
+            request["auth_user_id"] = config.mentor_user_id or 8105823872
+            request["is_super_admin"] = True
+            return await handler(request)
+
+        sub = memory_service.get_subscription(uid) if uid else None
+        if not sub or not sub.get("active") or sub.get("is_expired"):
+            return web.json_response({"ok": False, "error": "⏳ Obunangiz faol emas yoki muddati tugagan."}, status=403)
+        if path in SUPER_ADMIN_ONLY_PATHS or path.startswith(SUPER_ADMIN_ONLY_PREFIXES):
+            return json_forbidden_role()
+        request["auth_user_id"] = uid
+        request["is_super_admin"] = False
+        with tenant_scope(uid):
+            return await handler(request)
+
+    app.middlewares.append(api_tenant_guard)
 
     # -----------------------------------------------------------
     # 1. Telegram Mini App HTML sahifasi
@@ -261,7 +410,8 @@ def setup_web_app_routes(app: web.Application, get_client_func) -> None:
             )
         try:
             content = html_file.read_text(encoding="utf-8")
-            token = request.query.get("token") or ""
+            # XSS himoyasi: token faqat xavfsiz belgilardan iborat bo'lishi mumkin (aks holda JS'ga kod kiritilardi)
+            token = re.sub(r"[^A-Za-z0-9_\-]", "", request.query.get("token") or "")[:128]
             content = content.replace("/*__INITIAL_TOKEN__*/", f'window.__INITIAL_TOKEN__ = "{token}";')
             return web.Response(text=content, content_type="text/html")
         except Exception as e:
@@ -364,42 +514,38 @@ self.addEventListener('fetch', (event) => {
     # 2. Autentifikatsiya API (Kirish ruxsati tekshiruvi)
     # -----------------------------------------------------------
     async def handle_api_auth(request: web.Request):
+        """
+        Kirish: 1) Telegram initData (imzosi tekshiriladi) yoki 2) avval berilgan yaroqli token.
+        Mijoz yuborgan `user` / `user_id` / `username` maydonlariga ISHONILMAYDI (soxtalashtirish mumkin).
+        """
         try:
             data = await request.json()
         except Exception:
             data = {}
 
-        token = data.get("token") or get_request_token(request)
-        user_id = data.get("user_id")
+        token = (data.get("token") or get_request_token(request) or "").strip()
+        tg_user = verify_telegram_init_data(data.get("initData") or "")
 
-        # Telegram WebApp initDataUnsafe orqali tekshirish
-        telegram_user = data.get("user") or {}
-        tg_id = telegram_user.get("id") or user_id
+        uid = 0
+        if tg_user:
+            uid = int(tg_user["id"])
+        elif token and verify_admin_token(token):
+            uid = get_token_user_id(token)
+
+        if not uid:
+            logger.warning("Ruxsatsiz Mini App kirish urinishi (imzosiz initData / yaroqsiz token).")
+            return web.json_response(
+                {"ok": False, "error": "🚫 Kirish tasdiqlanmadi. Panelni @coddyassistanstbot ichidagi tugma orqali oching."},
+                status=403,
+            )
 
         allowed_mentor_ids = {config.mentor_user_id, 8105823872}
-        client = get_client_func()
-        if client:
-            try:
-                me = await client.get_me()
-                if me and hasattr(me, "id"):
-                    allowed_mentor_ids.add(me.id)
-            except Exception:
-                pass
-
-        # 1. Super Admin tekshiruvi
-        tg_username = (telegram_user.get("username") or "").strip().lower().lstrip("@")
-        is_super = False
-        if tg_id is not None:
-            try:
-                is_super = int(tg_id) in allowed_mentor_ids or memory_service.is_super_admin(int(tg_id))
-            except (ValueError, TypeError):
-                is_super = False
-        if not is_super and (tg_username == "mentor_cc" or token == MASTER_ADMIN_TOKEN):
-            is_super = True
-
-        if is_super:
+        if memory_service.is_super_admin(uid) or uid in allowed_mentor_ids:
+            super_uid = config.mentor_user_id or 8105823872
+            # Mavjud yaroqli token bo'lsa qayta ishlatamiz (har ochilishda yangi token ko'paytirmaslik uchun)
+            super_token = token if (token and verify_admin_token(token) and get_token_user_id(token) == super_uid) else generate_admin_token(user_id=super_uid)
             super_profile = {
-                "user_id": config.mentor_user_id or 8105823872,
+                "user_id": super_uid,
                 "username": "mentor_cc",
                 "full_name": "Teacher",
                 "business_name": "Coddy IT Academy",
@@ -407,62 +553,32 @@ self.addEventListener('fetch', (event) => {
                 "is_super_admin": True,
                 "role": "super_admin",
             }
-            return web.json_response(
-                {
-                    "ok": True,
-                    "token": MASTER_ADMIN_TOKEN,
-                    "user": super_profile,
-                    "current_user": super_profile,
-                    "mentor": super_profile,
-                }
-            )
+            return web.json_response({"ok": True, "token": super_token, "user": super_profile, "current_user": super_profile, "mentor": super_profile})
 
-        # 2. Obunachi (Mijoz) tekshiruvi: tg_id yoki mavjud token orqali
-        sub = None
-        if tg_id is not None:
-            try:
-                sub = memory_service.get_subscription(int(tg_id))
-            except Exception:
-                pass
-
-        if not sub and token:
-            token_uid = get_token_user_id(token)
-            if token_uid:
-                sub = memory_service.get_subscription(token_uid)
-
+        sub = memory_service.get_subscription(uid)
         if sub and sub.get("active") and not sub.get("is_expired"):
-            client_uid = sub["user_id"]
-            client_token = generate_admin_token(user_id=client_uid)
+            client_token = token if (token and verify_admin_token(token) and get_token_user_id(token) == uid) else generate_admin_token(user_id=uid)
             client_profile = {
-                "user_id": client_uid,
-                "username": sub.get("username") or telegram_user.get("username") or "",
-                "full_name": sub.get("full_name") or telegram_user.get("first_name") or "Mijoz",
+                "user_id": uid,
+                "username": sub.get("username") or (tg_user or {}).get("username") or "",
+                "full_name": sub.get("full_name") or (tg_user or {}).get("first_name") or "Mijoz",
                 "business_name": sub.get("business_name") or "Mening Boshqaruvim",
                 "profession": sub.get("profession") or "Tadbirkor / Mijoz",
                 "is_super_admin": False,
                 "role": "client",
-                "subscription": sub,
+                "subscription": sanitize_subscription(sub),
             }
-            return web.json_response(
-                {
-                    "ok": True,
-                    "token": client_token,
-                    "user": client_profile,
-                    "current_user": client_profile,
-                    "mentor": client_profile,
-                }
-            )
+            return web.json_response({"ok": True, "token": client_token, "user": client_profile, "current_user": client_profile, "mentor": client_profile})
 
-        # 3. Ruxsatsiz
-        logger.warning(
-            "Ruxsatsiz Mini App kirish urinishi! tg_id=%s, token=%s",
-            tg_id,
-            token[:8] if token else "none",
-        )
+        expired = bool(sub and sub.get("is_expired"))
         return web.json_response(
             {
                 "ok": False,
-                "error": "🚫 Kechirasiz, sizda faol obuna topilmadi! Iltimos, bot (@coddyassistanstbot) orqali /start bosib obunani faollashtiring yoki administrator (@mentor_cc) bilan bog'laning.",
+                "error": (
+                    "⏳ Obunangiz muddati tugagan. Uzaytirish uchun @mentor_cc bilan bog'laning."
+                    if expired else
+                    "🚫 Kechirasiz, sizda faol obuna topilmadi! Iltimos, bot (@coddyassistanstbot) orqali /start bosib obunani faollashtiring yoki administrator (@mentor_cc) bilan bog'laning."
+                ),
             },
             status=403,
         )
@@ -525,16 +641,29 @@ self.addEventListener('fetch', (event) => {
             }
 
         uid = 0 if current_u["is_super_admin"] else current_u["user_id"]
+        is_client = not current_u["is_super_admin"]
         ai_persona_key = "ai_persona" if current_u["is_super_admin"] else f"ai_persona_{current_u['user_id']}"
         ai_code_mode_key = "ai_code_mode" if current_u["is_super_admin"] else f"ai_code_mode_{current_u['user_id']}"
         default_persona = "socratic" if current_u["is_super_admin"] else "friendly"
         default_code_mode = "full_code" if current_u["is_super_admin"] else "detailed"
 
+        agent_info = None
+        activity_logs = list(reversed(RECENT_ACTIVITY_LOGS[-15:]))
+        if is_client:
+            # Mijoz FAQAT o'z agentining holatini ko'radi (mentorning loglari va sozlamalari ko'rinmaydi)
+            from services.client_session_manager import client_session_manager
+            agent_info = client_session_manager.get_status(uid)
+            agent_info["group_reply_mode"] = memory_service.get_setting("group_reply_mode", "mention")
+            agent_info["owner_pause_seconds"] = int(memory_service.get_setting("owner_pause_seconds", "600") or 600)
+            activity_logs = [f"[{a['time']}] {a['text']}" for a in client_session_manager.get_activity(uid)[:15]]
+
         return web.json_response(
             {
                 "ok": True,
-                "auto_reply_enabled": config.auto_reply_enabled,
-                "group_reply_enabled": config.group_reply_enabled,
+                "is_super_admin": not is_client,
+                "agent": agent_info,
+                "auto_reply_enabled": (memory_service.get_setting("auto_reply_enabled", "true").lower() == "true") if is_client else config.auto_reply_enabled,
+                "group_reply_enabled": (memory_service.get_setting("group_reply_mode", "mention") != "off") if is_client else config.group_reply_enabled,
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
                 "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
@@ -546,10 +675,10 @@ self.addEventListener('fetch', (event) => {
                 "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "5")),
                 "ai_persona": memory_service.get_setting(ai_persona_key, default_persona),
                 "ai_code_mode": memory_service.get_setting(ai_code_mode_key, default_code_mode),
-                "private_quiet_window": memory_service.get_private_quiet_window(),
+                "private_quiet_window": (agent_info or {}).get("owner_pause_seconds", 600) if is_client else memory_service.get_private_quiet_window(),
                 "students_count": memory_service.get_students_count(),
                 "active_ai": active_ai,
-                "escalation_chat": str(config.escalation_chat),
+                "escalation_chat": str(current_group_id) if is_client else str(config.escalation_chat),
                 "mentor_wait_seconds": config.mentor_wait_seconds,
                 "active_chats_count": memory_service.total_active_chats(),
 
@@ -558,14 +687,14 @@ self.addEventListener('fetch', (event) => {
                 "learned_facts_count": memory_service.get_learned_facts_count(user_id=uid),
                 "trusted_websites": memory_service.get_trusted_websites(),
                 "curriculum_topics": memory_service.get_curriculum_topics(user_id=uid),
-                "recent_activity_logs": list(reversed(RECENT_ACTIVITY_LOGS[-15:])),
+                "recent_activity_logs": activity_logs,
 
                 "telegram_authorized": telegram_authorized,
                 "telegram_me": telegram_me,
                 "current_group_id": current_group_id,
                 "mentor": mentor_dict,
-                "ai_metrics": ai_service.get_metrics(),
-                "autonomous_brain": autonomous_brain_service.get_status(),
+                "ai_metrics": None if is_client else ai_service.get_metrics(),
+                "autonomous_brain": None if is_client else autonomous_brain_service.get_status(),
                 "current_user": current_u,
             }
         )
@@ -584,6 +713,10 @@ self.addEventListener('fetch', (event) => {
 
         feature = data.get("feature")
         enabled = bool(data.get("enabled"))
+
+        user_info = get_current_user(request)
+        if not user_info["is_super_admin"]:
+            return _handle_client_toggle(user_info, feature, enabled, data)
 
         if feature == "all_optimal":
             config.auto_reply_enabled = True
@@ -785,6 +918,13 @@ self.addEventListener('fetch', (event) => {
                         "error": "Sana yoki vaqt noto'g'ri kiritildi. Masalan: '25 09 2026 15:00' yoki '25.09.2026 15:00'"
                     }, status=400)
 
+            user_info = get_current_user(request)
+            if not user_info["is_super_admin"]:
+                # Mijoz eslatmasi: o'z bazasiga, o'ziga yetkaziladi (avval mentor nomiga yozilib, ro'yxatdan "yo'qolardi")
+                owner_id = user_info["user_id"]
+                rem_id = memory_service.add_reminder(chat_id=owner_id, reminder_text=text, remind_at=remind_at, creator_id=owner_id)
+                return web.json_response({"ok": True, "id": rem_id, "remind_at": remind_at})
+
             from config import get_vazifalar_chat_target_sync
             chat_target = get_vazifalar_chat_target_sync()
             s = str(chat_target).strip()
@@ -856,6 +996,16 @@ self.addEventListener('fetch', (event) => {
             if not msg:
                 return web.json_response({"ok": False, "error": "Xabar bo'sh bo'lishi mumkin emas"}, status=400)
 
+            user_info = get_current_user(request)
+            if not user_info["is_super_admin"]:
+                # Mijoz: agent uning O'Z Telegram akkaunti orqali ishlaydi, tarix o'z bazasida saqlanadi
+                from services.client_session_manager import client_session_manager
+                owner_id = user_info["user_id"]
+                reply = await client_session_manager.run_owner_command(owner_id, msg)
+                memory_service.add_message(chat_id=owner_id, role="user", content=msg)
+                memory_service.add_message(chat_id=owner_id, role="model", content=reply)
+                return web.json_response({"ok": True, "reply": reply})
+
             client = get_client_func() if callable(get_client_func) else None
 
             # Get recent chats as context for AI
@@ -903,7 +1053,9 @@ self.addEventListener('fetch', (event) => {
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
         try:
-            history = memory_service.get_history(config.mentor_user_id)
+            user_info = get_current_user(request)
+            history_chat = config.mentor_user_id if user_info["is_super_admin"] else user_info["user_id"]
+            history = memory_service.get_history(history_chat)
             messages = [{"role": m.role, "content": m.content} for m in history]
             return web.json_response({"ok": True, "messages": messages})
         except Exception as e:
@@ -914,7 +1066,8 @@ self.addEventListener('fetch', (event) => {
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
         try:
-            memory_service.clear(config.mentor_user_id)
+            user_info = get_current_user(request)
+            memory_service.clear(config.mentor_user_id if user_info["is_super_admin"] else user_info["user_id"])
             return web.json_response({"ok": True, "cleared": True})
         except Exception as e:
             logger.error("AI chat tarixini tozalashda xatolik: %s", e)
@@ -1843,8 +1996,13 @@ self.addEventListener('fetch', (event) => {
         if not is_authenticated(request):
             return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
         user_info = get_current_user(request)
+        from services.client_session_manager import client_session_manager
         if user_info["is_super_admin"]:
-            subs = memory_service.get_all_subscriptions()
+            subs = []
+            for sub in memory_service.get_all_subscriptions():
+                clean = sanitize_subscription(sub)
+                clean["agent_status"] = client_session_manager.get_status(sub["user_id"])
+                subs.append(clean)
             return web.json_response({"ok": True, "subscriptions": subs, "is_super_admin": True})
         else:
             sub = user_info["subscription"]
@@ -1903,7 +2061,15 @@ self.addEventListener('fetch', (event) => {
                 system_prompt=system_prompt,
                 is_edit=is_edit,
             )
-            return web.json_response({"ok": True, "subscription": sub})
+            # Obuna uzaytirilganda/faollashtirilganda: saqlangan HSS bo'lsa agentni qayta ishga tushiramiz
+            try:
+                from services.client_session_manager import client_session_manager
+                full_sub = memory_service.get_subscription(user_id) or {}
+                if full_sub.get("session_string") and not client_session_manager.is_active(user_id):
+                    asyncio.create_task(client_session_manager.start_session(user_id))
+            except Exception as st_err:
+                logger.debug("Obunadan keyin agentni ishga tushirishda ogohlantirish: %s", st_err)
+            return web.json_response({"ok": True, "subscription": sanitize_subscription(sub)})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
@@ -1920,6 +2086,8 @@ self.addEventListener('fetch', (event) => {
             if not user_id:
                 return web.json_response({"ok": False, "error": "user_id kiritilishi shart"}, status=400)
             ok = memory_service.revoke_subscription(user_id)
+            from services.client_session_manager import client_session_manager
+            await client_session_manager.stop_session(user_id)
             return web.json_response({"ok": ok})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
@@ -1936,6 +2104,8 @@ self.addEventListener('fetch', (event) => {
             user_id = int(data.get("user_id", 0))
             if not user_id:
                 return web.json_response({"ok": False, "error": "user_id kiritilishi shart"}, status=400)
+            from services.client_session_manager import client_session_manager
+            await client_session_manager.stop_session(user_id)
             ok = memory_service.delete_subscription(user_id)
             return web.json_response({"ok": ok})
         except Exception as e:
@@ -1981,10 +2151,11 @@ self.addEventListener('fetch', (event) => {
                 return web.json_response({"ok": False, "error": "Sessiya kodi kiritilmagan. Avval HSS kodni saqlang."}, status=400)
             from services.client_session_manager import client_session_manager
             ok = await client_session_manager.start_session(user_id, session_string)
+            status = client_session_manager.get_status(user_id)
             if ok:
-                return web.json_response({"ok": True, "message": f"Mijoz sessiyasi ishga tushdi ✅"})
+                return web.json_response({"ok": True, "message": "Mijoz sessiyasi ishga tushdi ✅", "agent_status": status})
             else:
-                return web.json_response({"ok": False, "error": "Sessiyani ishga tushirishda xatolik. HSS kodni tekshiring."}, status=500)
+                return web.json_response({"ok": False, "error": status.get("error") or "Sessiyani ishga tushirishda xatolik. HSS kodni tekshiring.", "agent_status": status})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
@@ -2005,6 +2176,198 @@ self.addEventListener('fetch', (event) => {
             return web.json_response({"ok": ok, "message": "Sessiya to'xtatildi 🛑"})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    # -----------------------------------------------------------
+    # 17. "Mening Agentim" — mijozning o'z-o'ziga xizmati (faqat o'z tenantida)
+    # -----------------------------------------------------------
+    def _client_only(request: web.Request):
+        user_info = get_current_user(request)
+        if user_info["is_super_admin"]:
+            return None, json_forbidden_role("Bu bo'lim obunachilar uchun. Super Admin agenti asosiy tizimda ishlaydi.")
+        return user_info, None
+
+    async def handle_api_my_agent(request: web.Request):
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        from services.client_session_manager import client_session_manager
+        uid = user_info["user_id"]
+        sub = memory_service.get_subscription(uid) or {}
+        return web.json_response({
+            "ok": True,
+            "agent": client_session_manager.get_status(uid),
+            "has_session": bool(sub.get("session_string")),
+            "activity": client_session_manager.get_activity(uid)[:30],
+            "leads": memory_service.get_leads(limit=30),
+            "settings": {
+                "auto_reply_enabled": memory_service.get_setting("auto_reply_enabled", "true").lower() == "true",
+                "group_reply_mode": memory_service.get_setting("group_reply_mode", "mention"),
+                "owner_pause_seconds": int(memory_service.get_setting("owner_pause_seconds", "600") or 600),
+                "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "4") or 4),
+                "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
+                "escalate_to_owner": memory_service.get_setting("escalate_to_owner", "true").lower() == "true",
+            },
+            "profile": {
+                "business_name": sub.get("business_name", ""),
+                "profession": sub.get("profession", ""),
+                "system_prompt": sub.get("system_prompt", ""),
+                "full_name": sub.get("full_name", ""),
+            },
+        })
+
+    async def handle_api_my_agent_start(request: web.Request):
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        from services.client_session_manager import client_session_manager
+        uid = user_info["user_id"]
+        ok = await client_session_manager.start_session(uid)
+        status = client_session_manager.get_status(uid)
+        return web.json_response({"ok": ok, "agent": status, "error": None if ok else status.get("error")})
+
+    async def handle_api_my_agent_stop(request: web.Request):
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        from services.client_session_manager import client_session_manager
+        uid = user_info["user_id"]
+        await client_session_manager.stop_session(uid)
+        return web.json_response({"ok": True, "agent": client_session_manager.get_status(uid)})
+
+    async def handle_api_my_agent_session(request: web.Request):
+        """Mijoz o'zi tayyor HSS (StringSession) kodini kiritadi (ilg'or foydalanuvchilar uchun)."""
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        session_string = str(data.get("session_string", "")).strip()
+        if len(session_string) < 50:
+            return web.json_response({"ok": False, "error": "HSS kodi noto'g'ri yoki to'liq emas."})
+        from services.client_session_manager import client_session_manager
+        uid = user_info["user_id"]
+        memory_service.save_session_string(uid, session_string)
+        ok = await client_session_manager.start_session(uid, session_string)
+        status = client_session_manager.get_status(uid)
+        return web.json_response({"ok": ok, "agent": status, "error": None if ok else status.get("error")})
+
+    async def handle_api_my_agent_settings(request: web.Request):
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        if "auto_reply_enabled" in data:
+            memory_service.set_setting("auto_reply_enabled", "true" if data["auto_reply_enabled"] else "false")
+        for bool_key in ("voice_reply_enabled", "escalate_to_owner"):
+            if bool_key in data:
+                memory_service.set_setting(bool_key, "true" if data[bool_key] else "false")
+        if "group_reply_mode" in data:
+            val = str(data["group_reply_mode"]).strip().lower()
+            memory_service.set_setting("group_reply_mode", val if val in ("off", "mention", "all") else "mention")
+        if "owner_pause_seconds" in data:
+            try:
+                memory_service.set_setting("owner_pause_seconds", str(max(0, min(86400, int(data["owner_pause_seconds"])))))
+            except (TypeError, ValueError):
+                pass
+        if "debounce_seconds" in data:
+            try:
+                memory_service.set_setting("debounce_seconds", str(max(0, min(30, int(data["debounce_seconds"])))))
+            except (TypeError, ValueError):
+                pass
+        return await handle_api_my_agent(request)
+
+    async def handle_api_my_profile(request: web.Request):
+        """Mijoz o'z biznes profili va AI yo'riqnomasini o'zi tahrirlaydi (muddat/rol o'zgarmaydi)."""
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        uid = user_info["user_id"]
+        sub = memory_service.get_subscription(uid) or {}
+        memory_service.upsert_subscription(
+            user_id=uid,
+            full_name=str(data.get("full_name", sub.get("full_name", ""))).strip()[:120],
+            business_name=str(data.get("business_name", sub.get("business_name", ""))).strip()[:120],
+            profession=str(data.get("profession", sub.get("profession", ""))).strip()[:200],
+            system_prompt=str(data.get("system_prompt", sub.get("system_prompt", ""))).strip()[:4000],
+            role=sub.get("role", "client"),
+            days=0,
+            is_edit=True,
+        )
+        return web.json_response({"ok": True, "subscription": sanitize_subscription(memory_service.get_subscription(uid))})
+
+    async def handle_api_my_tg_login(request: web.Request):
+        """Telegram akkauntni ulash: step = send_code | code | password | cancel."""
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        from services.tg_login_service import tg_login_service
+        uid = user_info["user_id"]
+        step = request.match_info.get("step", "")
+        if step == "send-code":
+            res = await tg_login_service.send_code(uid, str(data.get("phone", "")))
+        elif step == "code":
+            res = await tg_login_service.submit_code(uid, str(data.get("code", "")))
+        elif step == "password":
+            res = await tg_login_service.submit_password(uid, str(data.get("password", "")))
+        elif step == "cancel":
+            await tg_login_service.cancel(uid)
+            res = {"ok": True, "stage": "cancelled"}
+        else:
+            return web.json_response({"ok": False, "error": "Noma'lum qadam"}, status=400)
+        return web.json_response(res)
+
+    # -----------------------------------------------------------
+    # 18. Support (Super Admin): mijoz agentining holati va jurnali, server lease holati
+    # -----------------------------------------------------------
+    async def handle_api_client_agent_info(request: web.Request):
+        user_info = get_current_user(request)
+        if not user_info["is_super_admin"]:
+            return json_forbidden_role()
+        try:
+            target = int(request.query.get("user_id", "0"))
+        except ValueError:
+            target = 0
+        if not target:
+            return web.json_response({"ok": False, "error": "user_id kiritilishi shart"}, status=400)
+        from services.client_session_manager import client_session_manager
+        return web.json_response({
+            "ok": True,
+            "agent": client_session_manager.get_status(target),
+            "activity": client_session_manager.get_activity(target)[:40],
+        })
+
+    async def handle_api_system_lease(request: web.Request):
+        from services.instance_lease import instance_lease
+        from services.client_session_manager import client_session_manager
+        rss_mb = None
+        try:
+            import resource
+            import sys as _sys
+            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            rss_mb = round(rss / (1024 * 1024 if _sys.platform == "darwin" else 1024), 1)
+        except Exception:
+            pass
+        from services.client_session_manager import MAX_CLIENT_SESSIONS
+        return web.json_response({
+            "ok": True,
+            "lease": instance_lease.status(),
+            "active_client_sessions": client_session_manager.active_sessions(),
+            "max_client_sessions": MAX_CLIENT_SESSIONS,
+            "peak_memory_mb": rss_mb,
+        })
 
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
@@ -2071,6 +2434,15 @@ self.addEventListener('fetch', (event) => {
     app.router.add_post("/api/subscriptions/session/save", handle_api_save_session_string)
     app.router.add_post("/api/subscriptions/session/start", handle_api_start_client_session)
     app.router.add_post("/api/subscriptions/session/stop", handle_api_stop_client_session)
+    app.router.add_get("/api/subscriptions/agent", handle_api_client_agent_info)
+    app.router.add_get("/api/system/lease", handle_api_system_lease)
+    app.router.add_get("/api/my/agent", handle_api_my_agent)
+    app.router.add_post("/api/my/agent/start", handle_api_my_agent_start)
+    app.router.add_post("/api/my/agent/stop", handle_api_my_agent_stop)
+    app.router.add_post("/api/my/agent/session", handle_api_my_agent_session)
+    app.router.add_post("/api/my/agent/settings", handle_api_my_agent_settings)
+    app.router.add_post("/api/my/profile", handle_api_my_profile)
+    app.router.add_post("/api/my/tg-login/{step}", handle_api_my_tg_login)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

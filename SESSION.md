@@ -1,0 +1,189 @@
+# 🧭 CoddyHelper — SESSION jurnali va ish rejasi
+
+> **Har bir sessiya boshida:** shu faylni to'liq o'qing → "4. Reja" dagi birinchi bajarilmagan `[ ]` banddan davom eting → sessiya oxirida "6. Sessiyalar jurnali" ga yozing (deploydan oldin "5. Deploy eslatmalari"ni ham o'qing) va belgilarni yangilang.
+>
+> Belgilar: `[x]` bajarildi · `[~]` qisman / jarayonda · `[ ]` bajarilmagan · `⚠️` foydalanuvchi qarori kerak
+
+---
+
+## 0. Maqsad (foydalanuvchi so'zi bilan)
+
+Loyihani **barcha obunachilar uchun o'rnatiladigan** qilish:
+- har bir obunachining **o'z agenti** (o'z Telegram akkaunti / HSS session orqali ishlaydi);
+- har birining **o'z ma'lumotlar bazasi** — boshqalarniki bilan **aralashmaydi**;
+- **@mentor_cc (ID 8105823872)** — Super Admin, butun tizimning asosiy boshqaruv qismi.
+
+---
+
+## 1. Loyiha xaritasi (2026-09-26 holati, commit `5d3b24e`)
+
+~37 000 qator. Python 3.14 + aiohttp + Telethon + aiogram, Groq/Gemini, SQLite + MongoDB Atlas, Render.com (free, 512 MB).
+
+| Fayl | Qatorlar | Vazifasi |
+|---|---|---|
+| `main.py` | 346 | Kirish nuqtasi: web server, Telethon (mentor akkaunti), workerlar (eslatma 25s, backup 1 soat, tong brifingi, avtonom miya, keep-alive), bot, mijoz sessiyalarini ishga tushirish |
+| `config.py` | 311 | `.env` → `Config`; `is_mentor`, Vazifalar guruhi (-5388159517) aniqlash |
+| `web_app.py` | 2076 | Mini App backend: token auth, ~60 ta `/api/*` endpoint |
+| `templates/admin_app.html` | 6420 | Mini App UI (tablar: dashboard, agent, clients, dossiers, knowledge, reminders, security, students) |
+| `handlers/auto_reply.py` | 3366 | Mentor akkauntidagi kiruvchi xabarlar (Miya 1: quiet window, firewall, guruh filtri, eskalatsiya, Vazifalar guruhi) |
+| `handlers/commands.py` | 1201 | Mentorning chiquvchi buyruqlari (`.ai`, `ai stop/start` ...) |
+| `services/ai_service.py` | 3806 | Miya 3: Groq multi-key kaskad + Gemini, `generate_reply`, `_build_system_prompt` (mijoz personasi shu yerda), STT |
+| `services/memory_service.py` | 4143 | SQLite qatlami (19 jadval) + obunalar (`user_subscriptions`) |
+| `services/mongo_memory_service.py` | 1870 | MongoDB Atlas sinxron + `restore_to_sqlite` |
+| `services/client_session_manager.py` | 242 | **Mijoz agentlari**: har obunachi uchun alohida Telethon client (HSS) |
+| `services/bot_service.py` | 827 | aiogram bot @coddyassistanstbot: `/start`, `/grant`, `/revoke`, `/clients`, guruhga qo'shilganda onboarding + pin, backup |
+| `services/profile_intelligence_service.py` | 1027 | Miya 5: dosye skaneri (GetCommonChats, yosh/rol taxmini) |
+| `services/autonomous_brain_service.py` | 860 | Miya 5: avtonom sikl (leksikon, xatolar refleksiyasi, precomputed javoblar) |
+| `services/telegram_agent_service.py` | 4367 | Agent amallari (xabar yuborish, qidirish, bot bilan ishlash, davomat) |
+| `services/agent_runner.py`, `agent_tools.py` | 236+652 | ReAct agent sikli (Mini App AI chat) |
+| `services/obsidian_brain_service.py` | 562 | `brain_vault/` .md fayllari bilan sinxron (gitignore'da) |
+| boshqalar | — | reminder, morning, briefing, tts, speaker, mac_control, search, web_inspector, code_linter, code_sandbox, location, wellbeing |
+| `scripts/` | — | Bir martalik patch/migratsiya skriptlari (ishlab chiqarishda ishlatilmaydi) |
+| `tests/test_multi_user_subscription.py` | 254 | Obuna/token testlari |
+
+**SQLite jadvallari:** messages, learned_memory, precomputed_answers (1602), user_dossiers (281), students (216), reminders, settings, mentor_lexicon, self_mistakes, saved_locations, daily_plans, ignored_users, user_quotas, active_inquiries, student_weaknesses, pedagogical_outcomes, high_yield_pedagogy, bot_interaction_patterns, user_subscriptions.
+
+**Mongo kolleksiyalari:** `system_core.*` (user_subscriptions, global_settings, security_blacklist), `brain_frontline.*`, `brain_cognitive.*`, `brain_knowledge.precomputed_answers`, `brain_mentor.*`.
+
+---
+
+## 2. Multi-tenant arxitekturasi (Sessiya 2 dan keyingi holat)
+
+```
+                 ┌──────────── Super Admin (@mentor_cc, tenant 0) ────────────┐
+                 │ coddy_memory.db + MongoDB asosiy kolleksiyalari (o'zgarmagan) │
+                 └──────────────────────────────────────────────────────────────┘
+ Mijoz A (tenant A)                     Mijoz B (tenant B)
+ tenants/tenant_A.db  ──snapshot──►  MongoDB system_core.tenant_snapshots  ◄──snapshot── tenants/tenant_B.db
+ O'z Telegram akkaunti (HSS)             O'z Telegram akkaunti (HSS)
+```
+
+| Qatlam | Fayl | Vazifa |
+|---|---|---|
+| Tenant konteksti | `services/tenant_context.py` | `ContextVar` — har so'rov/xabar qaysi tenant bazasida ishlashini belgilaydi (standart 0 = mentor, hech narsa buzilmaydi) |
+| Baza marshruti | `services/memory_service.py` | `_get_connection()` tenant bo'yicha faylni tanlaydi; obunalar/tokenlar (`_core_op`, `admintoken_`, `tenant_status_`) doimo asosiy bazada |
+| Bulut saqlash | `services/tenant_store.py` | Tenant bazasi o'zgarsa 45 soniyada MongoDB'ga gzip snapshot; restartda avtomatik tiklash |
+| Mongo gating | `services/mongo_memory_service.py` | Tenant kontekstida `is_connected()` = False → mijoz ma'lumoti mentor kolleksiyalariga aralashmaydi |
+| Lease | `services/instance_lease.py` | Mijoz sessiyalarini faqat BITTA server yuritadi (AUTH_KEY_DUPLICATED oldini oladi). `CLIENT_SESSIONS_MODE=auto/off/force` |
+| Mijoz agenti | `services/client_session_manager.py` | connect+auth tekshiruvi, xato turlari, qayta ulanish, egasi buyruqlari (`ai ...`), begonalarga xavfsiz javob, debounce, egasi aralashsa jim turish, eslatmalar, obuna muddati nazorati |
+| Login | `services/tg_login_service.py` | Mini App'da telefon → kod → 2FA orqali HSS avtomatik yaratish |
+| Shifrlash | `services/secret_box.py` | HSS kodlari `enc:v1:` Fernet bilan shifrlanadi (eski ochiq qiymatlar ham ishlaydi) |
+| Web himoya | `web_app.py` | Telegram initData HMAC tekshiruvi, `api_tenant_guard` middleware, Super Admin'ga xos endpointlar ro'yxati |
+
+---
+
+## 3. Topilgan muammolar va holati
+
+### 🔴 Xavfsizlik
+- [x] #1 `/api/auth` imzosiz `user`/`username` ga ishonardi → endi faqat imzolangan Telegram initData yoki yaroqli token
+- [x] #2 Qattiq yozilgan `MASTER_ADMIN_TOKEN` (+ frontend fallback + lock ekran tugmasi) → olib tashlandi, faqat ixtiyoriy env
+- [x] #3 Guruhga pin qilingan tugmalarda token → endi `t.me/bot?start=panel` (tokensiz); Vazifalar guruhiga havola yozilmaydi
+- [x] #4 Mijoz tokeni bilan DB yuklab olish / mentor agentini ishlatish → middleware + `SUPER_ADMIN_ONLY_*`
+- [ ] #5 ⚠️ MongoDB login/paroli `config.py` da — **foydalanuvchi Atlas parolini almashtirib, Render'ga `MONGODB_URI` qo'yishi kerak**, keyin default olib tashlanadi (hozir olib tashlansa, Render'da saqlash to'xtaydi)
+- [x] #6 HSS kodlari shifrlanadi, API javoblarida qaytmaydi (`has_session` beriladi)
+- [x] Yangi: `/app?token=` orqali reflected XSS → token belgilar filtri
+- [x] Yangi: Telegram xizmat xabarlari (777000, login kodlar) agent tomonidan hech qachon ishlanmaydi
+
+### 🔴 Mijoz agenti
+- [x] #7 `ai_res.text` → mijoz agentlari umuman javob bermasdi
+- [x] #8/#9 Persona tenant egasidan olinadi; tenant'da admin rejimi yo'q; CoddyCamp FAQ/"Nuriddin akaga yetkazdim"/Sokratik critic tenant'da o'chiq
+- [x] #10 Tarix, kesh, rate-limit — tenant bo'yicha ajratilgan
+- [x] #11 Filtrlar, `get_me` kesh, auto-reply/guruh rejimi, debounce, egasi aralashuvi
+- [x] #12 Muddat nazorati: to'xtatish + 3 va 1 kun oldin ogohlantirish
+- [x] Yangi: `client.start()` yaroqsiz sessiyada `input()` bilan butun serverni qotirardi → connect + is_user_authorized
+- [x] Yangi: **"support ishlasa boshqalar chiqib ketadi"** — sabab: bir xil HSS ikki serverda (Render + lokal) bir vaqtda ulanib AUTH_KEY_DUPLICATED → lease bilan hal qilindi
+
+### 🟠 "Saqlandi, lekin yo'qolib qoldi" sabablari
+- [x] Mijoz bilimlari faqat SQLite'ga yozilardi → Render restartda o'chardi (endi tenant snapshot)
+- [x] Mijoz qo'shgan eslatma `creator_id=mentor` bilan saqlanib, mijoz ro'yxatida ko'rinmasdi
+- [x] Mijoz auto-reply toggle'i global `config` ni o'zgartirib, **mentor agentini ham o'chirardi**
+- [x] HSS saqlash/start/stop tugmalari `Authorization` headersiz → doim 403
+- [x] `get_setting` default qiymatni keshlardi
+- [x] `precomputed_answers.owner_id` ustuni toza bazada yaratilmasdi → keshga yozish jim xato
+- [x] `update_student`, lokatsiya/reja o'chirish, tarixni tozalash Mongo'ga yozilmasdi → restartdan keyin qaytib kelardi
+- [x] `merge_database` (Telegram backup) mijoz bilimlarini `user_id` siz mentorga ko'chirardi va yangi tahrirlarni eski qiymat bilan bosardi
+- [x] `migrate_from_sqlite` eskirgan lokal obuna/o'quvchi ma'lumotini bulutdagi yangisi ustidan yozardi (`$setOnInsert`)
+- [x] Mijozning persona/format sozlamasi saqlanardi, lekin promptga qo'llanmasdi
+
+### 🟠 Bot (Sessiya 3 da topilgan)
+- [x] Obunachining bot orqali eslatmalari mentor bazasiga tushardi; `/bekor <ID>` bilan mentorning eslatmasini o'chira olardi → bot middleware'da `tenant_scope`
+- [x] Botdagi `ai ...` ham `res.text` xatosi bilan ishlamasdi
+
+### 🟡 Texnik qarz
+- [x] `config.py` `Any` importi
+- [x] Testlar endi vaqtinchalik bazada, Mongo o'chiq (`tests/_isolated_env.py`)
+- [x] README yangilandi
+- [x] `scripts/` → `scripts/legacy/` (README bilan)
+- [~] Xotira: `MAX_CLIENT_SESSIONS` limiti (standart 12) + `/api/system/lease` da xotira ko'rsatkichi. Jonli yuklama sinovi hali qilinmagan
+- [ ] Obunachi mentorning asosiy akkauntiga (support) yozganda mentor agenti javob beradi — kerak bo'lsa alohida "support" persona
+
+---
+
+## 4. Reja (bosqichma-bosqich)
+
+### Bosqich A — Xavfsizlik
+- [x] A1. initData HMAC-SHA256
+- [x] A2. MASTER token olib tashlandi (ixtiyoriy `MASTER_ADMIN_TOKEN` env)
+- [x] A3. Guruh tugmalari tokensiz
+- [x] A4. `api_tenant_guard` + Super Admin ro'yxati
+- [ ] A5. ⚠️ MongoDB parolini almashtirish (foydalanuvchi) → `MONGODB_URI` env → `config.py` default'ni olib tashlash
+- [x] A6. HSS shifrlash (`SESSION_ENCRYPTION_KEY`)
+
+### Bosqich B — Mijoz agenti
+- [x] B1–B5 (bajarildi, §3 ga qarang)
+
+### Bosqich C — Izolyatsiya
+- [x] C0. Qaror: har mijozga alohida SQLite fayl + bulut snapshot (tavsiya etilgan variant b)
+- [x] C1–C5
+
+### Bosqich D — Har mijozga o'z "miyalari"
+- [x] D1. AI aniq bilmasa ("aniqlab xabar beraman") — egasiga bot orqali savol va chat havolasi (10 daqiqada 1 marta, sozlanadi)
+- [x] D2. Eslatmalar tenant bo'yicha, faqat egasiga (bot DM → zaxira: Saved Messages)
+- [~] D3. Mijozlar uchun yengil CRM ("Kim yozdi": ism, username, xabarlar soni, oxirgi xabar). To'liq profil razvedkasi/avtonom miya mijozlarga ataylab yoqilmadi: har mijoz uchun katta AI token sarfi va Telegram flood xavfi — kelajakda pullik opsiya sifatida
+- [x] D4. Mentor-only servislar Super Admin'da qoldi
+
+### Bosqich E — Onboarding va biznes
+- [x] E1. Mini App'da telefon + kod + 2FA orqali ulanish
+- [x] E2. `/grant @username` (mentor clienti orqali ID aniqlanadi)
+- [~] E3. Telegram Stars: `/buy` → invoice → to'lov → obuna avtomatik (idempotent). `SUBSCRIPTION_STARS_PRICE` env bilan yoqiladi (standart o'chiq). ⚠️ Narxni siz belgilaysiz. Click/Payme — merchant hisobi kerak, qilinmagan
+- [x] E4. Ovozli xabarga ovozli javob (edge-tts, sozlanadi) + CRM ro'yxati
+- [x] E5. Mijozlar tabida "🔍 Agent" — holat, akkaunt, xato, faoliyat jurnali, start/stop; server lease va xotira qatori
+
+### Bosqich F — Sifat
+- [x] F1. Izolyatsiya/xavfsizlik/handler testlari (42 ta, hammasi o'tadi)
+- [x] F2. `Any` importi
+- [x] F3. README
+- [x] F4. `scripts/legacy/`
+- [~] F5. Limit va monitoring qo'shildi; jonli yuklama sinovi deploydan keyin
+
+---
+
+## 5. Deploy bo'yicha MUHIM eslatmalar (Sessiya 2 o'zgarishlaridan keyin)
+
+1. **Render env'ga qo'shing:** `SESSION_ENCRYPTION_KEY` (uzun tasodifiy satr; lokal `.env` da ham AYNAN shu qiymat). O'rnatilmasa kalit `api_hash+bot_token` dan hosil qilinadi.
+2. **Lokal kompyuterda** `.env` ga `CLIENT_SESSIONS_MODE=off` qo'yish tavsiya etiladi — mentor lokal ishga tushirsa ham mijoz sessiyalariga tegmaydi (lease ham himoya qiladi, bu qo'shimcha kafolat).
+3. Avval AUTH_KEY_DUPLICATED sabab bekor bo'lgan mijoz sessiyalari endi ishlamaydi → mijozlar Mini App → **🤖 Mening Agentim** orqali qayta ulanadi (raqam + kod).
+4. Mentor: eski `?token=mentor_cc_master_...` havolalari endi ishlamaydi. Botda `/start` bosing (yangi tugma) yoki panelni bot menyusidan oching — Telegram initData orqali avtomatik kiradi.
+5. `pip install -r requirements.txt` (`cryptography` qo'shildi).
+6. Ixtiyoriy: `SUBSCRIPTION_STARS_PRICE` (masalan 500) — botda `/buy` orqali onlayn obuna; `MAX_CLIENT_SESSIONS`.
+
+---
+
+## 6. Sessiyalar jurnali
+
+### Sessiya 1 — 2026-09-26
+- **Bajarildi:** Loyiha to'liq o'rganildi. `SESSION.md` yaratildi. Kodga o'zgartirish kiritilmadi.
+- **Topildi:** 21 ta muammo (auth bypass, mijoz tokeni bilan DB yuklab olish, `ai_res.text`, tenant personasi).
+
+### Sessiya 2 — 2026-09-26
+- **So'rov:** aralashmalar va buglarni tuzatish; har foydalanuvchiga HSS orqali o'z agenti va Telegramini to'liq boshqarish; begonalar uchun xavfsizlik; web app qulayligi; "saqlanmay qolish" va "support ishlasa boshqalar chiqib ketishi" muammolari; ishlayotgan narsani buzmaslik.
+- **Bajarildi:** §2 arxitekturasi va §3 dagi barcha `[x]` bandlar. Yangi fayllar: `tenant_context`, `tenant_store`, `instance_lease`, `secret_box`, `notify`, `tg_login_service`, testlar. Mini App'ga "🤖 Mening Agentim" kartasi (ulanish, start/stop, sozlamalar, buyruq, biznes profili, faoliyat jurnali), Super Admin mijozlar ro'yxatida agent holati/xatosi.
+- **Tekshirildi:** 40 ta unit/integratsion test (izolyatsiya, auth, middleware, handler xulqi), JS sintaksisi, barcha modullar importi, snapshot tiklash va lease simulyatsiyasi. Jonli Telegram/Render'da sinalmagan (kodlar, 2FA, haqiqiy HSS).
+- **Qolgan:** A5 (Mongo parol), D1/D3, E2–E5, F3–F5.
+- **Keyingi qadam:** deploy (§5) → jonli sinov: 1 ta test mijoz bilan ulanish, begona akkauntdan yozish, egasi `ai ...` buyrug'i, Render restartdan keyin ma'lumot saqlanishi.
+
+### Sessiya 3 — 2026-09-26
+- **So'rov:** qolgan rejani tugatish va push qilish.
+- **Bajarildi:** bot middleware'da tenant izolyatsiyasi (eslatma aralashishi va `/bekor` orqali mentor eslatmasini o'chirish tuzatildi, `res.text` bug), `/grant @username`, Telegram Stars obuna (env bilan), AI bilmasa egasiga xabar, ovozli javob, mijoz CRM ("Kim yozdi"), support "🔍 Agent" inspektori va server holati, sessiyalar limiti, README, `scripts/legacy/`, `.env.example`.
+- **Tekshirildi:** 42 test, JS sintaksisi, importlar, diff'da maxfiy ma'lumot yo'q.
+- **Qolgan (foydalanuvchi qarori/harakati):** A5 Mongo parolini almashtirish; E3 Stars narxi / Click-Payme; D3 to'liq profil razvedkasi mijozlar uchun; jonli sinov (§5).

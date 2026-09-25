@@ -1430,8 +1430,10 @@ async def schedule_telegram_message(
 
     rem_chat_id = chat_id or (getattr(resolved_entity, "id", 0) if hasattr(resolved_entity, "id") else 0)
     if not rem_chat_id or str(rem_chat_id).strip() in ("0", "me", ""):
-        # Barcha admin boshqaruvlari va eslatmalar FAQAT Vazifalar guruhida bo'lishi shart
-        rem_chat_id = config.escalation_chat or config.mentor_user_id
+        from services.tenant_context import get_tenant_id
+        _tid = get_tenant_id()
+        # Mijoz agenti: eslatma egasiniki. Mentor: barcha eslatmalar FAQAT Vazifalar guruhida bo'lishi shart.
+        rem_chat_id = _tid if _tid else (config.escalation_chat or config.mentor_user_id)
 
     rem_id = memory_service.add_reminder(
         chat_id=rem_chat_id,

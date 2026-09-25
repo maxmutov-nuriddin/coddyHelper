@@ -1080,12 +1080,15 @@
     <div class="lock-icon">🔒</div>
     <h2 style="font-size: 20px; margin-bottom: 8px;">Kirish Cheklangan</h2>
     <p style="font-size: 14px; color: var(--hint-color); line-height: 1.5; max-width: 320px;" id="lock-message">
-      Ushbu Telegram Mini App faqat mentor (<b>@mentor_cc</b>) shaxsiy hisobi uchun himoyalangan.
+      Panel faqat obunachilar uchun. Iltimos, uni <b>@coddyassistanstbot</b> ichidagi tugma orqali oching.
     </p>
-    <div style="margin-top: 20px;">
-      <button class="btn btn-secondary" onclick="window.location.href='/app?token=mentor_cc_master_8105823872'" style="padding: 10px 20px;">
+    <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+      <button class="btn btn-secondary" onclick="retryAuth()" style="padding: 10px 20px; width: auto;">
         🔄 Qayta Kirish
       </button>
+      <a class="btn btn-primary" href="https://t.me/coddyassistanstbot?start=panel" style="padding: 10px 20px; width: auto; text-decoration: none;">
+        🤖 Botni ochish
+      </a>
     </div>
   </div>
 
@@ -1121,6 +1124,126 @@
     <!-- ==================== SAHIFA 1: AI KLASTER & BOSHQARUV ==================== -->
     <div class="tab-pane active" id="tab-dashboard">
       <div class="section-header-badge">🎛 AI Boshqaruv & Monitor</div>
+
+      <!-- 🤖 MENING AGENTIM (faqat obunachilar uchun: o'z Telegram akkaunti orqali ishlaydigan shaxsiy agent) -->
+      <div class="card" id="my-agent-card" style="display: none; border: 1px solid rgba(16, 185, 129, 0.35); background: linear-gradient(180deg, rgba(16, 185, 129, 0.09) 0%, var(--card-bg) 100%);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap;">
+          <div>
+            <div style="font-size: 15px; font-weight: 800; color: #fff;">🤖 Mening Agentim</div>
+            <div style="font-size: 11.5px; color: var(--hint-color); margin-top: 2px;">Telegram akkauntingizda siz nomingizdan ishlaydigan shaxsiy AI yordamchi</div>
+          </div>
+          <div id="my-agent-status" style="font-size: 12px;">—</div>
+        </div>
+        <div id="my-agent-account" style="font-size: 12px; color: #cbd5e1; margin-top: 8px;"></div>
+
+        <!-- Ulanish (agent ishlamayotganda) -->
+        <div id="my-agent-connect" style="display: none; margin-top: 12px; background: rgba(0,0,0,0.22); border-radius: 10px; padding: 12px;">
+          <div style="font-size: 13px; font-weight: 700; color: #34d399; margin-bottom: 6px;">🔐 Telegram akkauntni ulash</div>
+          <div id="my-agent-step-phone">
+            <div style="font-size: 11.5px; color: var(--hint-color); margin-bottom: 8px;">Telefon raqamingizni kiriting — Telegram ilovangizga tasdiqlash kodi keladi.</div>
+            <div style="display: flex; gap: 8px;">
+              <input type="tel" id="my-agent-phone" class="form-input" placeholder="+998901234567" autocomplete="tel" style="flex: 1;">
+              <button class="btn btn-primary" onclick="myAgentSendCode()" style="width: auto; padding: 8px 14px;">Kod olish</button>
+            </div>
+          </div>
+          <div id="my-agent-step-code" style="display: none;">
+            <div style="font-size: 11.5px; color: var(--hint-color); margin-bottom: 8px;">Telegram'dan kelgan kodni kiriting. ⚠️ Kodni hech kimga yubormang va chatga yozmang — faqat shu yerga.</div>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="my-agent-code" class="form-input" placeholder="12345" inputmode="numeric" autocomplete="one-time-code" style="flex: 1; letter-spacing: 3px;">
+              <button class="btn btn-primary" onclick="myAgentSubmitCode()" style="width: auto; padding: 8px 14px;">Tasdiqlash</button>
+            </div>
+          </div>
+          <div id="my-agent-step-password" style="display: none;">
+            <div style="font-size: 11.5px; color: var(--hint-color); margin-bottom: 8px;">Akkauntingizda 2 bosqichli himoya bor. Bulutli parolingizni kiriting (u saqlanmaydi).</div>
+            <div style="display: flex; gap: 8px;">
+              <input type="password" id="my-agent-password" class="form-input" placeholder="Parol" autocomplete="current-password" style="flex: 1;">
+              <button class="btn btn-primary" onclick="myAgentSubmitPassword()" style="width: auto; padding: 8px 14px;">Kirish</button>
+            </div>
+          </div>
+          <div id="my-agent-login-msg" style="font-size: 12px; margin-top: 8px;"></div>
+          <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+            <button class="btn btn-secondary" id="my-agent-restart-btn" onclick="myAgentStart()" style="width: auto; padding: 6px 12px; font-size: 12px; display: none;">▶️ Saqlangan akkaunt bilan ishga tushirish</button>
+            <button class="btn btn-secondary" onclick="myAgentCancelLogin()" style="width: auto; padding: 6px 12px; font-size: 12px;">↺ Boshidan</button>
+          </div>
+          <details style="margin-top: 10px;">
+            <summary style="font-size: 11.5px; color: var(--hint-color); cursor: pointer;">Menda tayyor HSS (StringSession) kodi bor</summary>
+            <textarea id="my-agent-hss" class="form-input" rows="3" placeholder="1BVts..." style="margin-top: 8px; width: 100%; font-family: monospace; font-size: 11px;"></textarea>
+            <button class="btn btn-secondary" onclick="myAgentSaveSession()" style="margin-top: 6px; width: auto; padding: 6px 12px; font-size: 12px;">💾 Saqlash va ishga tushirish</button>
+          </details>
+        </div>
+
+        <!-- Boshqaruv (agent ishlayotganda) -->
+        <div id="my-agent-controls" style="display: none; margin-top: 12px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px;">
+            <label style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px; grid-column: 1/-1;">
+              <span>💬 Shaxsiy xabarlarga avto-javob</span>
+              <span class="switch"><input type="checkbox" id="my-agent-auto-reply" onchange="myAgentSaveSettings()"><span class="slider"></span></span>
+            </label>
+            <label style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px; grid-column: 1/-1;">
+              <span>🎙 Ovozli xabarga ovozli javob</span>
+              <span class="switch"><input type="checkbox" id="my-agent-voice-reply" onchange="myAgentSaveSettings()"><span class="slider"></span></span>
+            </label>
+            <label style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px; grid-column: 1/-1;">
+              <span>🙋 AI bilmasa, menga bot orqali xabar bersin</span>
+              <span class="switch"><input type="checkbox" id="my-agent-escalate" onchange="myAgentSaveSettings()"><span class="slider"></span></span>
+            </label>
+            <div style="background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px;">
+              <div style="color: var(--hint-color); margin-bottom: 4px;">👥 Guruhlarda</div>
+              <select id="my-agent-group-mode" class="form-input" onchange="myAgentSaveSettings()" style="padding: 6px; font-size: 12px;">
+                <option value="mention">Faqat murojaat qilinganda</option>
+                <option value="all">Barcha xabarlarga</option>
+                <option value="off">Javob bermasin</option>
+              </select>
+            </div>
+            <div style="background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px;">
+              <div style="color: var(--hint-color); margin-bottom: 4px;">✋ Men yozsam, AI jim tursin</div>
+              <select id="my-agent-owner-pause" class="form-input" onchange="myAgentSaveSettings()" style="padding: 6px; font-size: 12px;">
+                <option value="0">Jim turmasin</option>
+                <option value="300">5 daqiqa</option>
+                <option value="600">10 daqiqa</option>
+                <option value="1800">30 daqiqa</option>
+                <option value="3600">1 soat</option>
+                <option value="86400">1 kun</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top: 10px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px;">
+            <div style="font-size: 12.5px; font-weight: 700; color: #34d399; margin-bottom: 6px;">⚡ Agentga buyruq (Telegramingizni boshqaradi)</div>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="my-agent-command" class="form-input" placeholder="Masalan: Alisherga ertaga 10:00 da uchrashuv borligini yoz" style="flex: 1;" onkeydown="if(event.key==='Enter'){myAgentCommand();}">
+              <button class="btn btn-primary" id="my-agent-command-btn" onclick="myAgentCommand()" style="width: auto; padding: 8px 14px;">Yuborish</button>
+            </div>
+            <div id="my-agent-command-reply" style="font-size: 12.5px; color: #e2e8f0; margin-top: 8px; white-space: pre-wrap; display: none;"></div>
+            <div style="font-size: 11px; color: var(--hint-color); margin-top: 8px; line-height: 1.5;">
+              💡 Telegramdan ham boshqarsa bo'ladi: <b>Saqlangan xabarlar</b>ingizga <code>ai &lt;buyruq&gt;</code> deb yozing.<br>
+              🛡 Boshqa odamlar agentga buyruq bera olmaydi — ular faqat biznesingiz doirasida javob oladi.
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <button class="btn btn-secondary" onclick="myAgentStop()" style="width: auto; padding: 6px 12px; font-size: 12px; color: #fca5a5;">⏹ Agentni to'xtatish</button>
+            <button class="btn btn-secondary" onclick="loadMyAgent()" style="width: auto; padding: 6px 12px; font-size: 12px;">🔄 Yangilash</button>
+          </div>
+        </div>
+
+        <!-- Biznes profili va AI yo'riqnomasi -->
+        <details id="my-profile-box" style="margin-top: 12px; background: rgba(0,0,0,0.18); border-radius: 10px; padding: 10px 12px;">
+          <summary style="font-size: 13px; font-weight: 700; color: #93c5fd; cursor: pointer;">🏢 Biznes profili va AI yo'riqnomasi</summary>
+          <div style="display: grid; gap: 8px; margin-top: 10px;">
+            <input type="text" id="my-profile-name" class="form-input" placeholder="Ismingiz (agent kimning yordamchisi)">
+            <input type="text" id="my-profile-business" class="form-input" placeholder="Biznes nomi">
+            <input type="text" id="my-profile-profession" class="form-input" placeholder="Faoliyat sohasi (masalan: mebel savdosi)">
+            <textarea id="my-profile-prompt" class="form-input" rows="4" placeholder="AI qanday javob bersin: narxlar, ish vaqti, yetkazib berish, qoidalar..."></textarea>
+            <button class="btn btn-primary" onclick="myProfileSave()">💾 Profilni saqlash</button>
+          </div>
+        </details>
+
+        <details id="my-leads-box" style="margin-top: 12px; background: rgba(0,0,0,0.18); border-radius: 10px; padding: 10px 12px;">
+          <summary style="font-size: 13px; font-weight: 700; color: #fbbf24; cursor: pointer;">👥 Kim yozdi (mijozlar ro'yxati) <span id="my-leads-count" style="opacity:.7;"></span></summary>
+          <div id="my-leads-list" style="margin-top: 8px; font-size: 12px; max-height: 260px; overflow-y: auto;"></div>
+        </details>
+
+        <div id="my-agent-activity" style="margin-top: 10px; font-size: 11.5px; color: var(--hint-color); max-height: 150px; overflow-y: auto;"></div>
+      </div>
 
       <!-- AI CLUSTER & REAL-TIME RATE LIMITS MONITOR -->
       <div class="card" id="ai-monitor-card" style="border: 1px solid rgba(46, 166, 255, 0.3); background: linear-gradient(180deg, rgba(46, 166, 255, 0.08) 0%, var(--card-bg) 100%);">
@@ -1823,6 +1946,9 @@
 
     <!-- ==================== SAHIFA: MIJOZLAR & OBUNALAR (FAQAT SUPER ADMIN) ==================== -->
     <div class="tab-pane" id="tab-clients">
+
+      <!-- SERVER / AGENTLAR HOLATI (support uchun) -->
+      <div id="clients-server-info" style="font-size: 11.5px; color: var(--hint-color); background: rgba(0,0,0,0.2); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px;">🖥 Server holati yuklanmoqda...</div>
 
       <!-- STATS ROW -->
       <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;">
@@ -2570,14 +2696,22 @@
     const urlParams = new URLSearchParams(window.location.search);
     const tokenFromUrl = urlParams.get("token");
     const tgUserId = tg?.initDataUnsafe?.user?.id;
-    let authToken = tokenFromUrl || (typeof window.__INITIAL_TOKEN__ !== 'undefined' ? window.__INITIAL_TOKEN__ : "") || "";
-    if (!authToken && !tgUserId) {
-      authToken = localStorage.getItem("coddy_admin_token") || "mentor_cc_master_8105823872";
-    } else if (!authToken && tgUserId) {
-      authToken = localStorage.getItem("coddy_admin_token") || "";
-    }
+    // XAVFSIZLIK: token faqat URL (bot tugmasi), server yoki shu qurilmada avval berilgan tokendan olinadi.
+    // Hech qanday "standart" (hamma biladigan) token yo'q — haqiqiy kirish Telegram initData imzosi orqali tasdiqlanadi.
+    function safeStorageGet(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+    function safeStorageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    function safeStorageRemove(k) { try { localStorage.removeItem(k); } catch (e) {} }
+    let authToken = tokenFromUrl || (typeof window.__INITIAL_TOKEN__ !== 'undefined' ? window.__INITIAL_TOKEN__ : "") || safeStorageGet("coddy_admin_token");
     if (authToken) {
-      localStorage.setItem("coddy_admin_token", authToken);
+      safeStorageSet("coddy_admin_token", authToken);
+    }
+    // Tokenni manzil satridan olib tashlaymiz (ekran rasmi / ulashishda tarqalib ketmasligi uchun)
+    if (tokenFromUrl && window.history && window.history.replaceState) {
+      try {
+        urlParams.delete("token");
+        const cleanQuery = urlParams.toString();
+        window.history.replaceState(null, "", window.location.pathname + (cleanQuery ? "?" + cleanQuery : ""));
+      } catch (e) {}
     }
 
     function haptic() {
@@ -2621,8 +2755,10 @@
       // Refresh / ensure data loaded for the chosen page
       if (tabId === "dashboard") {
         loadStatus();
-        refreshAiMetrics();
-        refreshAutonomousBrainStatus();
+        if ((window.__CURRENT_USER__ || {}).is_super_admin) {
+          refreshAiMetrics();
+          refreshAutonomousBrainStatus();
+        }
         loadPrecomputedAnswers();
       } else if (tabId === "students") {
         loadStudents();
@@ -2703,6 +2839,9 @@
       try {
         const res = await fetch(path, options);
         if (res.status === 403) {
+          const errData = await res.json().catch(() => null);
+          // Rol cheklovi (masalan, mijoz Super Admin bo'limiga murojaat qilsa) — sessiya tugamagan, qulflamaymiz
+          if (errData && errData.role_forbidden) return errData;
           showLockScreen();
           return null;
         }
@@ -2730,15 +2869,243 @@
       try {
         // Dastlabki kirishda FAQAT asosiy dashboard va status chaqmoqdek tez (<100ms) yuklanadi.
         // Qolgan tablar foydalanuvchi ularni bosganida (Lazy-load) yuklanadi!
-        await Promise.allSettled([
+        const cu = window.__CURRENT_USER__ || {};
+        const isSuperUser = Boolean(cu.is_super_admin);
+        // Mijoz uchun mentorning AI klaster/avtonom miya monitorlari yuklanmaydi (ular Super Admin'ga tegishli)
+        await Promise.allSettled(isSuperUser ? [
           loadStatus(),
           refreshAiMetrics(),
           refreshAutonomousBrainStatus(),
+          loadPrecomputedAnswers()
+        ] : [
+          loadStatus(),
           loadPrecomputedAnswers()
         ]);
       } catch (err) {
         console.error("loadAllData xatosi:", err);
       }
+    }
+
+    // =====================================================================
+    // 🤖 MENING AGENTIM (obunachining shaxsiy agenti)
+    // =====================================================================
+    let myAgentPollTimer = null;
+
+    async function loadMyAgent() {
+      const d = await apiRequest("/api/my/agent");
+      if (!d || !d.ok) return;
+      renderMyAgent(d);
+    }
+
+    function myAgentShowStep(step) {
+      ["phone", "code", "password"].forEach(s => {
+        const el = document.getElementById("my-agent-step-" + s);
+        if (el) el.style.display = (s === step) ? "block" : "none";
+      });
+    }
+
+    function myAgentMsg(text, isError) {
+      const el = document.getElementById("my-agent-login-msg");
+      if (el) el.innerHTML = text ? `<span style="color:${isError ? "#fca5a5" : "#86efac"};">${escapeHtml(text)}</span>` : "";
+    }
+
+    function renderMyAgent(d) {
+      const st = d.agent || {};
+      const running = Boolean(st.running);
+      const statusEl = document.getElementById("my-agent-status");
+      if (statusEl) statusEl.innerHTML = renderAgentBadge(st, d.has_session);
+
+      const accEl = document.getElementById("my-agent-account");
+      if (accEl) {
+        const acc = st.account || {};
+        accEl.innerHTML = acc.id
+          ? `📱 Akkaunt: <b>${escapeHtml(acc.name || "")}</b> ${acc.username ? "@" + escapeHtml(acc.username) : ""} <code style="opacity:.7;">${acc.id}</code>`
+          : "";
+      }
+
+      const connect = document.getElementById("my-agent-connect");
+      const controls = document.getElementById("my-agent-controls");
+      if (connect) connect.style.display = running ? "none" : "block";
+      if (controls) controls.style.display = running ? "block" : "none";
+      const restartBtn = document.getElementById("my-agent-restart-btn");
+      if (restartBtn) restartBtn.style.display = (!running && d.has_session && st.state !== "invalid") ? "inline-flex" : "none";
+
+      const set = d.settings || {};
+      const ar = document.getElementById("my-agent-auto-reply");
+      if (ar) ar.checked = set.auto_reply_enabled !== false;
+      const vr = document.getElementById("my-agent-voice-reply");
+      if (vr) vr.checked = set.voice_reply_enabled !== false;
+      const es = document.getElementById("my-agent-escalate");
+      if (es) es.checked = set.escalate_to_owner !== false;
+      const gm = document.getElementById("my-agent-group-mode");
+      if (gm && set.group_reply_mode) gm.value = set.group_reply_mode;
+      const op = document.getElementById("my-agent-owner-pause");
+      if (op && set.owner_pause_seconds !== undefined) op.value = String(set.owner_pause_seconds);
+
+      const prof = d.profile || {};
+      const setVal = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v || ""; };
+      setVal("my-profile-name", prof.full_name);
+      setVal("my-profile-business", prof.business_name);
+      setVal("my-profile-profession", prof.profession);
+      setVal("my-profile-prompt", prof.system_prompt);
+
+      const leads = d.leads || [];
+      const lc = document.getElementById("my-leads-count");
+      if (lc) lc.innerText = leads.length ? `(${leads.length})` : "";
+      const ll = document.getElementById("my-leads-list");
+      if (ll) {
+        ll.innerHTML = leads.length ? leads.map(l => {
+          const link = l.username ? `https://t.me/${encodeURIComponent(l.username)}` : `tg://user?id=${l.user_id}`;
+          return `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <a href="${link}" style="color:#93c5fd;font-weight:600;text-decoration:none;">${escapeHtml(l.full_name || String(l.user_id))}</a>
+            ${l.username ? `<span style="opacity:.6;">@${escapeHtml(l.username)}</span>` : ""}
+            <span style="float:right;opacity:.6;font-size:11px;">💬 ${l.messages} • ${escapeHtml((l.last_active || "").slice(0, 16))}</span>
+            <div style="color:var(--hint-color);font-size:11.5px;margin-top:2px;">${escapeHtml((l.last_message || "").slice(0, 140))}</div>
+          </div>`;
+        }).join("") : "<div style='color:var(--hint-color);'>Hozircha hech kim yozmagan.</div>";
+      }
+
+      const actEl = document.getElementById("my-agent-activity");
+      if (actEl) {
+        const items = (d.activity || []).slice(0, 12);
+        actEl.innerHTML = items.length
+          ? "<div style='font-weight:700; color:#94a3b8; margin-bottom:4px;'>📜 So'nggi faoliyat</div>" +
+            items.map(a => `<div>• <span style="opacity:.7;">${escapeHtml(a.time)}</span> ${escapeHtml(a.text)}</div>`).join("")
+          : "";
+      }
+
+      // Ulanish/qayta ulanish holatlarida avtomatik yangilab turamiz
+      const transient = ["connecting", "reconnecting", "waiting"].includes(st.state) && !running;
+      if (myAgentPollTimer) { clearTimeout(myAgentPollTimer); myAgentPollTimer = null; }
+      if (transient) myAgentPollTimer = setTimeout(loadMyAgent, 5000);
+    }
+
+    async function myAgentSendCode() {
+      haptic();
+      const phone = (document.getElementById("my-agent-phone").value || "").trim();
+      if (!phone) return myAgentMsg("Telefon raqamni kiriting", true);
+      myAgentMsg("⏳ Kod yuborilmoqda...");
+      const d = await apiRequest("/api/my/tg-login/send-code", "POST", { phone });
+      if (d && d.ok) { myAgentShowStep("code"); myAgentMsg(d.message || "Kod yuborildi"); document.getElementById("my-agent-code").focus(); }
+      else myAgentMsg((d && d.error) || "Xatolik", true);
+    }
+
+    async function myAgentSubmitCode() {
+      haptic();
+      const code = (document.getElementById("my-agent-code").value || "").trim();
+      if (!code) return myAgentMsg("Kodni kiriting", true);
+      myAgentMsg("⏳ Tekshirilmoqda...");
+      const d = await apiRequest("/api/my/tg-login/code", "POST", { code });
+      document.getElementById("my-agent-code").value = "";
+      await handleLoginResult(d);
+    }
+
+    async function myAgentSubmitPassword() {
+      haptic();
+      const pwEl = document.getElementById("my-agent-password");
+      const password = pwEl.value || "";
+      if (!password) return myAgentMsg("Parolni kiriting", true);
+      myAgentMsg("⏳ Kirilmoqda...");
+      const d = await apiRequest("/api/my/tg-login/password", "POST", { password });
+      pwEl.value = "";
+      await handleLoginResult(d);
+    }
+
+    async function handleLoginResult(d) {
+      if (!d || !d.ok) return myAgentMsg((d && d.error) || "Xatolik", true);
+      if (d.stage === "password") { myAgentShowStep("password"); myAgentMsg(d.message); return; }
+      if (d.stage === "done") {
+        myAgentShowStep("phone");
+        myAgentMsg(d.message || "Ulandi!");
+        showToast("✅ Telegram akkaunt ulandi!");
+        await loadMyAgent();
+      }
+    }
+
+    async function myAgentCancelLogin() {
+      haptic();
+      await apiRequest("/api/my/tg-login/cancel", "POST", {});
+      myAgentShowStep("phone");
+      myAgentMsg("");
+    }
+
+    async function myAgentStart() {
+      haptic();
+      myAgentMsg("⏳ Ishga tushirilmoqda...");
+      const d = await apiRequest("/api/my/agent/start", "POST", {});
+      if (d && d.ok) { showToast("✅ Agent ishga tushdi"); myAgentMsg(""); }
+      else myAgentMsg((d && d.error) || "Ishga tushirib bo'lmadi", true);
+      loadMyAgent();
+    }
+
+    async function myAgentStop() {
+      haptic();
+      if (!confirm("Agentni to'xtatasizmi? U sizning nomingizdan javob berishni to'xtatadi.")) return;
+      const d = await apiRequest("/api/my/agent/stop", "POST", {});
+      if (d && d.ok) showToast("⏹ Agent to'xtatildi");
+      loadMyAgent();
+    }
+
+    async function myAgentSaveSession() {
+      haptic();
+      const el = document.getElementById("my-agent-hss");
+      const session_string = (el.value || "").trim();
+      if (!session_string) return myAgentMsg("HSS kodni kiriting", true);
+      myAgentMsg("⏳ Saqlanmoqda...");
+      const d = await apiRequest("/api/my/agent/session", "POST", { session_string });
+      el.value = "";
+      if (d && d.ok) { showToast("✅ Agent ishga tushdi"); myAgentMsg(""); }
+      else myAgentMsg((d && d.error) || "Xatolik", true);
+      loadMyAgent();
+    }
+
+    async function myAgentSaveSettings() {
+      haptic();
+      const body = {
+        auto_reply_enabled: document.getElementById("my-agent-auto-reply").checked,
+        voice_reply_enabled: document.getElementById("my-agent-voice-reply").checked,
+        escalate_to_owner: document.getElementById("my-agent-escalate").checked,
+        group_reply_mode: document.getElementById("my-agent-group-mode").value,
+        owner_pause_seconds: parseInt(document.getElementById("my-agent-owner-pause").value || "600"),
+      };
+      const d = await apiRequest("/api/my/agent/settings", "POST", body);
+      if (d && d.ok) { showToast("✅ Saqlandi"); renderMyAgent(d); }
+      else showToast("❌ Saqlanmadi: " + ((d && d.error) || "server xatosi"));
+    }
+
+    async function myAgentCommand() {
+      const input = document.getElementById("my-agent-command");
+      const message = (input.value || "").trim();
+      if (!message) return;
+      haptic();
+      const btn = document.getElementById("my-agent-command-btn");
+      const out = document.getElementById("my-agent-command-reply");
+      btn.disabled = true; btn.innerText = "⏳";
+      out.style.display = "block"; out.innerText = "Agent bajarmoqda...";
+      const d = await apiRequest("/api/ai_chat", "POST", { message });
+      btn.disabled = false; btn.innerText = "Yuborish";
+      if (d && d.ok) { out.innerText = d.reply || "Bajarildi."; input.value = ""; }
+      else out.innerText = "❌ " + ((d && d.error) || "Xatolik");
+      loadMyAgent();
+    }
+
+    async function myProfileSave() {
+      haptic();
+      const body = {
+        full_name: document.getElementById("my-profile-name").value.trim(),
+        business_name: document.getElementById("my-profile-business").value.trim(),
+        profession: document.getElementById("my-profile-profession").value.trim(),
+        system_prompt: document.getElementById("my-profile-prompt").value.trim(),
+      };
+      const d = await apiRequest("/api/my/profile", "POST", body);
+      if (d && d.ok) { showToast("✅ Profil saqlandi"); loadStatus(); }
+      else showToast("❌ Saqlanmadi: " + ((d && d.error) || "server xatosi"));
+    }
+
+    function retryAuth() {
+      haptic();
+      hideLockScreen();
+      initAuth();
     }
 
     async function initAuth() {
@@ -2759,6 +3126,9 @@
 
         if (res.status === 403) {
           const errData = await res.json().catch(() => null);
+          // Eskirgan/yaroqsiz tokenni shu qurilmadan o'chiramiz
+          authToken = "";
+          safeStorageRemove("coddy_admin_token");
           const lockMsg = document.getElementById("lock-message") || document.querySelector(".lock-card p");
           if (lockMsg && errData?.error) {
             lockMsg.innerText = errData.error;
@@ -2770,7 +3140,7 @@
         const data = await res.json();
         if (data.ok && data.token) {
           authToken = data.token;
-          localStorage.setItem("coddy_admin_token", authToken);
+          safeStorageSet("coddy_admin_token", authToken);
           window.__CURRENT_USER__ = data.user || data.mentor;
           hideLockScreen();
           loadAllData();
@@ -2794,6 +3164,7 @@
       // Multi-User: Update top header dynamically for the current user!
       const user = data.current_user || window.__CURRENT_USER__ || {};
       const isSuper = Boolean(user.is_super_admin || data.is_super_admin);
+      if (data.current_user) window.__CURRENT_USER__ = data.current_user;
 
       const headerTitle = document.getElementById("header-title");
       const headerSub = document.getElementById("header-sub");
@@ -2852,6 +3223,13 @@
 
       const dashGemini = document.getElementById("dashboard-widget-gemini");
       if (dashGemini) dashGemini.style.display = isSuper ? "flex" : "none";
+
+      // Mijoz: shaxsiy agent kartasi; mentorning AI klaster monitori faqat Super Admin'ga
+      const myAgentCard = document.getElementById("my-agent-card");
+      if (myAgentCard) myAgentCard.style.display = isSuper ? "none" : "block";
+      const aiMonitorCard = document.getElementById("ai-monitor-card");
+      if (aiMonitorCard) aiMonitorCard.style.display = isSuper ? "" : "none";
+      if (!isSuper) loadMyAgent();
 
       const personaSelect = document.getElementById("select-ai-persona");
       if (personaSelect) {
@@ -5109,6 +5487,7 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         showTabLoader("clients-list", "Mijozlar va obunalar yuklanmoqda...");
       }
 
+      loadServerInfo();
       const data = await apiRequest("/api/subscriptions");
       if (!listEl) return;
 
@@ -5226,12 +5605,8 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
                 <span style="color: var(--hint-color);">Roli:</span> <b style="color: #a855f7;">${c.role || 'client'}</b>
               </div>
               <div style="grid-column: 1/-1;">
-                <span style="color: var(--hint-color);">🤖 Agent session:</span>
-                ${c.session_active === 1
-                  ? `<b style="color:#22c55e;">🟢 Faol — o'z akkauntidan ishlayapti</b>`
-                  : (c.session_string
-                      ? `<b style="color:#f59e0b;">🟡 Saqlangan, ishlamayapti</b>`
-                      : `<span style="color:#64748b;">⚪ Ulanmagan</span>`)}
+                <span style="color: var(--hint-color);">🤖 Agent:</span>
+                ${renderAgentBadge(c.agent_status, c.has_session)}
               </div>
             </div>
 
@@ -5247,6 +5622,9 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
               </button>
               <button class="btn btn-secondary" onclick="openClientModal(${c.user_id})" style="padding: 6px 12px; font-size: 11.5px; width: auto;">
                 ✏️ Tahrirlash
+              </button>
+              <button class="btn btn-secondary" onclick="openAgentInspector(${c.user_id})" style="padding: 6px 12px; font-size: 11.5px; width: auto;">
+                🔍 Agent
               </button>
               ${isActive ? `
                 <button class="btn" onclick="toggleClientStatus(${c.user_id}, false)" style="background: rgba(239,68,68,0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.4); padding: 6px 12px; font-size: 11.5px; width: auto;">
@@ -5264,6 +5642,87 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
           </div>
         `;
       }).join("");
+    }
+
+    async function loadServerInfo() {
+      const el = document.getElementById("clients-server-info");
+      if (!el) return;
+      const d = await apiRequest("/api/system/lease");
+      if (!d || !d.ok) { el.innerText = "🖥 Server holatini olib bo'lmadi"; return; }
+      const lease = d.lease || {};
+      const holderTxt = lease.is_holder
+        ? "✅ Mijoz agentlarini shu server yuritmoqda"
+        : (lease.mode === "off" ? "⏸ Bu serverda mijoz agentlari o'chiq (CLIENT_SESSIONS_MODE=off)" : "⏳ Agentlar boshqa serverda ishlamoqda");
+      const mem = d.peak_memory_mb ? ` • 💾 ${d.peak_memory_mb} MB` : "";
+      el.innerHTML = `🖥 ${holderTxt} • 🤖 Faol agentlar: <b>${(d.active_client_sessions || []).length}</b> / ${d.max_client_sessions || "—"}${mem}`;
+    }
+
+    async function openAgentInspector(userId) {
+      haptic();
+      let overlay = document.getElementById("agent-inspector");
+      if (!overlay) {
+        overlay = document.createElement("div");
+        overlay.id = "agent-inspector";
+        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:flex-end;justify-content:center;padding:16px;";
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.style.display = "none"; });
+        document.body.appendChild(overlay);
+      }
+      overlay.style.display = "flex";
+      overlay.innerHTML = `<div class="card" style="width:100%;max-width:560px;max-height:80vh;overflow-y:auto;margin:0;">⏳ Yuklanmoqda...</div>`;
+      const d = await apiRequest("/api/subscriptions/agent?user_id=" + encodeURIComponent(userId));
+      const c = clientsCache.find(x => x.user_id === userId) || {};
+      const st = (d && d.agent) || {};
+      const acts = ((d && d.activity) || []).map(a => `<div>• <span style="opacity:.7;">${escapeHtml(a.time)}</span> ${escapeHtml(a.text)}</div>`).join("") || "<div>Hozircha faoliyat yo'q (jurnal server qayta ishga tushganda tozalanadi).</div>";
+      const acc = st.account || {};
+      overlay.innerHTML = `
+        <div class="card" style="width:100%;max-width:560px;max-height:80vh;overflow-y:auto;margin:0;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div style="font-weight:800;font-size:15px;">🔍 ${escapeHtml(c.business_name || "Mijoz")} — agent</div>
+            <button class="btn btn-secondary" style="width:auto;padding:4px 10px;" onclick="document.getElementById('agent-inspector').style.display='none'">✕</button>
+          </div>
+          <div style="font-size:12.5px;margin-bottom:6px;">${renderAgentBadge(st, c.has_session)}</div>
+          <div style="font-size:12px;color:var(--hint-color);margin-bottom:8px;">
+            ${acc.id ? `📱 ${escapeHtml(acc.name || "")} ${acc.username ? "@" + escapeHtml(acc.username) : ""} <code>${acc.id}</code><br>` : ""}
+            🕒 Oxirgi holat: ${escapeHtml(st.updated_at || "—")}
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+            <button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:12px;" onclick="inspectorAgentAction(${userId}, 'start')">▶️ Ishga tushirish</button>
+            <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;" onclick="inspectorAgentAction(${userId}, 'stop')">⏹ To'xtatish</button>
+            <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;" onclick="openAgentInspector(${userId})">🔄</button>
+          </div>
+          <div style="font-size:11.5px;color:#cbd5e1;background:rgba(0,0,0,0.25);border-radius:8px;padding:8px 10px;">
+            <div style="font-weight:700;margin-bottom:4px;">📜 Faoliyat jurnali</div>${acts}
+          </div>
+        </div>`;
+    }
+
+    async function inspectorAgentAction(userId, action) {
+      haptic();
+      const d = await apiRequest("/api/subscriptions/session/" + action, "POST", { user_id: userId });
+      showToast(d && d.ok ? (action === "start" ? "✅ Agent ishga tushdi" : "⏹ To'xtatildi") : ("❌ " + ((d && d.error) || "Xatolik")));
+      await loadClients();
+      openAgentInspector(userId);
+    }
+
+    function renderAgentBadge(st, hasSession) {
+      st = st || {};
+      const state = st.running ? "running" : (st.state || "");
+      const acc = st.account && st.account.username ? ` (@${escapeHtml(st.account.username)})` : "";
+      const err = st.error ? `<div style="color:#fca5a5; font-size:11px; margin-top:3px;">${escapeHtml(st.error)}</div>` : "";
+      const map = {
+        running: `<b style="color:#22c55e;">🟢 Ishlayapti${acc}</b>`,
+        connecting: `<b style="color:#60a5fa;">🔄 Ulanmoqda...</b>`,
+        reconnecting: `<b style="color:#f59e0b;">🔁 Qayta ulanmoqda</b>`,
+        waiting: `<b style="color:#f59e0b;">⏳ Asosiy serverni kutmoqda</b>`,
+        invalid: `<b style="color:#ef4444;">⛔ Sessiya yaroqsiz — qayta ulash kerak</b>`,
+        expired: `<b style="color:#ef4444;">⏳ Obuna tugagan</b>`,
+        stopped: `<b style="color:#94a3b8;">⏹ To'xtatilgan</b>`,
+        error: `<b style="color:#ef4444;">❌ Xatolik</b>`,
+      };
+      if (map[state]) return map[state] + (state === "running" ? "" : err);
+      return hasSession
+        ? `<b style="color:#f59e0b;">🟡 Kod saqlangan, ishlamayapti</b>`
+        : `<span style="color:#64748b;">⚪ Telegram ulanmagan</span>`;
     }
 
     function filterClientStatus(filter) {
@@ -5309,17 +5768,14 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
           document.getElementById("modal-client-profession").value = c.profession || "";
           document.getElementById("modal-client-days").value = 0;
           document.getElementById("modal-client-prompt").value = c.system_prompt || "";
-          // Session qismi
-          document.getElementById("modal-client-session").value = c.session_string || "";
+          // Session qismi (HSS kod xavfsizlik uchun serverdan qaytarilmaydi — faqat yangisini kiritish mumkin)
+          const sessInput = document.getElementById("modal-client-session");
+          sessInput.value = "";
+          sessInput.placeholder = c.has_session ? "🔒 Kod saqlangan (shifrlangan). Almashtirish uchun yangisini kiriting..." : "HSS (StringSession) kodini kiriting...";
           if (sessionControls) sessionControls.style.display = "flex";
           if (sessionStatus) {
-            const isActive = c.session_active === 1;
             sessionStatus.style.display = "block";
-            sessionStatus.innerHTML = isActive
-              ? `<span style="color:#22c55e; font-weight:700;">🟢 Session faol — agent ishlayapti</span>`
-              : (c.session_string
-                  ? `<span style="color:#f59e0b; font-weight:700;">🟡 Session saqlangan, lekin ishlamayapti</span>`
-                  : `<span style="color:#94a3b8;">⚪ Session kiritilmagan</span>`);
+            sessionStatus.innerHTML = renderAgentBadge(c.agent_status, c.has_session);
           }
           return;
         }
@@ -5355,25 +5811,19 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
       if (!sessionStr) return showToast("HSS kodni kiriting!");
       const statusEl = document.getElementById("modal-session-status");
       if (statusEl) { statusEl.style.display = "block"; statusEl.innerHTML = `<span style="color:#60a5fa;">💾 Saqlanmoqda...</span>`; }
-      try {
-        const r = await fetch("/api/subscriptions/session/save", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ user_id: userId, session_string: sessionStr })
-        });
-        const d = await r.json();
-        if (d.ok) {
-          showToast("✅ HSS kodi saqlandi!");
-          if (statusEl) statusEl.innerHTML = `<span style="color:#f59e0b; font-weight:700;">🟡 Session saqlangan, lekin ishlamayapti — ▶️ Ishga tushiring</span>`;
-          // Cache yangilaymiz
-          const c = clientsCache.find(x => x.user_id === userId);
-          if (c) c.session_string = sessionStr;
-        } else {
-          showToast("❌ Xatolik: " + (d.error || "Noma'lum"));
-          if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">❌ ${d.error}</span>`;
-        }
-      } catch (e) { showToast("❌ Server xatosi"); }
+      // Avval bu so'rov Authorization headersiz yuborilardi va har doim 403 bilan rad etilardi
+      const d = await apiRequest("/api/subscriptions/session/save", "POST", { user_id: userId, session_string: sessionStr });
+      if (d && d.ok) {
+        showToast("✅ HSS kodi saqlandi!");
+        document.getElementById("modal-client-session").value = "";
+        if (statusEl) statusEl.innerHTML = `<span style="color:#f59e0b; font-weight:700;">🟡 Session saqlangan (shifrlangan) — ▶️ Ishga tushiring</span>`;
+        const c = clientsCache.find(x => x.user_id === userId);
+        if (c) c.has_session = true;
+      } else {
+        const msg = (d && d.error) || "Server xatosi";
+        showToast("❌ Xatolik: " + msg);
+        if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">❌ ${escapeHtml(msg)}</span>`;
+      }
     }
 
     async function startClientSession() {
@@ -5382,24 +5832,17 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
       if (!userId) return showToast("Avval mijozni saqlang!");
       const statusEl = document.getElementById("modal-session-status");
       if (statusEl) { statusEl.style.display = "block"; statusEl.innerHTML = `<span style="color:#60a5fa;">▶️ Ishga tushirilmoqda...</span>`; }
-      try {
-        const r = await fetch("/api/subscriptions/session/start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ user_id: userId })
-        });
-        const d = await r.json();
-        if (d.ok) {
-          showToast("✅ Sessiya ishga tushdi!");
-          if (statusEl) statusEl.innerHTML = `<span style="color:#22c55e; font-weight:700;">🟢 Session faol — agent ishlayapti</span>`;
-          const c = clientsCache.find(x => x.user_id === userId);
-          if (c) c.session_active = 1;
-        } else {
-          showToast("❌ " + (d.error || "Ishga tushirishda xatolik"));
-          if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">❌ ${d.error}</span>`;
-        }
-      } catch (e) { showToast("❌ Server xatosi"); }
+      const d = await apiRequest("/api/subscriptions/session/start", "POST", { user_id: userId });
+      if (d && d.ok) {
+        showToast("✅ Sessiya ishga tushdi!");
+        if (statusEl) statusEl.innerHTML = `<span style="color:#22c55e; font-weight:700;">🟢 Session faol — agent ishlayapti</span>`;
+        const c = clientsCache.find(x => x.user_id === userId);
+        if (c) { c.session_active = 1; c.agent_status = d.agent_status || c.agent_status; }
+      } else {
+        const msg = (d && d.error) || "Ishga tushirishda xatolik";
+        showToast("❌ " + msg);
+        if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">❌ ${escapeHtml(msg)}</span>`;
+      }
     }
 
     async function stopClientSession() {
@@ -5408,23 +5851,15 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
       if (!userId) return showToast("user_id topilmadi!");
       const statusEl = document.getElementById("modal-session-status");
       if (statusEl) { statusEl.style.display = "block"; statusEl.innerHTML = `<span style="color:#f59e0b;">⏹ To'xtatilmoqda...</span>`; }
-      try {
-        const r = await fetch("/api/subscriptions/session/stop", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ user_id: userId })
-        });
-        const d = await r.json();
-        if (d.ok) {
-          showToast("🛑 Sessiya to'xtatildi");
-          if (statusEl) statusEl.innerHTML = `<span style="color:#94a3b8;">⚪ Session to'xtatildi</span>`;
-          const c = clientsCache.find(x => x.user_id === userId);
-          if (c) c.session_active = 0;
-        } else {
-          showToast("❌ " + (d.error || "Xatolik"));
-        }
-      } catch (e) { showToast("❌ Server xatosi"); }
+      const d = await apiRequest("/api/subscriptions/session/stop", "POST", { user_id: userId });
+      if (d && d.ok) {
+        showToast("🛑 Sessiya to'xtatildi");
+        if (statusEl) statusEl.innerHTML = `<span style="color:#94a3b8;">⚪ Session to'xtatildi</span>`;
+        const c = clientsCache.find(x => x.user_id === userId);
+        if (c) c.session_active = 0;
+      } else {
+        showToast("❌ " + ((d && d.error) || "Xatolik"));
+      }
     }
 
     async function saveClient() {
@@ -6309,7 +6744,7 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
 
     // Boshqaruv (AI) sahifasi ochiq bo'lganda metrikalarni har 10 soniyada avtomatik yangilab turish
     setInterval(() => {
-      if (currentTab === "dashboard") {
+      if (currentTab === "dashboard" && (window.__CURRENT_USER__ || {}).is_super_admin) {
         refreshAiMetrics();
       }
     }, 10000);

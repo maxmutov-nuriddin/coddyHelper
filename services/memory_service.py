@@ -3,21 +3,40 @@ Doimiy SQLite xotira xizmati (Persistent Memory)
 Suhbatlar kompyuter o'chsa yoki dastur qayta ishga tushsa ham saqlanib qoladi.
 """
 
+import functools
 import logging
 import sqlite3
 import re
 import json
+import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 from config import config
 from services.mongo_memory_service import mongo_memory_service
+from services.tenant_context import get_tenant_id, is_main_tenant, tenant_scope
+from services.secret_box import decrypt_secret, encrypt_secret
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).resolve().parent.parent / "coddy_memory.db"
+# Har bir obunachining alohida (izolyatsiyalangan) SQLite bazasi shu papkada saqlanadi
+TENANTS_DIR = DB_PATH.parent / "tenants"
+# Bu prefiksli sozlamalar doimo asosiy (core) bazada saqlanadi (masalan: auth tokenlar)
+CORE_SETTING_PREFIXES = ("admintoken_", "tenant_status_", "payment_")
+# Sozlamalar keshida "bazada mavjud emas" belgisi
+_MISSING = object()
+
+
+def _core_op(func):
+    """Boshqaruv (control-plane) ma'lumotlari: doimo asosiy bazada bajariladi (obunalar, tokenlar)."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with tenant_scope(0):
+            return func(*args, **kwargs)
+    return wrapper
 
 
 @dataclass
@@ -31,7 +50,10 @@ class SQLiteMemoryService:
     def __init__(self, db_path: Path = DB_PATH, limit: int = 15):
         self.db_path = db_path
         self.limit = config.memory_limit or limit
-        self._settings_cache: dict[str, str] = {}
+        # Sozlamalar keshi har bir tenant uchun alohida (aralashib ketmasligi uchun)
+        self._settings_cache_by_tenant: dict[int, dict[str, str]] = {}
+        self._initialized_tenants: set[int] = set()
+        self._tenant_lock = threading.RLock()
         self._init_db()
         try:
             if mongo_memory_service.is_connected():
@@ -50,8 +72,118 @@ class SQLiteMemoryService:
         except Exception as oe:
             logger.debug("Obsidian vault init ogohlantirish: %s", oe)
 
+    # =========================================================================
+    # Multi-Tenant bazalar marshrutizatsiyasi
+    # =========================================================================
+    @property
+    def _settings_cache(self) -> dict[str, str]:
+        return self._settings_cache_by_tenant.setdefault(get_tenant_id(), {})
+
+    def tenant_db_path(self, tenant_id: int) -> Path:
+        return TENANTS_DIR / f"tenant_{int(tenant_id)}.db"
+
+    def _current_db_path(self) -> Path:
+        tid = get_tenant_id()
+        if not tid:
+            return self.db_path
+        path = self.tenant_db_path(tid)
+        if tid not in self._initialized_tenants:
+            self._ensure_tenant_db(tid, path)
+        return path
+
     def _get_connection(self) -> sqlite3.Connection:
+        return sqlite3.connect(str(self._current_db_path()), timeout=10.0)
+
+    def _get_core_connection(self) -> sqlite3.Connection:
+        """Asosiy (Super Admin / control-plane) bazaga ulanish."""
         return sqlite3.connect(str(self.db_path), timeout=10.0)
+
+    def _ensure_tenant_db(self, tid: int, path: Path) -> None:
+        """Tenant bazasini tayyorlaydi: bulutdan tiklash -> jadvallar -> eski ma'lumotlarni ko'chirish."""
+        with self._tenant_lock:
+            if tid in self._initialized_tenants:
+                return
+            # Rekursiyaning oldini olish uchun darhol belgilaymiz
+            self._initialized_tenants.add(tid)
+            try:
+                TENANTS_DIR.mkdir(parents=True, exist_ok=True)
+                if not path.exists() or path.stat().st_size == 0:
+                    try:
+                        from services.tenant_store import restore_tenant_snapshot
+                        with tenant_scope(0):
+                            restored = restore_tenant_snapshot(tid, path)
+                        if restored:
+                            logger.info("☁️ Tenant %s bazasi bulutdan tiklandi.", tid)
+                    except Exception as r_err:
+                        logger.warning("Tenant %s snapshotini tiklashda ogohlantirish: %s", tid, r_err)
+                with tenant_scope(tid):
+                    self._init_db()
+                self._migrate_legacy_tenant_rows(tid, path)
+            except Exception as e:
+                logger.error("Tenant %s bazasini tayyorlashda xatolik: %s", tid, e)
+
+    def _migrate_legacy_tenant_rows(self, tid: int, path: Path) -> None:
+        """
+        Eski versiyada asosiy bazaga user_id/owner_id bilan yozilgan mijoz ma'lumotlarini
+        (bilimlar, keshlangan javoblar, eslatmalar, shaxsiy sozlamalar) bir martalik o'z bazasiga ko'chiradi.
+        """
+        try:
+            with sqlite3.connect(str(path), timeout=10.0) as t_conn:
+                row = t_conn.execute("SELECT value FROM settings WHERE key = 'legacy_migrated'").fetchone()
+                if row:
+                    return
+                with self._get_core_connection() as c_conn:
+                    for r in c_conn.execute(
+                        "SELECT category, topic, content, source, created_at, updated_at FROM learned_memory WHERE user_id = ?",
+                        (tid,),
+                    ).fetchall():
+                        t_conn.execute(
+                            """
+                            INSERT INTO learned_memory (category, topic, content, source, created_at, updated_at, user_id)
+                            SELECT ?, ?, ?, ?, ?, ?, ?
+                            WHERE NOT EXISTS (SELECT 1 FROM learned_memory WHERE LOWER(topic) = LOWER(?))
+                            """,
+                            (*r, tid, r[1]),
+                        )
+                    for r in c_conn.execute(
+                        "SELECT topic, question_pattern, answer_text, usage_count FROM precomputed_answers WHERE owner_id = ?",
+                        (tid,),
+                    ).fetchall():
+                        t_conn.execute(
+                            """
+                            INSERT INTO precomputed_answers (topic, question_pattern, answer_text, usage_count, owner_id)
+                            SELECT ?, ?, ?, ?, ?
+                            WHERE NOT EXISTS (SELECT 1 FROM precomputed_answers WHERE question_pattern = ?)
+                            """,
+                            (*r, tid, r[1]),
+                        )
+                    for r in c_conn.execute(
+                        "SELECT chat_id, creator_id, reminder_text, remind_at, is_sent FROM reminders WHERE creator_id = ? AND is_sent = 0",
+                        (tid,),
+                    ).fetchall():
+                        t_conn.execute(
+                            """
+                            INSERT INTO reminders (chat_id, creator_id, reminder_text, remind_at, is_sent)
+                            SELECT ?, ?, ?, ?, ?
+                            WHERE NOT EXISTS (SELECT 1 FROM reminders WHERE reminder_text = ? AND remind_at = ?)
+                            """,
+                            (*r, r[2], r[3]),
+                        )
+                    legacy_keys = (f"client_topics_{tid}", f"ai_persona_{tid}", f"ai_code_mode_{tid}")
+                    for key in legacy_keys:
+                        s_row = c_conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+                        if s_row and s_row[0] is not None:
+                            t_conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, s_row[0]))
+                t_conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('legacy_migrated', '1')")
+                t_conn.commit()
+            logger.info("📦 Tenant %s: eski ma'lumotlar shaxsiy bazaga ko'chirildi.", tid)
+        except Exception as e:
+            logger.warning("Tenant %s eski ma'lumotlarini ko'chirishda ogohlantirish: %s", tid, e)
+
+    def _scope_uid(self, user_id: int = 0) -> int:
+        """Tenant kontekstida user_id=0 so'rovlarini avtomatik o'sha tenant egasiga bog'laydi."""
+        tid = get_tenant_id()
+        return tid if tid else user_id
 
     def _init_db(self) -> None:
         """Ma'lumotlar bazasi va jadvallarni yaratadi."""
@@ -379,6 +511,16 @@ class SQLiteMemoryService:
                         conn.execute(col_def)
                     except Exception:
                         pass  # Ustun allaqachon mavjud
+                # Yangi (toza) bazalarda ham kod kutayotgan ustunlar mavjud bo'lishi shart
+                for alter_sql in (
+                    "ALTER TABLE precomputed_answers ADD COLUMN owner_id INTEGER DEFAULT 0",
+                    "ALTER TABLE students ADD COLUMN owner_id INTEGER DEFAULT 0",
+                    "ALTER TABLE user_dossiers ADD COLUMN owner_id INTEGER DEFAULT 0",
+                ):
+                    try:
+                        conn.execute(alter_sql)
+                    except Exception:
+                        pass  # Ustun allaqachon mavjud
                 # Standart doimiy sozlamalar (Render restart bo'lganda ham avto-javoblar doimo YOQIQ turishi uchun)
                 conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_reply_enabled', 'true')")
                 conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('group_reply_enabled', 'true')")
@@ -391,9 +533,15 @@ class SQLiteMemoryService:
 
     def get_setting(self, key: str, default: str | None = None) -> str | None:
         """Doimiy sozlamani chaqmoqdek tez o'qiydi (Xotira keshi -> SQLite -> MongoDB fallback)."""
-        # 1. Tezkor xotira keshi (0.0001 ms)
-        if hasattr(self, "_settings_cache") and key in self._settings_cache:
-            return self._settings_cache[key]
+        if not is_main_tenant() and key.startswith(CORE_SETTING_PREFIXES):
+            with tenant_scope(0):
+                return self.get_setting(key, default)
+
+        # 1. Tezkor xotira keshi (0.0001 ms). _MISSING = bazada yo'qligi keshlangan.
+        cache = self._settings_cache
+        if key in cache:
+            cached = cache[key]
+            return default if cached is _MISSING else cached
 
         # 2. Lokal SQLite (<1 ms)
         val = None
@@ -423,17 +571,15 @@ class SQLiteMemoryService:
             except Exception:
                 pass
 
-        final_val = val if val is not None else default
-        if final_val is not None:
-            if not hasattr(self, "_settings_cache"):
-                self._settings_cache = {}
-            self._settings_cache[key] = final_val
-        return final_val
+        # Default qiymat keshlanmaydi (aks holda boshqa default bilan so'ralganda noto'g'ri qiymat qaytardi)
+        cache[key] = val if val is not None else _MISSING
+        return val if val is not None else default
 
     def set_setting(self, key: str, value: str) -> None:
         """Doimiy sozlamani saqlaydi (Kesh + SQLite darhol + MongoDB Atlas sync)."""
-        if not hasattr(self, "_settings_cache"):
-            self._settings_cache = {}
+        if not is_main_tenant() and key.startswith(CORE_SETTING_PREFIXES):
+            with tenant_scope(0):
+                return self.set_setting(key, value)
         self._settings_cache[key] = str(value)
 
         # 1. SQLite'ga darhol yozish (<1 ms)
@@ -569,6 +715,7 @@ class SQLiteMemoryService:
         user_id=0 (Super Admin) bo'lsa CoddyCamp steki.
         user_id>0 bo'lsa, o'sha mijozning shaxsiy biznes mavzulari (dastlab toza / bo'sh).
         """
+        user_id = self._scope_uid(user_id)
         import json
         if user_id and not self.is_super_admin(user_id):
             raw = self.get_setting(f"client_topics_{user_id}")
@@ -591,6 +738,7 @@ class SQLiteMemoryService:
 
     def set_curriculum_topics(self, topics: list[str], user_id: int = 0) -> None:
         """Mavzular ro'yxatini saqlaydi."""
+        user_id = self._scope_uid(user_id)
         import json
         clean_topics = []
         for t in topics:
@@ -751,7 +899,10 @@ class SQLiteMemoryService:
                 cursor = conn.cursor()
                 cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
                 conn.commit()
-                return cursor.rowcount > 0
+                cleared = cursor.rowcount > 0
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.clear_conversation_history(chat_id)
+            return cleared
         except Exception as e:
             logger.error("Xotirani tozalashda xatolik: %s", e)
             return False
@@ -782,6 +933,8 @@ class SQLiteMemoryService:
 
     def get_active_reminders_count(self, creator_id: int = 0) -> int:
         """Hali yuborilmagan eslatmalar sonini qaytaradi."""
+        if not is_main_tenant():
+            creator_id = 0  # Tenant bazasida barcha eslatmalar egasiniki
         try:
             with self._get_connection() as conn:
                 if creator_id and not self.is_super_admin(creator_id):
@@ -806,6 +959,7 @@ class SQLiteMemoryService:
 
     def get_learned_facts_count(self, user_id: int = 0) -> int:
         """Bilimlar (insights) sonini SQLite'dan 0.1ms da hisoblaydi."""
+        user_id = self._scope_uid(user_id)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1159,6 +1313,7 @@ class SQLiteMemoryService:
         """Mentor ko'rsatmasi, qoidasi yoki yangi faktni doimiy xotiraga yozadi (Dual-Persistence).
         user_id=0 (Super Admin/Global), user_id>0 bo'lsa o'sha mijozning shaxsiy bilimi.
         """
+        user_id = self._scope_uid(user_id)
         t = topic.strip()
         c = content.strip()
         if not t or not c:
@@ -1208,6 +1363,7 @@ class SQLiteMemoryService:
         """Barcha o'rganilgan bilimlar va qoidalarni qaytaradi.
         user_id > 0 bo'lsa faqat o'sha mijozning bilimlari qaytadi (dastlab toza / bo'sh).
         """
+        user_id = self._scope_uid(user_id)
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1263,6 +1419,7 @@ class SQLiteMemoryService:
 
     def delete_learned_fact(self, target: str | int, topic: str = None, user_id: int = 0) -> bool:
         """Bilimni mavzusi yoki ID si bo'yicha o'chiradi (MongoDB + SQLite)."""
+        user_id = self._scope_uid(user_id)
         deleted = False
         target_str = str(target).strip() if target is not None else ""
         topic_str = str(topic).strip() if topic is not None else ""
@@ -1990,6 +2147,8 @@ class SQLiteMemoryService:
 
 
     def get_active_reminders(self, limit: int = 20, creator_id: int = 0) -> list[dict]:
+        if not is_main_tenant():
+            creator_id = 0  # Tenant bazasida barcha eslatmalar egasiniki (agent yaratganlari ham)
         """Kutilayotgan faol eslatmalar ro'yxatini qaytaradi (Lokal SQLite -> Mongo fallback)."""
         now_str = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d %H:%M:%S")
         try:
@@ -2248,6 +2407,54 @@ class SQLiteMemoryService:
             logger.error("O'quvchini saqlashda xatolik: %s", e)
             return 0
 
+    def record_lead(self, user_id: int, full_name: str = "", username: str = "", last_message: str = "") -> None:
+        """
+        Mijoz agentiga yozgan odamni tenant bazasidagi CRM ro'yxatiga (lead) yozadi:
+        ism, username, murojaatlar soni, oxirgi xabar va vaqti.
+        """
+        if not user_id:
+            return
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO students (user_id, full_name, username, group_name, questions_count, status, mentor_notes, last_active)
+                    VALUES (?, ?, ?, 'Lead', 1, 'yangi', ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        full_name = CASE WHEN excluded.full_name != '' THEN excluded.full_name ELSE students.full_name END,
+                        username = CASE WHEN excluded.username != '' THEN excluded.username ELSE students.username END,
+                        questions_count = IFNULL(students.questions_count, 0) + 1,
+                        mentor_notes = excluded.mentor_notes,
+                        last_active = CURRENT_TIMESTAMP
+                    """,
+                    (user_id, (full_name or str(user_id))[:120], (username or "")[:64], (last_message or "")[:500]),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.debug("Lead yozishda ogohlantirish: %s", e)
+
+    def get_leads(self, limit: int = 50) -> list[dict]:
+        """Tenant CRM: agentga yozgan odamlar (eng so'nggi faollar birinchi)."""
+        try:
+            with self._get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT user_id, full_name, username, questions_count, mentor_notes, last_active, status
+                    FROM students ORDER BY last_active DESC LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+            return [
+                {
+                    "user_id": r[0], "full_name": r[1] or "", "username": r[2] or "", "messages": r[3] or 0,
+                    "last_message": r[4] or "", "last_active": str(r[5] or ""), "status": r[6] or "",
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.debug("Leadlarni o'qishda ogohlantirish: %s", e)
+            return []
+
     def record_student_activity(
         self,
         user_id: int,
@@ -2394,7 +2601,24 @@ class SQLiteMemoryService:
                 cursor = conn.cursor()
                 cursor.execute(f"UPDATE students SET {set_clause}, last_active = CURRENT_TIMESTAMP WHERE id = ?", values)
                 conn.commit()
-                return cursor.rowcount > 0
+                updated = cursor.rowcount > 0
+                row = None
+                if updated:
+                    cursor.execute(
+                        "SELECT user_id, full_name, username, group_name, status, strengths, weaknesses, mentor_notes FROM students WHERE id = ?",
+                        (student_id,),
+                    )
+                    row = cursor.fetchone()
+            # Render restartidan keyin tahrir "orqaga qaytib qolmasligi" uchun bulutga ham yozamiz
+            if row and row[0] and mongo_memory_service.is_connected():
+                try:
+                    mongo_memory_service.upsert_student_profile(
+                        user_id=row[0], full_name=row[1] or "", username=row[2] or "", group_name=row[3] or "",
+                        status=row[4] or "yaxshi", strengths=row[5] or "", weaknesses=row[6] or "", mentor_notes=row[7] or "",
+                    )
+                except Exception as me:
+                    logger.debug("O'quvchi tahririni MongoDB ga yozishda ogohlantirish: %s", me)
+            return updated
         except Exception as e:
             logger.error("O'quvchini yangilashda xatolik: %s", e)
             return False
@@ -2545,9 +2769,14 @@ class SQLiteMemoryService:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                cursor.execute("SELECT name_clean FROM saved_locations WHERE id = ?", (loc_id,))
+                name_row = cursor.fetchone()
                 cursor.execute("DELETE FROM saved_locations WHERE id = ?", (loc_id,))
                 conn.commit()
-                return cursor.rowcount > 0
+                deleted = cursor.rowcount > 0
+            if deleted and name_row and mongo_memory_service.is_connected():
+                mongo_memory_service.delete_location(name_row[0] or "")
+            return deleted
         except Exception as e:
             logger.error("Lokatsiyani o'chirishda xatolik: %s", e)
             return False
@@ -2658,9 +2887,14 @@ class SQLiteMemoryService:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                cursor.execute("SELECT title, plan_date FROM daily_plans WHERE id = ?", (plan_id,))
+                plan_row = cursor.fetchone()
                 cursor.execute("DELETE FROM daily_plans WHERE id = ?", (plan_id,))
                 conn.commit()
-                return cursor.rowcount > 0
+                deleted = cursor.rowcount > 0
+            if deleted and plan_row and mongo_memory_service.is_connected():
+                mongo_memory_service.delete_daily_plan(plan_row[0], plan_row[1])
+            return deleted
         except Exception as e:
             logger.error("Rejani o'chirishda xatolik: %s", e)
             return False
@@ -2955,9 +3189,9 @@ class SQLiteMemoryService:
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ON CONFLICT(user_id) DO UPDATE SET
                                     questions_count = MAX(students.questions_count, excluded.questions_count),
-                                    group_name = CASE WHEN excluded.group_name != '' THEN excluded.group_name ELSE students.group_name END,
-                                    status = CASE WHEN excluded.status != '' THEN excluded.status ELSE students.status END,
-                                    mentor_notes = CASE WHEN excluded.mentor_notes != '' THEN excluded.mentor_notes ELSE students.mentor_notes END
+                                    group_name = CASE WHEN IFNULL(students.group_name, '') = '' THEN excluded.group_name ELSE students.group_name END,
+                                    status = CASE WHEN IFNULL(students.status, '') = '' THEN excluded.status ELSE students.status END,
+                                    mentor_notes = CASE WHEN IFNULL(students.mentor_notes, '') = '' THEN excluded.mentor_notes ELSE students.mentor_notes END
                                 """,
                                 r,
                             )
@@ -2965,33 +3199,40 @@ class SQLiteMemoryService:
 
                     # 6. learned_memory (Agent o'rgangan barcha saboqlar va bilimlar bazasi)
                     if "learned_memory" in tables:
-                        s_cursor.execute("SELECT category, topic, content, source, created_at, updated_at FROM learned_memory")
+                        # user_id saqlanadi: mijoz bilimlari hech qachon mentorniki bo'lib qolmasligi kerak
+                        s_cursor.execute("PRAGMA table_info(learned_memory)")
+                        lm_cols = {c[1] for c in s_cursor.fetchall()}
+                        uid_expr = "IFNULL(user_id, 0)" if "user_id" in lm_cols else "0"
+                        s_cursor.execute(f"SELECT category, topic, content, source, created_at, updated_at, {uid_expr} FROM learned_memory")
                         rows = s_cursor.fetchall()
                         target_conn.executemany(
                             """
-                            INSERT INTO learned_memory (category, topic, content, source, created_at, updated_at)
-                            SELECT ?, ?, ?, ?, ?, ?
+                            INSERT INTO learned_memory (category, topic, content, source, created_at, updated_at, user_id)
+                            SELECT ?, ?, ?, ?, ?, ?, ?
                             WHERE NOT EXISTS (
                                 SELECT 1 FROM learned_memory WHERE LOWER(topic) = LOWER(?) AND LOWER(content) = LOWER(?)
                             )
                             """,
-                            [(r[0], r[1], r[2], r[3], r[4], r[5], r[1], r[2]) for r in rows],
+                            [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[1], r[2]) for r in rows],
                         )
                         imported_stats.append(f"{len(rows)} ta bilim/saboq")
 
                     # 7. precomputed_answers (Keshdagi tayyor yechimlar)
                     if "precomputed_answers" in tables:
-                        s_cursor.execute("SELECT topic, question_pattern, answer_text, usage_count, created_at FROM precomputed_answers")
+                        s_cursor.execute("PRAGMA table_info(precomputed_answers)")
+                        pa_cols = {c[1] for c in s_cursor.fetchall()}
+                        owner_expr = "IFNULL(owner_id, 0)" if "owner_id" in pa_cols else "0"
+                        s_cursor.execute(f"SELECT topic, question_pattern, answer_text, usage_count, created_at, {owner_expr} FROM precomputed_answers")
                         rows = s_cursor.fetchall()
                         target_conn.executemany(
                             """
-                            INSERT INTO precomputed_answers (topic, question_pattern, answer_text, usage_count, created_at)
-                            SELECT ?, ?, ?, ?, ?
+                            INSERT INTO precomputed_answers (topic, question_pattern, answer_text, usage_count, created_at, owner_id)
+                            SELECT ?, ?, ?, ?, ?, ?
                             WHERE NOT EXISTS (
                                 SELECT 1 FROM precomputed_answers WHERE LOWER(question_pattern) = LOWER(?)
                             )
                             """,
-                            [(r[0], r[1], r[2], r[3], r[4], r[1]) for r in rows],
+                            [(r[0], r[1], r[2], r[3], r[4], r[5], r[1]) for r in rows],
                         )
                         imported_stats.append(f"{len(rows)} ta kesh yechim")
 
@@ -3029,6 +3270,8 @@ class SQLiteMemoryService:
 
                     target_conn.commit()
 
+            # Birlashtirilgan yangi sozlamalar darhol ko'rinishi uchun keshni tozalaymiz
+            self._settings_cache_by_tenant.clear()
             msg = "Muvaffaqiyatli birlashtirildi: " + ", ".join(imported_stats)
             logger.info("Baza birlashtirildi (%s): %s", source.name, msg)
             return True, msg
@@ -3736,6 +3979,7 @@ class SQLiteMemoryService:
             return False
         return user_id == config.mentor_user_id or user_id == 8105823872
 
+    @_core_op
     def get_subscription(self, user_id: int) -> dict | None:
         """Foydalanuvchi obunasini oladi (Super Admin bo'lsa doim cheksiz aktiv)."""
         if self.is_super_admin(user_id):
@@ -3798,6 +4042,8 @@ class SQLiteMemoryService:
                                 conn.commit()
                             except Exception:
                                 pass
+                            m_sub = dict(m_sub)
+                            m_sub["session_string"] = decrypt_secret(m_sub.get("session_string", ""))
                             return m_sub
                     return None
 
@@ -3827,7 +4073,7 @@ class SQLiteMemoryService:
                     "role": row[10] or "client",
                     "created_at": str(row[11]) if row[11] else "",
                     "is_expired": is_expired,
-                    "session_string": row[12] or "",
+                    "session_string": decrypt_secret(row[12] or ""),
                     "session_active": int(row[13] or 0),
                 }
         except Exception as e:
@@ -3836,6 +4082,7 @@ class SQLiteMemoryService:
                 return mongo_memory_service.get_user_subscription(user_id)
             return None
 
+    @_core_op
     def is_subscription_active(self, user_id: int) -> bool:
         """Foydalanuvchida faol (muddati o'tmagan) obuna borligini tekshiradi."""
         if self.is_super_admin(user_id):
@@ -3845,6 +4092,7 @@ class SQLiteMemoryService:
             return False
         return bool(sub.get("active") and not sub.get("is_expired"))
 
+    @_core_op
     def upsert_subscription(
         self,
         user_id: int,
@@ -3940,6 +4188,7 @@ class SQLiteMemoryService:
             logger.error("Obuna yaratishda xatolik [%s]: %s", user_id, e)
             return {}
 
+    @_core_op
     def link_user_group(self, user_id: int, group_id: int) -> bool:
         """Foydalanuvchiga uning shaxsiy Vazifalar guruhini biriktiradi."""
         try:
@@ -3961,22 +4210,23 @@ class SQLiteMemoryService:
             logger.error("Guruhni biriktirishda xatolik: %s", e)
             return False
 
+    @_core_op
     def save_session_string(self, user_id: int, session_string: str) -> bool:
-        """Mijozning Telethon string session kodini saqlaydi."""
+        """Mijozning Telethon string session kodini (shifrlangan holda) saqlaydi."""
+        stored = encrypt_secret((session_string or "").strip())
         try:
             with self._get_connection() as conn:
                 conn.execute(
                     "UPDATE user_subscriptions SET session_string = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-                    (session_string or "", user_id)
+                    (stored, user_id)
                 )
                 conn.commit()
-            # MongoDB ga ham sync
+            # MongoDB ga ham sync (faqat mavjud obunani yangilaydi — "yetim" hujjat yaratmaydi)
             if mongo_memory_service.is_connected():
                 try:
                     mongo_memory_service._db["system_core.user_subscriptions"].update_one(
                         {"user_id": user_id},
-                        {"$set": {"session_string": session_string or "", "updated_at": __import__("datetime").datetime.now()}},
-                        upsert=True,
+                        {"$set": {"session_string": stored, "updated_at": datetime.now()}},
                     )
                 except Exception:
                     pass
@@ -3986,6 +4236,7 @@ class SQLiteMemoryService:
             logger.error("Sessiya kodini saqlashda xatolik [%s]: %s", user_id, e)
             return False
 
+    @_core_op
     def set_session_active(self, user_id: int, active: bool) -> bool:
         """Mijozning session holatini yangilaydi (ishlamoqda / to'xtagan)."""
         try:
@@ -3996,11 +4247,19 @@ class SQLiteMemoryService:
                     (val, user_id)
                 )
                 conn.commit()
+            if mongo_memory_service.is_connected():
+                try:
+                    mongo_memory_service._db["system_core.user_subscriptions"].update_one(
+                        {"user_id": user_id}, {"$set": {"session_active": val}}
+                    )
+                except Exception:
+                    pass
             return True
         except Exception as e:
             logger.error("Session holatini o'zgartirishda xatolik [%s]: %s", user_id, e)
             return False
 
+    @_core_op
     def get_subscription_by_group(self, group_id: int) -> dict | None:
         """Guruh ID bo'yicha uning egasi (obunachi)ni topadi."""
         if str(group_id) in (str(config.escalation_chat), "-1005388159517", "-5388159517"):
@@ -4016,6 +4275,7 @@ class SQLiteMemoryService:
             logger.error("Guruh bo'yicha obunachini qidirishda xatolik: %s", e)
         return None
 
+    @_core_op
     def revoke_subscription(self, user_id: int) -> bool:
         """Foydalanuvchi obunasini bekor qiladi / to'xtatadi."""
         try:
@@ -4029,6 +4289,7 @@ class SQLiteMemoryService:
             logger.error("Obunani bekor qilishda xatolik: %s", e)
             return False
 
+    @_core_op
     def delete_subscription(self, user_id: int) -> bool:
         """Foydalanuvchi obunasini butunlay o'chiradi."""
         try:
@@ -4042,6 +4303,7 @@ class SQLiteMemoryService:
             logger.error("Obunani o'chirishda xatolik: %s", e)
             return False
 
+    @_core_op
     def get_all_subscriptions(self) -> list[dict]:
         """Super Admin paneli uchun barcha obunachilarni qaytaradi."""
         subs = []
@@ -4069,7 +4331,7 @@ class SQLiteMemoryService:
                         "expires_at": str(r[8]) if r[8] else "",
                         "role": r[9] or "client",
                         "created_at": str(r[10]) if r[10] else "",
-                        "session_string": r[11] or "",
+                        "session_string": decrypt_secret(r[11] or ""),
                         "session_active": int(r[12] or 0),
                     })
         except Exception as e:
@@ -4097,7 +4359,7 @@ class SQLiteMemoryService:
                                 "expires_at": str(doc.get("expires_at") or ""),
                                 "role": doc.get("role", "client"),
                                 "created_at": str(doc.get("created_at") or ""),
-                                "session_string": doc.get("session_string", ""),
+                                "session_string": decrypt_secret(doc.get("session_string", "")),
                                 "session_active": int(doc.get("session_active", 0)),
                             }
                             subs.append(sub_obj)

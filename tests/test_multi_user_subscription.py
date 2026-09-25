@@ -9,6 +9,9 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Haqiqiy baza va MongoDB'ga tegmaslik uchun izolyatsiyalangan muhit (boshqa importlardan oldin!)
+import tests._isolated_env  # noqa: F401,E402
+
 from unittest.mock import MagicMock
 
 # Agar aiohttp yoki telethon bo'lmasa, test uchun mock qilish
@@ -131,9 +134,10 @@ class TestMultiUserSubscription(unittest.TestCase):
         extracted_uid = get_token_user_id(token)
         self.assertEqual(extracted_uid, self.test_user_id)
 
-        # Master admin tokeni doim mentor_user_id ga bog'lanadi
-        master_uid = get_token_user_id(MASTER_ADMIN_TOKEN)
-        self.assertEqual(master_uid, config.mentor_user_id)
+        # Qattiq yozilgan (hamma biladigan) master token endi ishlamaydi
+        self.assertFalse(verify_admin_token("mentor_cc_master_8105823872"))
+        if MASTER_ADMIN_TOKEN:
+            self.assertEqual(get_token_user_id(MASTER_ADMIN_TOKEN), config.mentor_user_id)
 
     def test_delete_subscription(self):
         """Obunani bazadan butunlay o'chirish."""

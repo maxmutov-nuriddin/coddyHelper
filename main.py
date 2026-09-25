@@ -137,6 +137,21 @@ def setup_shutdown_handlers(client: TelegramClient, loop: asyncio.AbstractEventL
             await autonomous_brain_service.stop()
         except Exception:
             pass
+        # Mijoz agentlari: sessiyalarni yopish, bazalarini bulutga saqlash va lease'ni bo'shatish
+        # (yangi server darhol, dublikatsiz davom ettirishi uchun)
+        try:
+            from services.client_session_manager import client_session_manager
+            await client_session_manager.stop_all(mark_inactive=False)
+        except Exception as cs_err:
+            logger.warning("Mijoz sessiyalarini yopishda ogohlantirish: %s", cs_err)
+        try:
+            from services.instance_lease import instance_lease
+            if instance_lease.is_holder:
+                from services.tenant_store import snapshot_all_tenants
+                await asyncio.to_thread(snapshot_all_tenants, True)
+            await instance_lease.release()
+        except Exception as ts_err:
+            logger.warning("Tenant bazalarini saqlashda ogohlantirish: %s", ts_err)
         try:
             from services.bot_service import send_or_update_database_backup
             ok, err = await send_or_update_database_backup()
@@ -265,6 +280,8 @@ async def main():
     )
     global CURRENT_CLIENT
     CURRENT_CLIENT = client
+    from services import runtime
+    runtime.main_client = client
 
     # Doimiy SQLite sozlamalarini yuklash (standart: doimo YOQILGAN bo'ladi)
     from services.memory_service import memory_service
@@ -310,11 +327,23 @@ async def main():
         from services.bot_service import start_bot_service
         asyncio.create_task(start_bot_service())
 
-    # Barcha mijoz sessionlarini ishga tushirish (har biri o'z akkauntidan ishlaydi)
+    # Mijoz agentlari (har biri o'z Telegram akkauntidan, o'z bazasi bilan ishlaydi).
+    # Sessiyalarni faqat lease egasi bo'lgan BITTA server yuritadi — aks holda Telegram
+    # AUTH_KEY_DUPLICATED bilan sessiyani bekor qilib, mijozni akkauntidan chiqarib yuboradi.
     try:
         from services.client_session_manager import client_session_manager
-        asyncio.create_task(client_session_manager.start_all_saved_sessions())
-        logger.info("🔄 Mijoz sessionlari startup'da ishga tushirilmoqda...")
+        from services.instance_lease import instance_lease
+        from services.tenant_store import tenant_persistence_worker
+
+        async def _on_lease_acquired():
+            await client_session_manager.start_all_saved_sessions()
+
+        async def _on_lease_lost():
+            await client_session_manager.stop_all(mark_inactive=False)
+
+        instance_lease.start(_on_lease_acquired, _on_lease_lost)
+        asyncio.create_task(tenant_persistence_worker())
+        logger.info("🔄 Mijoz agentlari lease orqali boshqarilmoqda (mode=%s)...", instance_lease.mode)
     except Exception as csm_err:
         logger.warning("Client session manager ishga tushirishda ogohlantirish: %s", csm_err)
 

@@ -21,9 +21,16 @@ from aiogram.types import (
     MenuButtonWebApp,
     MenuButtonDefault,
     FSInputFile,
+    LabeledPrice,
 )
+import os
 from config import config, is_escalation_chat
-from web_app import generate_admin_token, MASTER_ADMIN_TOKEN
+from web_app import generate_admin_token
+from services.tenant_context import tenant_scope
+
+# Telegram Stars orqali obuna sotib olish (0 = o'chiq). Narx biznes qarori — env orqali yoqiladi.
+SUBSCRIPTION_STARS_PRICE = int(os.getenv("SUBSCRIPTION_STARS_PRICE", "0") or 0)
+SUBSCRIPTION_DAYS = int(os.getenv("SUBSCRIPTION_DAYS", "30") or 30)
 
 logger = logging.getLogger("coddyHelper.bot_service")
 
@@ -54,7 +61,8 @@ def is_authorized_user(user_id: int | None) -> bool:
 
 def get_private_keyboard(user_id: int) -> InlineKeyboardMarkup:
     """Lichka uchun WebApp ochuvchi tugmalar to'plami."""
-    token = MASTER_ADMIN_TOKEN if is_admin(user_id) else generate_admin_token(user_id=user_id)
+    # Shaxsiy (faqat shu foydalanuvchiga ko'rinadigan) tugma — shaxsiy, muddatli token bilan
+    token = generate_admin_token(user_id=user_id)
     app_url = f"{config.web_app_url}/app?token={token}"
     buttons = [
         [
@@ -75,14 +83,11 @@ def get_private_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 
 def get_group_keyboard(user_id: int = 0) -> InlineKeyboardMarkup:
-    """Guruh uchun tugmalar to'plami (Faqat Mini App ochish tugmasi)."""
-    if is_admin(user_id):
-        token = MASTER_ADMIN_TOKEN
-    elif user_id:
-        token = generate_admin_token(user_id=user_id)
-    else:
-        token = MASTER_ADMIN_TOKEN
-    app_url = f"{config.web_app_url}/app?token={token}"
+    """
+    Guruh uchun tugma. XAVFSIZLIK: guruhdagi xabarni HAMMA ko'radi, shuning uchun unda token bo'lmaydi —
+    tugma botning shaxsiy chatini ochadi, u yerda har kim faqat o'z huquqi bo'yicha panel oladi.
+    """
+    app_url = f"https://t.me/{(config.bot_username or 'coddyassistanstbot').lstrip('@')}?start=panel"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -104,18 +109,20 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         sender = event.from_user
         sender_id = sender.id if sender else None
 
-        # /start buyrug'ini DOIM qo'yib berish (obuna tekshiruvi handler ichida)
+        # /start, /buy va to'lov xabarlarini DOIM qo'yib berish (obuna tekshiruvi handler ichida)
         text = (event.text or "").strip().lower()
-        if text.startswith("/start"):
+        if text.startswith("/start") or text.startswith("/buy") or text.startswith("/tarif") or getattr(event, "successful_payment", None):
             return await handler(event, data)
 
-        # Super Admin — to'liq dostup
+        # Super Admin — to'liq dostup (asosiy baza)
         if is_admin(sender_id):
             return await handler(event, data)
 
-        # Obunali foydalanuvchi — faqat lichka va o'z guruhida ruxsat
+        # Obunali foydalanuvchi — barcha amallar FAQAT o'z tenant bazasida
+        # (avval eslatmalari mentor bazasiga tushardi, /bekor bilan mentorning eslatmasini o'chira olardi)
         if is_authorized_user(sender_id):
-            return await handler(event, data)
+            with tenant_scope(sender_id):
+                return await handler(event, data)
 
         # Ruxsatsiz foydalanuvchi
         if event.chat.type == "private":
@@ -145,7 +152,10 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
             )
             return
 
-        return await handler(event, data)
+        if is_admin(sender_id):
+            return await handler(event, data)
+        with tenant_scope(sender_id):
+            return await handler(event, data)
 
     @d.message(F.chat.type == "private", Command(commands=["start", "panel", "app", "admin", "menu"]))
     async def cmd_start_private(message: types.Message):
@@ -157,7 +167,7 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         if is_admin(user_id):
             kb = get_private_keyboard(user_id)
             try:
-                token = MASTER_ADMIN_TOKEN
+                token = generate_admin_token(user_id=user_id)
                 app_url = f"{config.web_app_url}/app?token={token}"
                 await message.bot.set_chat_menu_button(
                     chat_id=user_id,
@@ -214,21 +224,24 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
                     f"👋 **Assalomu alaykum, {biz_name}!**\n\n"
                     f"✅ Obunangiz **{expires}** gacha faol.\n"
                     f"📌 Shaxsiy guruhingiz ulangan (ID: `{group_id}`).\n\n"
+                    "🤖 Panelda **Mening Agentim** bo'limidan Telegram akkauntingizni ulab, "
+                    "shaxsiy AI agentingizni ishga tushiring.\n\n"
                     "Boshqaruv panelini ochish uchun quyidagi tugmani bosing 👇",
                     reply_markup=kb,
                 )
             else:
                 # Guruhi hali ulanmagan — ko'rsatma berish
+                kb = get_private_keyboard(user_id)
                 await message.answer(
                     f"👋 **Assalomu alaykum, {biz_name}!**\n\n"
                     f"✅ Profilingiz faollashtirildi! Obunangiz **{expires}** gacha.\n\n"
-                    "📋 **Keyingi qadam:**\n"
-                    "1️⃣ Telegram'da o'zingiz uchun yangi **yopiq guruh** oching\n"
-                    "2️⃣ Meni o'sha guruhga **admin sifatida** qo'shing\n"
-                    "3️⃣ Men avtomatik ravishda guruhni biriktirib, "
-                    "**🎛 Shaxsiy Admin Panel** tugmasini qadab qo'yaman!\n\n"
-                    "💡 _Guruhda bot barcha xabarlarni AI bilan tahlil qiladi "
-                    "va o'z sohasidagi yordamchingiz sifatida ishlaydi._",
+                    "📋 **Boshlash uchun:**\n"
+                    "1️⃣ Pastdagi tugma orqali panelni oching\n"
+                    "2️⃣ **🤖 Mening Agentim** bo'limida Telegram akkauntingizni ulang (raqam + kod)\n"
+                    "3️⃣ **Bilimlar** bo'limiga biznesingiz qoidalari, narxlar va ma'lumotlarni kiriting\n\n"
+                    "💡 _Ixtiyoriy: o'zingiz uchun yopiq guruh ochib, meni admin qilib qo'shsangiz, "
+                    "u sizning boshqaruv guruhingiz sifatida biriktiriladi._",
+                    reply_markup=kb,
                 )
             return
 
@@ -241,10 +254,12 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         except Exception:
             pass
 
+        buy_line = "💳 Onlayn obuna: /buy (Telegram Stars)\n" if SUBSCRIPTION_STARS_PRICE > 0 else ""
         await message.answer(
             "⛔ **Kechirasiz, sizda hali faol obuna yo'q.**\n\n"
             "Shaxsiy AI yordamchi olish uchun Super Admin bilan bog'laning:\n"
-            "👉 @mentor_cc\n\n"
+            "👉 @mentor_cc\n"
+            f"{buy_line}\n"
             "Obuna olganingizdan so'ng, /start ni qaytadan bosing.",
         )
 
@@ -314,20 +329,33 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
 
         business_name = args[3].strip() if len(args) > 3 else ""
 
-        # Agar user_id raqam bo'lmasa, faqat username sifatida saqlash
+        # @username berilsa — mentorning Telegram clienti orqali raqamli ID ga aylantiramiz
+        full_name = ""
         try:
             target_user_id = int(target)
         except ValueError:
-            # Username berilgan — hozircha raqamli ID kerak
-            await message.answer(
-                "⚠️ Hozircha faqat **raqamli Telegram ID** qabul qilinadi.\n\n"
-                "Foydalanuvchidan ID sini so'rang (u @userinfobot ga murojaat qilsin)."
-            )
-            return
+            target_user_id = 0
+            try:
+                from services import runtime
+                if runtime.main_client:
+                    entity = await runtime.main_client.get_entity(target)
+                    if getattr(entity, "bot", False) or not hasattr(entity, "first_name"):
+                        raise ValueError("bu foydalanuvchi emas")
+                    target_user_id = entity.id
+                    full_name = " ".join(x for x in (entity.first_name, entity.last_name) if x).strip()
+            except Exception as res_err:
+                logger.info("Username'ni aniqlab bo'lmadi (%s): %s", target, res_err)
+            if not target_user_id:
+                await message.answer(
+                    f"⚠️ @{target} topilmadi.\n\n"
+                    "Raqamli Telegram ID bilan urinib ko'ring (foydalanuvchi @userinfobot ga yozib bilib oladi)."
+                )
+                return
 
         sub = memory_service.upsert_subscription(
             user_id=target_user_id,
             username=target if not target.isdigit() else "",
+            full_name=full_name,
             days=days,
             business_name=business_name,
         )
@@ -601,6 +629,66 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
                 logger.error("DB faylini yuklab olishda xatolik: %s", e)
                 await message.answer(f"❌ Xatolik yuz berdi: {e}")
 
+    # 10.5 Telegram Stars orqali obuna sotib olish / uzaytirish (SUBSCRIPTION_STARS_PRICE > 0 bo'lsa)
+    @d.message(F.chat.type == "private", Command(commands=["buy", "tarif"]))
+    async def cmd_buy(message: types.Message):
+        if SUBSCRIPTION_STARS_PRICE <= 0:
+            await message.answer("ℹ️ Onlayn to'lov hozircha yoqilmagan. Obuna uchun @mentor_cc ga murojaat qiling.")
+            return
+        uid = message.from_user.id
+        await message.bot.send_invoice(
+            chat_id=uid,
+            title=f"AI Agent obunasi — {SUBSCRIPTION_DAYS} kun",
+            description="Shaxsiy AI agent: Telegramingizda siz nomingizdan javob beradi, alohida xavfsiz baza, Mini App boshqaruvi.",
+            payload=f"sub:{uid}:{SUBSCRIPTION_DAYS}",
+            currency="XTR",
+            prices=[LabeledPrice(label=f"{SUBSCRIPTION_DAYS} kunlik obuna", amount=SUBSCRIPTION_STARS_PRICE)],
+            provider_token="",
+        )
+
+    @d.pre_checkout_query()
+    async def on_pre_checkout(query: types.PreCheckoutQuery):
+        ok = (
+            SUBSCRIPTION_STARS_PRICE > 0
+            and query.currency == "XTR"
+            and query.total_amount == SUBSCRIPTION_STARS_PRICE
+            and query.invoice_payload == f"sub:{query.from_user.id}:{SUBSCRIPTION_DAYS}"
+        )
+        await query.answer(ok=ok, error_message=None if ok else "To'lov ma'lumotlari mos kelmadi. Qaytadan /buy bosing.")
+
+    @d.message(F.successful_payment)
+    async def on_successful_payment(message: types.Message):
+        from services.memory_service import memory_service
+        pay = message.successful_payment
+        uid = message.from_user.id
+        charge_id = pay.telegram_payment_charge_id
+        # Idempotentlik: bir to'lov ikki marta hisoblanmasin
+        if memory_service.get_setting(f"payment_{charge_id}"):
+            return
+        if pay.currency != "XTR" or pay.invoice_payload != f"sub:{uid}:{SUBSCRIPTION_DAYS}":
+            logger.warning("Shubhali to'lov payloadi: user=%s payload=%s", uid, pay.invoice_payload)
+            return
+        memory_service.set_setting(f"payment_{charge_id}", f"{uid}:{pay.total_amount}")
+        sub = memory_service.upsert_subscription(
+            user_id=uid,
+            username=message.from_user.username or "",
+            full_name=message.from_user.full_name or "",
+            days=SUBSCRIPTION_DAYS,
+        )
+        await message.answer(
+            f"✅ <b>To'lov qabul qilindi!</b>\n\nObunangiz <b>{sub.get('expires_at', '—')}</b> gacha faol.\n"
+            "Boshlash uchun /start bosing.",
+            parse_mode="HTML",
+        )
+        try:
+            from services.notify import notify_super_admin
+            await notify_super_admin(
+                f"💰 <b>Yangi to'lov</b>: {message.from_user.full_name} (<code>{uid}</code>) — "
+                f"{pay.total_amount} ⭐, obuna {sub.get('expires_at', '—')} gacha."
+            )
+        except Exception:
+            pass
+
     # 11. Lichka: Yangi eslatma qo'shish yoki matnli xabarlar
     @d.message(F.chat.type == "private")
     async def cmd_reminder_create(message: types.Message):
@@ -654,8 +742,9 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
                         user_message=ai_query,
                         user_id=message.from_user.id,
                     )
-                    if res and res.text:
-                        await message.answer(res.text)
+                    # AIResult — bu str (avval `.text` chaqirilib AttributeError bo'lardi)
+                    if res and str(res).strip():
+                        await message.answer(str(res))
                         return
                 except Exception as ai_err:
                     logger.warning("Botda AI javob olishda xatolik: %s", ai_err)
@@ -795,7 +884,7 @@ async def start_bot_service() -> None:
 
         # Faqat mentor (admin) uchun maxsus Admin Panel menu tugmasi
         admin_id = config.mentor_user_id or 8105823872
-        token = MASTER_ADMIN_TOKEN
+        token = generate_admin_token(user_id=admin_id)
         app_url = f"{config.web_app_url}/app?token={token}"
         await bot.set_chat_menu_button(
             chat_id=admin_id,

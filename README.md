@@ -1,102 +1,108 @@
-# coddyHelper — Shaxsiy Telegram AI Yordamchisi (Userbot)
+# CoddyHelper — Multi-Tenant AI Agent Platformasi (Telegram)
 
-Ushbu loyiha sizning shaxsiy Telegram akkauntingiz nomidan kelgan xabarlarga avtomatik aqlli javob qaytarish, matnlarni tahlil qilish va istalgan chatda AI yordamidan foydalanish imkoniyatini beruvchi shaxsiy AI agentdir.
-
-Loyiha **Telethon** (Telegram Client API) va **Google Gemini API** (`gemini-2.5-flash` / `gemini-1.5-flash`) asosida qurilgan.
-
----
-
-## 📌 Asosiy Imkoniyatlar
-
-- **Avto-javob (Auto-reply):** Shaxsiy yozishmalarda (DM/Lichka) kelgan savol va murojaatlarga tabiiy o'zbek tilida, aniq va muvozanatli javob qaytaradi.
-- **Qo'lda boshqariladigan AI buyruqlar:** Istalgan chatda yoki guruhda `.ai <savolingiz>` orqali tezkor maslahat va yechim olish.
-- **Xabarni tahlil qilish:** Biror xabarga reply qilib `.ai` deb yozsangiz, AI uni tahlil qilib, yechim beradi.
-- **Kontekst xotirasi (Memory):** Har bir suhbatdosh bilan avvalgi xabarlarni eslab qoladi va mantiqiy davomiy suhbat olib boradi.
-- **Moslashuvchan boshqaruv:** Avto-javobni istalgan daqiqada Telegram'ning o'zidan `.ai on` yoki `.ai off` orqali yoqish/o'chirish.
-- **Spam va bot himoyasi:** Guruhlarni, kanallarni, botlarni va tezkor takroriy yozishmalarni (flood) avtomatik filtrlash.
+CoddyHelper — Telegram'da **haqiqiy akkaunt (userbot)** nomidan ishlaydigan AI agent va obunachilar uchun
+SaaS platforma. Har bir obunachi **o'z Telegram akkaunti** orqali ishlaydigan **shaxsiy agent** va
+**boshqalar bilan aralashmaydigan shaxsiy baza** oladi. **@mentor_cc** — Super Admin: tizim egasi,
+support va o'zi ham foydalanuvchi.
 
 ---
 
-## 🛠 O'rnatish va Sozlash
+## Arxitektura
 
-### 1. Virtual muhit yaratish va faollashtirish
-Loyihaning asosiy papkasida terminalni oching:
-
-```bash
-cd /Applications/Project/coddyHelper
-python3 -m venv .venv
-source .venv/bin/activate
+```
+Telegram Mini App (templates/admin_app.html)
+        │  initData (HMAC imzo) / shaxsiy token
+        ▼
+aiohttp web server (web_app.py) ── api_tenant_guard middleware ──► tenant_scope(user_id)
+        │
+        ├─ Super Admin (tenant 0) ── coddy_memory.db + MongoDB asosiy kolleksiyalari
+        │     └─ mentor Telethon clienti (handlers/*), bot (@coddyassistanstbot), avtonom miya
+        │
+        └─ Obunachi (tenant N) ──── tenants/tenant_N.db ──(45s)──► MongoDB tenant_snapshots
+              └─ o'z Telethon clienti (services/client_session_manager.py)
 ```
 
-### 2. Kutubxonalarni o'rnatish
+| Modul | Vazifasi |
+|---|---|
+| `services/tenant_context.py` | Joriy tenant (ContextVar). Standart 0 = Super Admin |
+| `services/memory_service.py` | SQLite qatlami; tenant bo'yicha fayl tanlaydi; obuna/token — doimo asosiy bazada |
+| `services/tenant_store.py` | Tenant bazalarini MongoDB'ga snapshot qilish va restartda tiklash |
+| `services/instance_lease.py` | Mijoz sessiyalarini bir vaqtda faqat bitta server yuritadi (AUTH_KEY_DUPLICATED himoyasi) |
+| `services/client_session_manager.py` | Mijoz agentlari: ulanish, xatolar, egasi buyruqlari, begonalarga javob, CRM, eslatmalar |
+| `services/tg_login_service.py` | Mini App'da telefon → kod → 2FA orqali ulanish |
+| `services/secret_box.py` | HSS (StringSession) kodlarini shifrlash |
+| `services/ai_service.py` | Groq multi-key kaskad + Gemini, persona/prompt (tenantga mos) |
+| `services/agent_runner.py` | ReAct agent (Telegramni boshqarish vositalari) |
+| `services/bot_service.py` | Bot: /start, /grant, /revoke, /clients, /buy (Telegram Stars) |
+
+---
+
+## Obunachi uchun qanday ishlaydi
+
+1. Super Admin obuna beradi: botda `/grant <user_id yoki @username> <kun> [biznes nomi]`
+   (yoki `SUBSCRIPTION_STARS_PRICE` yoqilgan bo'lsa, obunachi `/buy` orqali o'zi sotib oladi).
+2. Obunachi botda `/start` → **Boshqaruv** tugmasi → Mini App.
+3. **🤖 Mening Agentim** → telefon raqam → Telegram kodi → (2FA parol) → agent ishga tushadi.
+4. **Bilimlar** bo'limiga narxlar, qoidalar, ish vaqti kiritiladi; **Biznes profili**da AI yo'riqnomasi.
+
+**Agent xulqi:**
+- Begonalar yozsa — biznes doirasida javob beradi (buyruq bajarmaydi, kontakt/shaxsiy ma'lumot bermaydi).
+- Guruhlarda standart holatda faqat murojaat qilinganda javob beradi.
+- Egasi chatga o'zi yozsa — AI shu chatda jim turadi (sozlanadi).
+- AI aniq bilmasa — egasiga bot orqali xabar beradi.
+- Ovozli xabarni tushunadi va ovozli javob beradi (sozlanadi).
+- Kim yozgani **👥 Kim yozdi** ro'yxatida (CRM).
+
+**Egasi agentni boshqaradi:** o'z *Saqlangan xabarlar*iga `ai <buyruq>` yozadi (yoki Mini App orqali):
+`ai Alisherga ertaga 10:00 da uchrashuv borligini yoz`, `ai oxirgi yozganlarni ko'rsat` va h.k.
+
+---
+
+## O'rnatish
+
 ```bash
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 3. API kalitlarini olish
-
-1. **Telegram API (`API_ID` va `API_HASH`):**
-   - [my.telegram.org](https://my.telegram.org) saytiga kiring.
-   - Telefon raqamingiz orqali tizimga kiring.
-   - **"API development tools"** bo'limiga o'ting va yangi ilova yarating (masalan, `coddyHelper`).
-   - Berilgan `api_id` va `api_hash` ni nusxalab oling.
-
-2. **Google Gemini API kaliti:**
-   - [Google AI Studio](https://aistudio.google.com/) saytiga kiring.
-   - **"Get API key"** tugmasini bosing va bepul API kalit yarating.
-
-### 4. `.env` faylini yaratish
-`.env.example` faylidan nusxa olib `.env` faylini yarating:
-
-```bash
-cp .env.example .env
-```
-
-`.env` faylini ochib, olingan kalitlarni kiriting:
-```env
-TELEGRAM_API_ID=12345678
-TELEGRAM_API_HASH=a1b2c3d4e5f6...
-TELEGRAM_PHONE=+998901234567
-
-GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-2.5-flash
-AUTO_REPLY_ENABLED=true
-COMMAND_PREFIX=.
-MEMORY_LIMIT=10
-```
-
----
-
-## 🚀 Ishga Tushirish
-
-Loyihani ishga tushiring:
-```bash
+cp .env.example .env   # qiymatlarni to'ldiring
 python main.py
 ```
 
-> **Birinchi marta ishga tushirishda:**
-> Telethon terminalda Telegram'ga kirish uchun tasdiqlash kodini (SMS yoki rasmiy Telegram akkauntingizga kelgan kod) va agar o'rnatilgan bo'lsa, Ikki bosqichli parolingizni (2FA) so'raydi.
-> Kod kiritilgach, avtomatik `coddy_helper_session.session` fayli yaratiladi va keyingi safar kod so'ralmaydi.
+### Muhim muhit o'zgaruvchilari
+
+| O'zgaruvchi | Izoh |
+|---|---|
+| `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_STRING_SESSION` | Super Admin akkaunti |
+| `BOT_TOKEN`, `BOT_USERNAME`, `MENTOR_USER_ID` | Bot va Super Admin |
+| `GROQ_*_KEYS`, `GEMINI_API_KEY` | AI provayderlar |
+| `MONGODB_URI`, `MONGODB_DB_NAME` | Bulut xotira (restartda ma'lumot tiklash uchun **shart**) |
+| `SESSION_ENCRYPTION_KEY` | HSS kodlarni shifrlash. Barcha serverlarda **bir xil** bo'lsin |
+| `CLIENT_SESSIONS_MODE` | `auto` (standart) / `off` (lokal ishlab chiqish uchun tavsiya) / `force` |
+| `MAX_CLIENT_SESSIONS` | Bir serverdagi agentlar limiti (standart 12; Render free ≈ 512 MB) |
+| `SUBSCRIPTION_STARS_PRICE`, `SUBSCRIPTION_DAYS` | Telegram Stars orqali obuna (0 = o'chiq) |
+| `MASTER_ADMIN_TOKEN` | Ixtiyoriy favqulodda token (bo'sh = o'chiq) |
+
+> ⚠️ Lokal kompyuterda ishga tushirganda `CLIENT_SESSIONS_MODE=off` qo'ying: bir xil HSS kodi ikki joyda
+> ulansa Telegram sessiyani bekor qiladi va mijoz akkauntidan chiqib ketadi (lease buni ham oldini oladi).
 
 ---
 
-## ⌨️ Shaxsiy Buyruqlar (Telegram orqali)
+## Xavfsizlik
 
-Istalgan chatda yoki **"Saved Messages" (Saqlangan xabarlar)** orqali quyidagi buyruqlarni yuborishingiz mumkin:
-
-| Buyruq | Tavsifi |
-| :--- | :--- |
-| `.ai <matn>` | AI dan tezkor javob olish (xabaringiz avtomatik AI javobiga aylanadi) |
-| *Reply* + `.ai` | Belgilangan xabarga tahlil yoki javob yaratish |
-| `.ai on` | Shaxsiy xabarlarga avto-javob rejimini yoqish |
-| `.ai off` | Avto-javob rejimini to'xtatish (faqat qo'lda buyruqlar ishlaydi) |
-| `.status` | Tizim holati, AI modeli va faol chatlar statistikasini ko'rish |
-| `.clear` | Ushbu chatdagi so'nggi xotirani tozalash |
-| `.help` | Barcha buyruqlar ro'yxatini chiqarish |
+- Mini App'ga kirish faqat **imzolangan Telegram initData** yoki shaxsiy muddatli token orqali.
+- Guruhga pin qilinadigan tugmalarda token yo'q (bot shaxsiy chatiga yo'naltiradi).
+- Mijoz tokeni bilan Super Admin endpointlari (backup, restart, mac, broadcast, dosyelar...) yopiq.
+- HSS kodlari shifrlangan va API javoblarida qaytarilmaydi.
+- Telegram xizmat xabarlari (777000, login kodlari) agent tomonidan hech qachon ishlanmaydi.
+- `.env`, `*.session`, `*.db`, `tenants/`, `brain_vault/` — gitga yuklanmaydi.
 
 ---
 
-## 🔒 Xavfsizlik Eslatmasi
+## Testlar
 
-- `.session` va `.env` fayllaringizni hech kimga bermang va GitHub yoki boshqa ommaviy platformalarga yuklamang.
-- Ushbu dastur shaxsiy foydalanish uchun mo'ljallangan bo'lib, Telegram akkauntingiz xavfsizligini ta'minlash uchun Telegram cheklovlari (Flood limit) va spam-filtrlarga amal qiladi.
+```bash
+python -m unittest tests.test_tenant_isolation tests.test_client_agent_handler tests.test_multi_user_subscription
+```
+
+Testlar vaqtinchalik bazada, MongoDB o'chiq holda ishlaydi (`tests/_isolated_env.py`) — haqiqiy ma'lumotlarga tegmaydi.
+
+Ish rejasi va sessiyalar jurnali: [`SESSION.md`](SESSION.md).
