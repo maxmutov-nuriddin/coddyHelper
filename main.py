@@ -155,33 +155,22 @@ def setup_shutdown_handlers(client: TelegramClient, loop: asyncio.AbstractEventL
 
 
 CURRENT_CLIENT: TelegramClient | None = None
+CACHED_IS_AUTH: bool = False
+CACHED_ME_INFO: str = "Boshlanmoqda..."
 
 
 async def start_render_web_server(port: int):
     """Render.com Web Service uchun HTTP healthcheck va diagnostika serveri."""
     async def handle_ping(request):
-        global CURRENT_CLIENT
-        is_auth = False
-        me_info = "Kutilmoqda..."
-        if CURRENT_CLIENT:
-            try:
-                is_auth = await CURRENT_CLIENT.is_user_authorized()
-                if is_auth:
-                    me = await CURRENT_CLIENT.get_me()
-                    me_info = f"{getattr(me, 'first_name', '')} (@{getattr(me, 'username', '')}) ID:{getattr(me, 'id', '')}"
-                else:
-                    me_info = "Avtorizatsiyadan o'tilmagan (Session kerak)"
-            except Exception as e:
-                me_info = f"Xatolik: {e}"
-
+        global CURRENT_CLIENT, CACHED_IS_AUTH, CACHED_ME_INFO
         from handlers.auto_reply import RECENT_ACTIVITY_LOGS
         return web.json_response({
             "status": "online",
             "version": "v2.7.0",
             "service": "coddyHelper AI Mentor Agent",
             "active_ai": "Groq Multi-Key Cluster",
-            "telegram_authorized": is_auth,
-            "telegram_me": me_info,
+            "telegram_authorized": CACHED_IS_AUTH,
+            "telegram_me": CACHED_ME_INFO,
             "auto_reply_enabled": config.auto_reply_enabled,
             "group_reply_enabled": config.group_reply_enabled,
             "escalation_chat": str(config.escalation_chat),
@@ -206,19 +195,34 @@ async def start_render_web_server(port: int):
 
 
 async def start_keep_alive_worker(port: int):
-    """Render Web Service uxlab qolmasligi uchun fon rejimida har 10 daqiqada ping yuboradi."""
+    """Render Web Service uxlab qolmasligi va xotira to'lib ketmasligi uchun keep-alive va GC xizmati."""
     await asyncio.sleep(45)
     import aiohttp
+    import gc
     async with aiohttp.ClientSession() as session:
         while True:
             try:
+                # 1. Ichki healthcheck
                 url = f"http://127.0.0.1:{port}/health"
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status == 200:
-                        logger.debug("Keep-alive ping muvaffaqiyatli yuborildi.")
+                        logger.debug("Local keep-alive ping muvaffaqiyatli.")
+
+                # 2. Tashqi Render public URL ga ping (Render 15 daqiqada uxlab qolmasligi uchun)
+                ext_url = (config.web_app_url or "").strip().rstrip("/")
+                if ext_url and "onrender.com" in ext_url:
+                    ping_url = f"{ext_url}/health"
+                    try:
+                        async with session.get(ping_url, timeout=aiohttp.ClientTimeout(total=15)) as ext_resp:
+                            logger.debug("Tashqi Render keep-alive ping: %s", ext_resp.status)
+                    except Exception as ext_err:
+                        logger.debug("Tashqi pingda ogohlantirish: %s", ext_err)
+
+                # 3. 512 MB RAM chegarasidan oshib ketmaslik uchun davriy xotirani tozalash (GC)
+                gc.collect()
             except Exception as e:
                 logger.debug("Keep-alive ogohlantirish: %s", e)
-            await asyncio.sleep(600)  # Har 10 daqiqada
+            await asyncio.sleep(240)  # Har 4 daqiqada (15 daqiqalik uxlab qolish chegarasidan oldin)
 
 
 async def main():
@@ -313,6 +317,9 @@ async def main():
     me = await client.get_me()
     first_name = getattr(me, "first_name", "Foydalanuvchi")
     username = f"@{me.username}" if getattr(me, "username", None) else f"ID: {me.id}"
+    global CACHED_IS_AUTH, CACHED_ME_INFO
+    CACHED_IS_AUTH = True
+    CACHED_ME_INFO = f"{first_name} ({username}) ID:{me.id}"
 
     print("-" * 60)
     print(f"✅ Muvaffaqiyatli ulandi: {first_name} ({username})")
