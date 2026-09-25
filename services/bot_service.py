@@ -866,6 +866,64 @@ async def post_group_panel_button(chat_id: int | str) -> tuple[bool, str]:
         return False, str(e)
 
 
+async def ensure_vazifalar_panel_pinned() -> None:
+    """
+    Support (Vazifalar / Boshqaruv) guruhiga Admin Panel tugmasini yuborib, pin qiladi —
+    ustoz shu yerdan bir tegishda panelga (Mini App) kira oladi.
+    Idempotent: agar tugma allaqachon o'sha guruhda pin qilingan bo'lsa, qayta yuborilmaydi (spam bo'lmaydi).
+    """
+    global bot
+    if not bot:
+        return
+    from services.memory_service import memory_service
+    from config import get_vazifalar_chat_target_sync
+
+    try:
+        chat_target = get_vazifalar_chat_target_sync()
+        s = str(chat_target).strip()
+        if not s or s.lower() in ("me", "self", "0", "8105823872", str(config.mentor_user_id)):
+            logger.info("Vazifalar guruhi aniqlanmadi — panel pin qilinmadi.")
+            return
+        cid = int(s) if (s.isdigit() or (s.startswith("-") and s[1:].isdigit())) else s
+
+        # 1. Allaqachon pin qilinganmi? (restartda takror yubormaslik uchun)
+        saved_id = memory_service.get_setting("vazifalar_panel_msg_id")
+        if saved_id and str(saved_id).isdigit():
+            try:
+                chat = await bot.get_chat(cid)
+                pinned = getattr(chat, "pinned_message", None)
+                if pinned and pinned.message_id == int(saved_id):
+                    logger.info("✅ Vazifalar guruhida Admin Panel tugmasi allaqachon pin qilingan (MsgID: %s).", saved_id)
+                    return
+            except Exception as chk_err:
+                logger.debug("Pin holatini tekshirishda ogohlantirish: %s", chk_err)
+
+        # 2. Yangi panel tugmasini yuborib pin qilish
+        kb = get_group_keyboard(config.mentor_user_id)
+        group_text = (
+            "🎛 <b>coddyHelper — Boshqaruv Paneli</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Ustoz (<b>@mentor_cc</b>), boshqaruv panelini (Mini App) shu yerdan oching 👇\n\n"
+            "🛡 <i>Faqat siz uchun. Boshqa a'zolar bossa, ularga ruxsat berilmaydi.</i>"
+        )
+        sent = await bot.send_message(chat_id=cid, text=group_text, reply_markup=kb, parse_mode="HTML")
+        try:
+            await bot.pin_chat_message(chat_id=cid, message_id=sent.message_id, disable_notification=True)
+        except Exception as pin_err:
+            logger.warning("Vazifalar guruhida panelni pin qilib bo'lmadi: %s", pin_err)
+        # Eski panel xabarini tozalash
+        old_id = memory_service.get_setting("vazifalar_panel_msg_id")
+        if old_id and str(old_id).isdigit() and int(old_id) != sent.message_id:
+            try:
+                await bot.delete_message(chat_id=cid, message_id=int(old_id))
+            except Exception:
+                pass
+        memory_service.set_setting("vazifalar_panel_msg_id", str(sent.message_id))
+        logger.info("📌 Vazifalar guruhiga Admin Panel tugmasi yuborildi va pin qilindi (MsgID: %d).", sent.message_id)
+    except Exception as e:
+        logger.warning("Vazifalar guruhiga panel tugmasini o'rnatishda ogohlantirish: %s", e)
+
+
 async def start_bot_service() -> None:
     global bot, dp, _polling_task
     if not config.bot_token:
@@ -897,7 +955,11 @@ async def start_bot_service() -> None:
     except Exception as e:
         logger.warning("Bot Menu Button sozlashda ogohlantirish: %s", e)
 
-    # Guruhga har restartda avtomatik xabar tashlash o'chirildi (Faqat /panel buyrug'ida yuboriladi)
+    # Support (Vazifalar) guruhiga Admin Panel tugmasini yuborib pin qilish (idempotent)
+    async def _pin_panel_after_start():
+        await asyncio.sleep(8)  # bot ulanishi to'liq tayyor bo'lishi uchun
+        await ensure_vazifalar_panel_pinned()
+    asyncio.create_task(_pin_panel_after_start())
 
     logger.info("🚀 Telegram Bot polling xizmati faollashdi.")
     await dp.start_polling(
