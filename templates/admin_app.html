@@ -1095,16 +1095,22 @@
   <!-- TOAST NOTIFICATION -->
   <div id="toast" class="toast">Xabar saqlandi</div>
 
+  <!-- BOOT OVERLAY: auth va rol aniqlangunicha ko'rinadi (admin kontenti mijozga chaqnab ketmasligi uchun) -->
+  <div id="boot-overlay" style="position: fixed; inset: 0; z-index: 9998; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg-color, #0e1621); gap: 14px;">
+    <div class="spinner" style="width: 34px; height: 34px;"></div>
+    <div style="font-size: 13px; color: var(--hint-color);">Yuklanmoqda...</div>
+  </div>
+
   <!-- THE APP SHELL -->
   <div id="app-shell">
 
     <!-- TOP HEADER -->
     <header class="header">
     <div class="profile-info">
-      <div class="avatar" id="header-avatar">TC</div>
+      <div class="avatar" id="header-avatar">··</div>
       <div class="user-details">
-        <h1 id="header-title">Teacher (@mentor_cc)</h1>
-        <p id="header-sub">ID: 8105823872 • Vazifalar Admin</p>
+        <h1 id="header-title">coddyHelper</h1>
+        <p id="header-sub">Yuklanmoqda...</p>
       </div>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
@@ -2619,11 +2625,11 @@
       <span class="nav-icon">🎛</span>
       <span>Boshqaruv</span>
     </button>
-    <button class="nav-item" id="nav-dossiers" onclick="switchTab('dossiers', this)">
+    <button class="nav-item" id="nav-dossiers" onclick="switchTab('dossiers', this)" style="display: none;">
       <span class="nav-icon">🕵️‍♂️</span>
       <span>Dosyeler</span>
     </button>
-    <button class="nav-item" id="nav-students" onclick="switchTab('students', this)">
+    <button class="nav-item" id="nav-students" onclick="switchTab('students', this)" style="display: none;">
       <span class="nav-icon">👨‍🎓</span>
       <span>O'quvchilar</span>
     </button>
@@ -2639,7 +2645,7 @@
       <span class="nav-icon">🧠</span>
       <span>Bilimlar</span>
     </button>
-    <button class="nav-item" id="nav-security" onclick="switchTab('security', this)">
+    <button class="nav-item" id="nav-security" onclick="switchTab('security', this)" style="display: none;">
       <span class="nav-icon">🛡</span>
       <span>Xavfsizlik</span>
     </button>
@@ -2854,7 +2860,13 @@
       }
     }
 
+    function hideBootOverlay() {
+      const b = document.getElementById("boot-overlay");
+      if (b) b.style.display = "none";
+    }
+
     function showLockScreen() {
+      hideBootOverlay();
       const ls = document.getElementById("lock-screen");
       if (ls) ls.style.display = "flex";
     }
@@ -3230,6 +3242,9 @@
       const aiMonitorCard = document.getElementById("ai-monitor-card");
       if (aiMonitorCard) aiMonitorCard.style.display = isSuper ? "" : "none";
       if (!isSuper) loadMyAgent();
+
+      // Rol aniqlandi va vizual qo'llandi — endi kontentni ko'rsatamiz (chaqnash tugadi)
+      hideBootOverlay();
 
       const personaSelect = document.getElementById("select-ai-persona");
       if (personaSelect) {
@@ -6741,6 +6756,8 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
 
     // Start authentication on page load
     initAuth();
+    // Zaxira: har qanday holatda ilova muzlab qolmasin
+    setTimeout(hideBootOverlay, 8000);
 
     // Boshqaruv (AI) sahifasi ochiq bo'lganda metrikalarni har 10 soniyada avtomatik yangilab turish
     setInterval(() => {

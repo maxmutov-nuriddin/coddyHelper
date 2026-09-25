@@ -187,3 +187,11 @@ Loyihani **barcha obunachilar uchun o'rnatiladigan** qilish:
 - **Bajarildi:** bot middleware'da tenant izolyatsiyasi (eslatma aralashishi va `/bekor` orqali mentor eslatmasini o'chirish tuzatildi, `res.text` bug), `/grant @username`, Telegram Stars obuna (env bilan), AI bilmasa egasiga xabar, ovozli javob, mijoz CRM ("Kim yozdi"), support "🔍 Agent" inspektori va server holati, sessiyalar limiti, README, `scripts/legacy/`, `.env.example`.
 - **Tekshirildi:** 42 test, JS sintaksisi, importlar, diff'da maxfiy ma'lumot yo'q.
 - **Qolgan (foydalanuvchi qarori/harakati):** A5 Mongo parolini almashtirish; E3 Stars narxi / Click-Payme; D3 to'liq profil razvedkasi mijozlar uchun; jonli sinov (§5).
+
+### Sessiya 4 — 2026-09-26
+- **So'rov:** (1) mijoz app'ni ochganda avval admin navbar/ma'lumotlari chaqnab, keyin o'zinikiga o'tishi; (2) profil razvedkasi aniqligini 40% dan ≥90% ga ko'tarish.
+- **Bajarildi:**
+  - **Navbar bug:** super-admin tablari (dosyeler, o'quvchilar, xavfsizlik) endi standart holatda yashirin; header neytral ("Yuklanmoqda..."); auth+rol aniqlangunicha butun kontentni yopib turuvchi **boot overlay** qo'shildi (8s zaxira timeout). Mijozga endi admin ko'rinishi umuman chaqnamaydi.
+  - **Profiler aniqligi:** signal yig'ish kuchaytirildi (40 shaxsiy + 30 guruh xabari, faqat shaxs o'z matnlari alohida; til aniqlash uz/ru/en); yosh regexi tuzatildi (noaniq 2-xonali "yil" olib tashlandi — endi faqat ochiq yosh e'loni, to'liq tug'ilgan yil yoki username-suffiks); rol belgilari KUCHLI/O'RTA/ZAIF darajali; AI endi **JSON + har maydon uchun ishonch foizi** qaytaradi va noaniqda "Aniq emas" deydi (taxmin qilmaydi); dosye kartasida 🟢/🟡/🔴 ishonch badge'lari va "N ta xabar asosida" izohi.
+- **Tekshirildi:** 42 test, JS, kompilyatsiya; parse/render birlik sinovi.
+- **Eslatma:** ishonch endi kalibrlangan — kam signalli shaxslar past foiz bilan "Aniq emas" deb belgilanadi (avval xato yuqori ishonch bilan chiqardi). Yuqori foizlar (🟢 80%+) faqat mustaqil signallar mos kelganda beriladi.

@@ -516,34 +516,54 @@ class ProfileIntelligenceService:
                         else:
                             channel_summary = f"Kanal havolasi: @{ch_tag} (Ma'lumot cheklangan)"
 
-            # 5. O'sha shaxs bilan bo'lgan so'nggi yozishmalardan (chatdan) chuqurroq kontekst olish
-            recent_user_messages = []
+            # 5. Xabarlarni to'plash: to'g'ridan-to'g'ri chat + guruh bazasi (birlashtirib, ko'proq namuna)
+            #    Aniqlik uchun signal soni muhim: faqat SHAXS o'zi yozgan matnlarni alohida yig'amiz.
+            recent_user_messages = []       # ko'rsatish uchun (Biz/U)
+            own_texts = []                   # faqat shaxsning o'z matnlari (til/rol/yosh tahlili uchun)
             try:
-                # To'g'ridan-to'g'ri o'sha foydalanuvchi bilan yozishma (12 tagacha xabar)
-                async for user_msg in client.iter_messages(entity, limit=12):
+                async for user_msg in client.iter_messages(entity, limit=40):
                     if user_msg and user_msg.text:
-                        r_side = "U" if not user_msg.out else "Biz"
-                        recent_user_messages.append(f"{r_side}: {user_msg.text[:220].replace(chr(10), ' ')}")
+                        clean = user_msg.text[:220].replace(chr(10), " ")
+                        if user_msg.out:
+                            recent_user_messages.append(f"Biz: {clean}")
+                        else:
+                            recent_user_messages.append(f"U: {clean}")
+                            own_texts.append(user_msg.text)
             except Exception:
                 pass
 
-            # Agar shaxsiy yozishma bo'lmasa, guruhlardagi yozishmalar bazasidan qidirish
-            if not recent_user_messages:
-                try:
-                    with memory_service._get_connection() as conn:
-                        cur = conn.cursor()
-                        cur.execute(
-                            "SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 10",
-                            (user_id,)
-                        )
-                        for r_role, r_content in cur.fetchall():
-                            if r_content:
-                                r_side = "U" if r_role == "user" else "Biz"
-                                recent_user_messages.append(f"{r_side}: {r_content[:220].replace(chr(10), ' ')}")
-                except Exception:
-                    pass
+            # Guruhlardagi yozishmalar bazasidan ham (shaxsiy chat kam bo'lsa qo'shimcha signal)
+            try:
+                with memory_service._get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 30",
+                        (user_id,)
+                    )
+                    for r_role, r_content in cur.fetchall():
+                        if r_content:
+                            if r_role == "user":
+                                own_texts.append(r_content)
+                                if len(recent_user_messages) < 45:
+                                    recent_user_messages.append(f"U: {r_content[:220].replace(chr(10), ' ')}")
+            except Exception:
+                pass
 
-            # 6. Biz bilan umumiy guruhlarini Telethon orqali aniqlash
+            own_msg_count = len(own_texts)
+            own_text_blob = " ".join(own_texts)
+
+            # 5.1 Til / shevani aniqlash (uz / ru / en)
+            langs = set()
+            low_blob = own_text_blob.lower()
+            if re.search(r"[а-яё]", low_blob):
+                langs.add("ruscha")
+            if re.search(r"[a-z]", low_blob) and re.search(r"\b(the|and|please|hello|thanks|how|what)\b", low_blob):
+                langs.add("inglizcha")
+            if re.search(r"[oʻgʻ]|['`]|\b(salom|rahmat|ustoz|yaxshi|qachon|kerak|bo'l|iltimos)\b", low_blob):
+                langs.add("o'zbekcha")
+            language_str = ", ".join(sorted(langs)) if langs else "Aniqlanmadi (yetarli matn yo'q)"
+
+            # 6. Biz bilan umumiy guruhlarini Telethon orqali aniqlash (kuchli signal manbai)
             common_chats = []
             try:
                 from telethon.tl.functions.messages import GetCommonChatsRequest
@@ -556,36 +576,47 @@ class ProfileIntelligenceService:
             except Exception as cc_err:
                 logger.debug("Common chats olishda ogohlantirish (%s): %s", user_id, cc_err)
 
-            # 7. Ijtimoiy rol ishoralari (Ota-onami? O'quvchimi? Mijoz / Tadbirkormi?)
+            # 7. Ijtimoiy rol ishoralari — har bir signalga aniq izoh (AI xolis baholashi uchun)
             role_clues = []
             common_chats_str = " ".join(common_chats).lower() if common_chats else ""
-            if any(kw in common_chats_str for kw in ["ota-ona", "ota ona", "parents", "parent", "majlis"]):
-                role_clues.append("Ota-onalar guruhida a'zo (Ota-ona ehtimoli juda yuqori)")
-            if any(kw in common_chats_str for kw in ["python", "backend", "frontend", "guruh", "dasturlash", "kurs", "it academy", "coddy", "student"]):
-                role_clues.append("Dasturlash o'quv kursi guruhida bor (O'quvchi/talaba bo'lishi mumkin)")
+            if any(kw in common_chats_str for kw in ["ota-ona", "ota ona", "parents", "parent", "majlis", "родител"]):
+                role_clues.append("KUCHLI: Ota-onalar guruhida a'zo")
+            if any(kw in common_chats_str for kw in ["python", "backend", "frontend", "dasturlash", "kurs", "it academy", "coddy", "student", "sinf", "guruh"]):
+                role_clues.append("O'RTA: Dasturlash/o'quv kursi guruhida a'zo")
 
-            all_msgs_text = " ".join(recent_user_messages).lower()
-            if any(kw in all_msgs_text for kw in ["o'g'lim", "qizim", "farzandim", "darsi qachon", "to'lov qildim", "to'lov"]):
-                role_clues.append("Yozishmalarda farzandi haqida so'ragan (Ota-ona)")
-            if any(kw in all_msgs_text for kw in ["uyga vazifa", "kodim", "xato chiqdi", "ustoz", "domla", "vazifa", "tushunmadim"]):
-                role_clues.append("Yozishmalarda dars/vazifa/kod so'ragan (O'quvchi)")
+            grade_match = re.search(r"\b(\d{1,2})[- ]?(sinf|klass|класс)\b", common_chats_str)
+            if grade_match:
+                role_clues.append(f"KUCHLI: '{grade_match.group(1)}-sinf' guruhida (maktab o'quvchisi)")
 
-            # 8. Yosh va shaxsiyatga doir avto-ishoralar (Username, ism va yozishmalardagi yillar/raqamlar)
+            low_own = own_text_blob.lower()
+            if any(kw in low_own for kw in ["o'g'lim", "og'lim", "qizim", "farzandim", "bolam", "farzandimni", "мой сын", "моя дочь"]):
+                role_clues.append("KUCHLI: O'z farzandi haqida gapirgan (Ota-ona)")
+            if any(kw in low_own for kw in ["to'lov qildim", "tolov qildim", "pul o'tkaz", "oplatil", "kvitansiya"]):
+                role_clues.append("O'RTA: To'lov haqida gapirgan (Ota-ona yoki mijoz)")
+            if any(kw in low_own for kw in ["uyga vazifa", "kodim", "xato chiqdi", "error", "vazifa", "tushunmadim", "domla", "ustoz", "dars", "kod ishlamayapti"]):
+                role_clues.append("O'RTA: Dars/vazifa/kod haqida so'ragan (O'quvchi)")
+            if any(kw in low_own for kw in ["narx", "buyurtma", "yetkazib", "sotib", "mahsulot", "xizmat", "zakaz", "dostavka"]):
+                role_clues.append("O'RTA: Xarid/xizmat haqida so'ragan (Mijoz)")
+
+            # 8. Yosh ishoralari — FAQAT ishonchli manbalar (xato "yil" topishning oldini olamiz)
             age_clues = []
-            check_text = f"{username} {full_name} {bio}".lower()
-            # 1970-2015 yoki 2 xonali yillar (95, 98, 02, 04 va h.k.)
-            year_matches = re.findall(r'(?:19[7-9]\d|20[0-1]\d|\b[0-9]{2}\b)', check_text)
-            for ym in year_matches:
-                if len(ym) == 4:
-                    y_int = int(ym)
-                    if 1970 <= y_int <= 2012:
-                        age_clues.append(f"Tug'ilgan yil taxmini: {y_int} (~{2026 - y_int} yosh)")
-                elif len(ym) == 2:
-                    y_int = int(ym)
-                    if 70 <= y_int <= 99:
-                        age_clues.append(f"Tug'ilgan yil ehtimoli: 19{ym} (~{2026 - (1900 + y_int)} yosh)")
-                    elif 0 <= y_int <= 12:
-                        age_clues.append(f"Tug'ilgan yil ehtimoli: 20{ym:02d} (~{2026 - (2000 + y_int)} yosh)")
+            now_year = 2026
+            # 8a. Ochiq yosh e'loni: "17 yosh", "мне 25", "25 yoshdaman"
+            for m in re.finditer(r"\b(\d{1,2})\s*(yosh|yoshda|yoshdaman|лет|года)\b", low_own):
+                a = int(m.group(1))
+                if 6 <= a <= 80:
+                    age_clues.append(f"KUCHLI: O'zi yoshini aytgan — {a} yosh")
+            # 8b. To'liq tug'ilgan yil (2000, 1998) — ism/username/bio ichida
+            id_text = f"{username} {full_name} {bio}".lower()
+            for ym in re.findall(r"(?:19[7-9]\d|20[01]\d)", id_text):
+                y = int(ym)
+                if 1970 <= y <= 2015:
+                    age_clues.append(f"O'RTA: Username/ismda tug'ilgan yil — {y} (~{now_year - y} yosh)")
+            # 8c. Username oxiridagi 2 xonali yil qo'shimchasi: ali_05, kamol07 (harfdan keyin kelsa)
+            um = re.search(r"[a-z](0[0-9]|1[0-5])\b", (username or "").lower())
+            if um:
+                yy = int(um.group(1))
+                age_clues.append(f"ZAIF: Username oxirida '{yy:02d}' — ehtimoliy 20{yy:02d} (~{now_year - (2000 + yy)} yosh)")
 
             return {
                 "user_id": user_id,
@@ -604,9 +635,11 @@ class ProfileIntelligenceService:
                 "channel_subscribers": channel_subscribers,
                 "channel_media_stats": channel_media_stats,
                 "common_chats": common_chats,
-                "role_clues": ", ".join(role_clues) if role_clues else "Guruh yoki yozishmada ochiq rol belgisi yo'q",
-                "age_clues": ", ".join(set(age_clues)) if age_clues else "Ism/username'da ochiq yil raqamlari topilmadi",
-                "recent_chat_context": " // ".join(recent_user_messages) if recent_user_messages else "Yozishmalar tarixi mavjud emas",
+                "own_msg_count": own_msg_count,
+                "language": language_str,
+                "role_clues": "; ".join(role_clues) if role_clues else "Ochiq rol belgisi topilmadi",
+                "age_clues": "; ".join(dict.fromkeys(age_clues)) if age_clues else "Ishonchli yosh belgisi topilmadi",
+                "recent_chat_context": " // ".join(recent_user_messages[:30]) if recent_user_messages else "Yozishmalar tarixi mavjud emas",
             }
         except Exception as e:
             logger.warning("Foydalanuvchi profilini o'qishda xatolik (%s): %s", user_id, e)
@@ -629,35 +662,45 @@ class ProfileIntelligenceService:
 
         common_chats_list = profile.get("common_chats", [])
         common_chats_str = ", ".join(common_chats_list) if common_chats_list else "Umumiy guruhlar aniqlanmadi"
-        role_clues_str = profile.get("role_clues") or "Guruh va yozishmalarda aniq rol belgisi yo'q"
+        role_clues_str = profile.get("role_clues") or "Aniq rol belgisi yo'q"
+        own_msg_count = profile.get("own_msg_count", 0)
 
         prompt = (
-            f"Telegram foydalanuvchisining ochiq profil ma'lumotlari:\n"
+            f"Telegram foydalanuvchisi haqida to'plangan ochiq signallar:\n"
             f"• Ismi: {profile.get('full_name')}\n"
             f"• Username: @{profile.get('username') or 'yoq'}\n"
             f"• Bio / Status: {profile.get('bio') or 'Kiritilmagan'}\n"
-            f"• Biz bilan umumiy guruhlari: {common_chats_str}\n"
-            f"• Ijtimoiy rol belgilari: {role_clues_str}\n"
-            f"• Profil rasmlari: {profile.get('photo_count', 0)} ta (Video avatar: {video_avatar_str})\n"
-            f"• Stories: {'Mavjud' if profile.get('has_stories') else 'Yoq'}\n"
-            f"• Bog'langan kanali: {profile.get('channel_username') or 'Yoq'}\n"
-            f"• Kanal ma'lumotlari (obunachilar, postlar, ovozli/video xabarlar): {profile.get('channel_summary') or 'Yoq'}\n"
-            f"• Raqam/yil ishoralari: {profile.get('age_clues') or 'Yoq'}\n"
-            f"• So'nggi yozishmalar konteksti: {profile.get('recent_chat_context') or 'Yozishmalar mavjud emas'}\n"
+            f"• Umumiy guruhlari: {common_chats_str}\n"
+            f"• Rol belgilari (KUCHLI/O'RTA/ZAIF darajali): {role_clues_str}\n"
+            f"• Yosh belgilari (KUCHLI/O'RTA/ZAIF): {profile.get('age_clues')}\n"
+            f"• Ishlatgan tili: {profile.get('language')}\n"
+            f"• Undan olingan xabarlar soni: {own_msg_count} ta\n"
+            f"• Bog'langan kanali: {profile.get('channel_username') or 'Yoq'} — {profile.get('channel_summary') or ''}\n"
+            f"• So'nggi yozishmalar: {profile.get('recent_chat_context') or 'Yozishmalar mavjud emas'}\n"
             f"{existing_info}\n"
-            "DIQQAT QOIDASI: Ushbu shaxs kimligini aniqlashda juda xolis bo'ling:\n"
-            "1. 🎯 IJTIMOIY ROL: O'quvchimi? Ota-onami? Mijoz yoki tadbirkormi?\n"
-            "   - Agar 'Ota-onalar guruhi'da bo'lsa yoki farzandi haqida so'rasa -> 'Ota-ona'.\n"
-            "   - Agar dars, kod yoki vazifa haqida so'rasa, dasturlash kursi guruhida bo'lsa -> 'O'quvchi'.\n"
-            "   - Aks holda -> 'Mijoz / Tadbirkor / Tashqi a'zo'.\n"
-            "2. 🔍 YOSH TAXMINI VA KASBI: Ism/username'dagi yillar, umumiy guruhlari, yozishmadagi so'z boyligi, murojaat shakli va rolidan kelib chiqib aniq yosh oraliq bering (masalan: 14-17 yosh maktab o'quvchisi, 19-23 yosh talaba, 35-50 yosh ota-ona/mutaxassis). Haqiqiy kasbi nima?\n"
-            "3. 💡 MULOQOT USLUBI VA YONDASHUV: U bilan qanday ohangda muloqot qilish ma'qul (hurmatli/rasmiy, samimiy do'stona, qisqa va lo'nda, yoki ustozlik yo'nalishi)?\n\n"
-            "VAZIFA: Ushbu 3 ta band bo'yicha aniq, lo'nda va professional kognitiv xulosa yozing."
+            "VAZIFA: Faqat yuqoridagi signallarga tayanib, shaxsni baholang. QAT'IY QOIDALAR:\n"
+            "1. TAXMIN QILMANG. Agar signal yetarli bo'lmasa, qiymatni \"Aniq emas\" deb qo'ying va ishonchni past bering.\n"
+            "2. Har bir maydonga 0-100 ishonch foizi bering. Ishonch faqat MUSTAQIL signallar bir-birini tasdiqlaganda yuqori bo'ladi:\n"
+            "   - KUCHLI belgi yoki 2+ signal mos kelsa: 80-95.\n"
+            "   - Bitta O'RTA belgi: 55-70. Faqat ZAIF belgi yoki umumiy taxmin: 20-45.\n"
+            "   - Hech qanday to'g'ridan-to'g'ri signal yo'q (masalan xabar 0 ta): 10-30 va \"Aniq emas\".\n"
+            "3. Yoshni faqat KUCHLI/O'RTA yosh belgisi bo'lsa aniq bering; aks holda rol va leksikadan keng oraliq (masalan 25-45) va past ishonch.\n"
+            "FAQAT quyidagi JSON'ni qaytaring (boshqa matnsiz):\n"
+            "{\n"
+            '  "role": "Oquvchi | Ota-ona | Mijoz/Tadbirkor | Hamkasb/Ustoz | Aniq emas",\n'
+            '  "role_confidence": 0-100,\n'
+            '  "age_range": "masalan 14-17 yoki Aniq emas",\n'
+            '  "age_confidence": 0-100,\n'
+            '  "profession": "kasbi yoki Aniq emas",\n'
+            '  "communication_style": "u bilan qanday ohangda gaplashish (1 jumla)",\n'
+            '  "summary": "2-3 jumlalik xolis xulosa; qaror signallar bilan asoslansin",\n'
+            '  "overall_confidence": 0-100\n'
+            "}"
         )
 
+        raw = ""
+        pool = ai_service._frontline_clients if ai_service._frontline_clients else ai_service._groq_clients
         try:
-            # Miya 5 yoki Mavjud Asosiy Miya orqali xulosa olish
-            pool = ai_service._frontline_clients if ai_service._frontline_clients else ai_service._groq_clients
             if pool:
                 client = pool[0]
                 res = await client.chat.completions.create(
@@ -666,27 +709,101 @@ class ProfileIntelligenceService:
                         {
                             "role": "system",
                             "content": (
-                                "Siz professional Telegram Razvedka va Kognitiv Shaxs Tahlilchisisiz. "
-                                "Shablonlardan mutlaqo qoching. Har bir shaxsning umumiy guruhlari, yozishmalari, kanali, "
-                                "leksikasi va profiliga qarab, uning ijtimoiy roli (ota-onami, o'quvchimi yoki mijozmi), "
-                                "taxminiy yoshi, haqiqiy kasbi va xarakterini maksimal darajada to'g'ri va xolis aniqlang."
+                                "Siz aniq va xolis Kognitiv Shaxs Tahlilchisiz. Faqat berilgan signallarga tayanasiz, "
+                                "hech narsani to'qib chiqarmaysiz. Dalil kam bo'lsa — buni ochiq tan olib, past ishonch va "
+                                "\"Aniq emas\" qaytarasiz. Faqat valid JSON qaytarasiz."
                             )
                         },
                         {"role": "user", "content": prompt},
                     ],
-                    temperature=0.3,
-                    max_tokens=500,
+                    temperature=0.2,
+                    max_tokens=700,
+                    response_format={"type": "json_object"},
                 )
-                return res.choices[0].message.content.strip()
+                raw = (res.choices[0].message.content or "").strip()
         except Exception as ai_err:
-            logger.warning("Dosye sintezida xatolik: %s", ai_err)
+            logger.warning("Dosye sintezida (JSON) xatolik: %s", ai_err)
+            # response_format qo'llab-quvvatlanmasa, oddiy rejimda qayta urinish
+            try:
+                if pool:
+                    res = await pool[0].chat.completions.create(
+                        model=config.groq_model or "openai/gpt-oss-120b",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.2,
+                        max_tokens=700,
+                    )
+                    raw = (res.choices[0].message.content or "").strip()
+            except Exception as ai_err2:
+                logger.warning("Dosye sintezida (fallback) xatolik: %s", ai_err2)
 
-        # Fallback xulosa
+        parsed = self._parse_dossier_json(raw)
+        if parsed:
+            return self._render_dossier_analysis(parsed, own_msg_count)
+
+        if raw:
+            return raw
         return (
             f"Telegram profili tahlili: {profile.get('full_name')}. "
-            f"Bio: {profile.get('bio') or 'Mavjud emas'}. "
-            f"Tavsiya: Standart muloyimlik va uning sohasiga mos aniq yondashuv bilan muloqot qiling."
+            f"Bio: {profile.get('bio') or 'Mavjud emas'}. Signal kam — ishonch past. "
+            f"Tavsiya: standart muloyimlik bilan muloqot qiling."
         )
+
+    @staticmethod
+    def _parse_dossier_json(raw: str) -> dict | None:
+        """AI qaytargan matndan JSON obyektni ajratib oladi (kod bloklari va ortiqcha matndan tozalab)."""
+        if not raw:
+            return None
+        import json
+        text = raw.strip()
+        if "```" in text:
+            m = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+            if m:
+                text = m.group(1).strip()
+        if not text.startswith("{"):
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                text = text[start:end + 1]
+        try:
+            data = json.loads(text)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _conf_badge(pct: int) -> str:
+        """Ishonch foizini vizual belgiga aylantiradi."""
+        try:
+            p = int(pct)
+        except (TypeError, ValueError):
+            p = 0
+        if p >= 80:
+            return f"🟢 {p}% (yuqori)"
+        if p >= 55:
+            return f"🟡 {p}% (o'rta)"
+        return f"🔴 {p}% (past — ehtiyot bo'ling)"
+
+    def _render_dossier_analysis(self, d: dict, own_msg_count: int) -> str:
+        """Parslangan JSON tahlildan ishonch foizli, o'qishga qulay xulosa yasaydi."""
+        role = str(d.get("role") or "Aniq emas").strip()
+        age = str(d.get("age_range") or "Aniq emas").strip()
+        prof = str(d.get("profession") or "Aniq emas").strip()
+        style = str(d.get("communication_style") or "Standart hurmatli muloqot").strip()
+        summary = str(d.get("summary") or "").strip()
+        overall = d.get("overall_confidence", d.get("role_confidence", 0))
+
+        lines = [
+            f"🎯 **Ijtimoiy rol:** {role} — {self._conf_badge(d.get('role_confidence', 0))}",
+            f"🎂 **Yosh oralig'i:** {age} — {self._conf_badge(d.get('age_confidence', 0))}",
+            f"💼 **Kasbi/faoliyati:** {prof}",
+            f"💬 **Tavsiya etilgan muloqot:** {style}",
+        ]
+        if summary:
+            lines.append(f"\n📌 {summary}")
+        lines.append(f"\n📊 **Umumiy ishonch:** {self._conf_badge(overall)} · (tahlil {own_msg_count} ta xabar asosida)")
+        if own_msg_count == 0:
+            lines.append("⚠️ _Bu shaxsdan hech qanday xabar topilmadi — xulosa faqat profil/guruhlarga asoslangan, ishonch past._")
+        return "\n".join(lines)
 
     def _format_full_dossier_card(self, profile: dict[str, Any], ai_summary: str, is_recheck: bool = False) -> str:
         """Mentor va Vazifalar guruhi uchun to'liq chiroyli dosye kartasini formatlaydi."""
