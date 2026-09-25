@@ -1,9 +1,10 @@
 """
 Telegram Bot xizmati (aiogram 3)
-Faqat tizim administratori (@mentor_cc / ID: 8105823872) uchun:
-- Guruhga Mini App Admin Panel tugmasini chiqarish va qadash (Pin)
-- Lichkada WebApp Menu Button va Inline Button taqdim etish
-- Begona foydalanuvchilar urinishlarini to'liq bloklash
+Multi-User Obuna Tizimi:
+- Super Admin (@mentor_cc) — to'liq boshqaruv, /grant, /revoke, /clients
+- Obunali mijozlar — o'z guruhida shaxsiy AI yordamchi
+- Ruxsatsiz foydalanuvchilar — bloklash
+- Avtomatik guruh onboarding (ChatMemberUpdated)
 """
 
 import asyncio
@@ -12,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
+from aiogram.filters import Command, ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER
 from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
@@ -32,37 +33,55 @@ _polling_task: asyncio.Task | None = None
 
 
 def is_admin(user_id: int | None) -> bool:
-    """Faqat belgilangan mentor ID si ruxsat etilganini tekshiradi."""
+    """Faqat belgilangan mentor ID si ruxsat etilganini tekshiradi (Super Admin)."""
     if not user_id:
         return False
     return user_id == config.mentor_user_id or user_id == 8105823872
+
+
+def is_authorized_user(user_id: int | None) -> bool:
+    """Super Admin YOKI faol obunali foydalanuvchini tekshiradi."""
+    if not user_id:
+        return False
+    if is_admin(user_id):
+        return True
+    try:
+        from services.memory_service import memory_service
+        return memory_service.is_subscription_active(user_id)
+    except Exception:
+        return False
 
 
 def get_private_keyboard(user_id: int) -> InlineKeyboardMarkup:
     """Lichka uchun WebApp ochuvchi tugmalar to'plami."""
     token = MASTER_ADMIN_TOKEN if is_admin(user_id) else generate_admin_token(user_id=user_id)
     app_url = f"{config.web_app_url}/app?token={token}"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📱 Admin Panelni Ochish (Mini App)",
-                    web_app=WebAppInfo(url=app_url),
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="💾 Baza Zaxirasini Yangilash (Backup)",
-                    callback_data="refresh_backup",
-                )
-            ],
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text="📱 Admin Panelni Ochish (Mini App)",
+                web_app=WebAppInfo(url=app_url),
+            )
         ]
-    )
+    ]
+    if is_admin(user_id):
+        buttons.append([
+            InlineKeyboardButton(
+                text="💾 Baza Zaxirasini Yangilash (Backup)",
+                callback_data="refresh_backup",
+            )
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_group_keyboard(user_id: int = 0) -> InlineKeyboardMarkup:
     """Guruh uchun tugmalar to'plami (Faqat Mini App ochish tugmasi)."""
-    token = MASTER_ADMIN_TOKEN
+    if is_admin(user_id):
+        token = MASTER_ADMIN_TOKEN
+    elif user_id:
+        token = generate_admin_token(user_id=user_id)
+    else:
+        token = MASTER_ADMIN_TOKEN
     app_url = f"{config.web_app_url}/app?token={token}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -72,40 +91,56 @@ def get_group_keyboard(user_id: int = 0) -> InlineKeyboardMarkup:
                     url=app_url,
                 )
             ],
-        ]
+        ],
     )
 
 
 async def setup_bot_handlers(d: Dispatcher) -> None:
-    """Bot handlerlarini ro'yxatga oladi va qat'iy admin tekshiruvini o'rnatadi."""
+    """Bot handlerlarini ro'yxatga oladi va multi-user ruxsat tizimini o'rnatadi."""
 
     @d.message.outer_middleware
-    async def admin_only_middleware(handler, event: types.Message, data):
+    async def access_control_middleware(handler, event: types.Message, data):
+        """Super Admin va obunali mijozlarni qo'yib beruvchi middleware."""
         sender = event.from_user
         sender_id = sender.id if sender else None
 
-        if not is_admin(sender_id):
-            if event.chat.type == "private":
-                try:
-                    await event.bot.set_chat_menu_button(
-                        chat_id=sender_id,
-                        menu_button=MenuButtonDefault(),
-                    )
-                except Exception:
-                    pass
-                await event.answer("Sizga ruxsat berilmagan.")
-            return
+        # /start buyrug'ini DOIM qo'yib berish (obuna tekshiruvi handler ichida)
+        text = (event.text or "").strip().lower()
+        if text.startswith("/start"):
+            return await handler(event, data)
 
-        return await handler(event, data)
+        # Super Admin — to'liq dostup
+        if is_admin(sender_id):
+            return await handler(event, data)
+
+        # Obunali foydalanuvchi — faqat lichka va o'z guruhida ruxsat
+        if is_authorized_user(sender_id):
+            return await handler(event, data)
+
+        # Ruxsatsiz foydalanuvchi
+        if event.chat.type == "private":
+            try:
+                await event.bot.set_chat_menu_button(
+                    chat_id=sender_id,
+                    menu_button=MenuButtonDefault(),
+                )
+            except Exception:
+                pass
+            await event.answer(
+                "⛔ Sizga hali ruxsat berilmagan.\n\n"
+                "Obuna olish uchun Super Admin (@mentor_cc) ga murojaat qiling."
+            )
+        return
 
     @d.callback_query.outer_middleware
-    async def admin_callback_middleware(handler, event: types.CallbackQuery, data):
+    async def access_callback_middleware(handler, event: types.CallbackQuery, data):
+        """Callback-lar uchun multi-user ruxsat tekshiruvi."""
         sender = event.from_user
         sender_id = sender.id if sender else None
 
-        if not is_admin(sender_id):
+        if not is_authorized_user(sender_id):
             await event.answer(
-                "Sizga ruxsat berilmagan.",
+                "⛔ Sizga ruxsat berilmagan. Obuna uchun @mentor_cc ga murojaat qiling.",
                 show_alert=True,
             )
             return
@@ -114,45 +149,125 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
 
     @d.message(F.chat.type == "private", Command(commands=["start", "panel", "app", "admin", "menu"]))
     async def cmd_start_private(message: types.Message):
+        """Lichkada /start — Super Admin, Obunachi va Ruxsatsiz uchun turli xabarlar."""
+        from services.memory_service import memory_service
         user_id = message.from_user.id
-        kb = get_private_keyboard(user_id)
 
+        # ——— 1. SUPER ADMIN ———
+        if is_admin(user_id):
+            kb = get_private_keyboard(user_id)
+            try:
+                token = MASTER_ADMIN_TOKEN
+                app_url = f"{config.web_app_url}/app?token={token}"
+                await message.bot.set_chat_menu_button(
+                    chat_id=user_id,
+                    menu_button=MenuButtonWebApp(
+                        text="📱 Admin Panel",
+                        web_app=WebAppInfo(url=app_url),
+                    ),
+                )
+            except Exception as mb_err:
+                logger.warning("Menu buttonni sozlashda ogohlantirish: %s", mb_err)
+
+            await message.answer(
+                "👋 **Assalomu alaykum, Ustoz (@mentor_cc)!**\n\n"
+                "coddyHelper tizimining shaxsiy boshqaruv botiga xush kelibsiz.\n\n"
+                "Quyidagi tugma orqali to'g'ridan-to'g'ri **Telegram Mini App** boshqaruv panelini ochishingiz mumkin:\n"
+                "• Lichka va Guruhlar avto-javobini boshqarish\n"
+                "• Eslatmalarni (xx xx xxxx sanali) ko'rish va sozlash\n"
+                "• Senior AI bilan maslahatlashish\n"
+                "• SQLite ma'lumotlar bazasini yuklab olish\n\n"
+                "🔧 **Super Admin buyruqlari:**\n"
+                "• `/grant <user_id> <kun> [biznes nomi]` — Mijozga dostup ochish\n"
+                "• `/revoke <user_id>` — Dostupni yopish\n"
+                "• `/clients` — Barcha mijozlar ro'yxati\n\n"
+                "Pastdagi tugmani bosing 👇",
+                reply_markup=kb,
+            )
+            return
+
+        # ——— 2. OBUNALI FOYDALANUVCHI ———
+        sub = memory_service.get_subscription(user_id)
+        if sub and sub.get("active") and not sub.get("is_expired"):
+            # Menu button sozlash
+            try:
+                token = generate_admin_token(user_id=user_id)
+                app_url = f"{config.web_app_url}/app?token={token}"
+                await message.bot.set_chat_menu_button(
+                    chat_id=user_id,
+                    menu_button=MenuButtonWebApp(
+                        text="📱 Boshqaruv",
+                        web_app=WebAppInfo(url=app_url),
+                    ),
+                )
+            except Exception as mb_err:
+                logger.warning("Menu buttonni sozlashda ogohlantirish: %s", mb_err)
+
+            biz_name = sub.get("business_name") or "Mening Boshqaruvim"
+            expires = sub.get("expires_at", "—")
+            group_id = sub.get("group_id") or 0
+
+            if group_id:
+                # Guruhi allaqachon ulangan
+                kb = get_private_keyboard(user_id)
+                await message.answer(
+                    f"👋 **Assalomu alaykum, {biz_name}!**\n\n"
+                    f"✅ Obunangiz **{expires}** gacha faol.\n"
+                    f"📌 Shaxsiy guruhingiz ulangan (ID: `{group_id}`).\n\n"
+                    "Boshqaruv panelini ochish uchun quyidagi tugmani bosing 👇",
+                    reply_markup=kb,
+                )
+            else:
+                # Guruhi hali ulanmagan — ko'rsatma berish
+                await message.answer(
+                    f"👋 **Assalomu alaykum, {biz_name}!**\n\n"
+                    f"✅ Profilingiz faollashtirildi! Obunangiz **{expires}** gacha.\n\n"
+                    "📋 **Keyingi qadam:**\n"
+                    "1️⃣ Telegram'da o'zingiz uchun yangi **yopiq guruh** oching\n"
+                    "2️⃣ Meni o'sha guruhga **admin sifatida** qo'shing\n"
+                    "3️⃣ Men avtomatik ravishda guruhni biriktirib, "
+                    "**🎛 Shaxsiy Admin Panel** tugmasini qadab qo'yaman!\n\n"
+                    "💡 _Guruhda bot barcha xabarlarni AI bilan tahlil qiladi "
+                    "va o'z sohasidagi yordamchingiz sifatida ishlaydi._",
+                )
+            return
+
+        # ——— 3. RUXSATSIZ FOYDALANUVCHI ———
         try:
-            token = MASTER_ADMIN_TOKEN if is_admin(user_id) else generate_admin_token(user_id=user_id)
-            app_url = f"{config.web_app_url}/app?token={token}"
             await message.bot.set_chat_menu_button(
                 chat_id=user_id,
-                menu_button=MenuButtonWebApp(
-                    text="📱 Admin Panel",
-                    web_app=WebAppInfo(url=app_url),
-                ),
+                menu_button=MenuButtonDefault(),
             )
-        except Exception as mb_err:
-            logger.warning("Menu buttonni sozlashda ogohlantirish: %s", mb_err)
+        except Exception:
+            pass
 
         await message.answer(
-            "👋 **Assalomu alaykum, Ustoz (@mentor_cc)!**\n\n"
-            "coddyHelper tizimining shaxsiy boshqaruv botiga xush kelibsiz.\n\n"
-            "Quyidagi tugma orqali to'g'ridan-to'g'ri **Telegram Mini App** boshqaruv panelini ochishingiz mumkin:\n"
-            "• Lichka va Guruhlar avto-javobini boshqarish\n"
-            "• Eslatmalarni (xx xx xxxx sanali) ko'rish va sozlash\n"
-            "• Senior AI bilan maslahatlashish\n"
-            "• SQLite ma'lumotlar bazasini yuklab olish\n\n"
-            "Pastdagi tugmani bosing 👇",
-            reply_markup=kb,
+            "⛔ **Kechirasiz, sizda hali faol obuna yo'q.**\n\n"
+            "Shaxsiy AI yordamchi olish uchun Super Admin bilan bog'laning:\n"
+            "👉 @mentor_cc\n\n"
+            "Obuna olganingizdan so'ng, /start ni qaytadan bosing.",
         )
 
     @d.message(F.chat.type.in_(["group", "supergroup"]), Command(commands=["panel", "button", "pin_button", "app", "admin"]))
     async def cmd_group_panel(message: types.Message):
+        """Guruhda /panel — foydalanuvchiga mos Mini App tugma chiqarish."""
+        from services.memory_service import memory_service
         user_id = message.from_user.id
         kb = get_group_keyboard(user_id)
+
+        # Foydalanuvchiga mos matn
+        if is_admin(user_id):
+            owner_name = "Ustoz (<b>@mentor_cc</b>)"
+        else:
+            sub = memory_service.get_subscription(user_id)
+            owner_name = f"<b>{sub.get('business_name', 'Foydalanuvchi')}</b>" if sub else "Foydalanuvchi"
 
         group_text = (
             "🎛 <b>coddyHelper — Boshqaruv Paneli (Mini App)</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "Assalomu alaykum, Ustoz (<b>@mentor_cc</b>)!\n\n"
+            f"Assalomu alaykum, {owner_name}!\n\n"
             "Guruhdan turib botni boshqarish uchun pastdagi tugmani bosing:\n\n"
-            "🛡 <i>Xavfsizlik: Faqat mentor (<b>@mentor_cc</b>) uchun ruxsat etilgan.</i>"
+            "🛡 <i>Xavfsizlik: Faqat ruxsat etilgan foydalanuvchilar uchun.</i>"
         )
 
         sent = await message.answer(group_text, reply_markup=kb, parse_mode="HTML")
@@ -166,8 +281,218 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         except Exception as pin_err:
             logger.warning("Xabarni pin qilib bo'lmadi: %s", pin_err)
 
+    # =========================================================================
+    # Super Admin buyruqlari: /grant, /revoke, /clients
+    # =========================================================================
+
+    @d.message(F.chat.type == "private", Command(commands=["grant"]))
+    async def cmd_grant(message: types.Message):
+        """/grant <user_id> <kun> [biznes nomi] — Yangi mijozga obuna ochish."""
+        if not is_admin(message.from_user.id):
+            await message.answer("⛔ Bu buyruq faqat Super Admin uchun.")
+            return
+
+        from services.memory_service import memory_service
+        args = (message.text or "").split(maxsplit=3)
+        # /grant <user_id_yoki_@username> <kunlar> [biznes_nomi]
+        if len(args) < 3:
+            await message.answer(
+                "ℹ️ **Foydalanish:**\n"
+                "`/grant <user_id> <kun> [biznes nomi]`\n\n"
+                "**Misollar:**\n"
+                "• `/grant 123456789 30 Akmal Mebel`\n"
+                "• `/grant @akmal_ceo 90 Akmal IT Solutions`"
+            )
+            return
+
+        target = args[1].strip().lstrip("@")
+        try:
+            days = int(args[2])
+        except ValueError:
+            await message.answer("❌ Kunlar soni raqam bo'lishi kerak. Masalan: `/grant 123456789 30`")
+            return
+
+        business_name = args[3].strip() if len(args) > 3 else ""
+
+        # Agar user_id raqam bo'lmasa, faqat username sifatida saqlash
+        try:
+            target_user_id = int(target)
+        except ValueError:
+            # Username berilgan — hozircha raqamli ID kerak
+            await message.answer(
+                "⚠️ Hozircha faqat **raqamli Telegram ID** qabul qilinadi.\n\n"
+                "Foydalanuvchidan ID sini so'rang (u @userinfobot ga murojaat qilsin)."
+            )
+            return
+
+        sub = memory_service.upsert_subscription(
+            user_id=target_user_id,
+            username=target if not target.isdigit() else "",
+            days=days,
+            business_name=business_name,
+        )
+
+        if sub:
+            await message.answer(
+                f"✅ **Obuna muvaffaqiyatli ochildi!**\n\n"
+                f"👤 **User ID:** `{target_user_id}`\n"
+                f"🏢 **Biznes:** {sub.get('business_name', '—')}\n"
+                f"📅 **Muddat:** {days} kun ({sub.get('expires_at', '—')} gacha)\n"
+                f"📌 **Guruh:** {'Ulangan ✅' if sub.get('group_id') else 'Hali ulanmagan ⏳'}\n\n"
+                f"Foydalanuvchi endi @coddyassistanstbot ga kirib /start bosishi kerak.",
+            )
+        else:
+            await message.answer("❌ Obuna ochishda xatolik yuz berdi.")
+
+    @d.message(F.chat.type == "private", Command(commands=["revoke"]))
+    async def cmd_revoke(message: types.Message):
+        """/revoke <user_id> — Mijoz obunasini to'xtatish."""
+        if not is_admin(message.from_user.id):
+            await message.answer("⛔ Bu buyruq faqat Super Admin uchun.")
+            return
+
+        from services.memory_service import memory_service
+        args = (message.text or "").split()
+        if len(args) < 2:
+            await message.answer("ℹ️ **Foydalanish:** `/revoke <user_id>`\n\nMasalan: `/revoke 123456789`")
+            return
+
+        try:
+            target_id = int(args[1])
+        except ValueError:
+            await message.answer("❌ User ID raqam bo'lishi kerak.")
+            return
+
+        ok = memory_service.revoke_subscription(target_id)
+        if ok:
+            await message.answer(f"✅ **User `{target_id}` obunasi to'xtatildi.**")
+        else:
+            await message.answer(f"❌ User `{target_id}` obunasini to'xtatishda xatolik.")
+
+    @d.message(F.chat.type == "private", Command(commands=["clients", "mijozlar"]))
+    async def cmd_clients(message: types.Message):
+        """/clients — Barcha obunali mijozlar ro'yxati."""
+        if not is_admin(message.from_user.id):
+            await message.answer("⛔ Bu buyruq faqat Super Admin uchun.")
+            return
+
+        from services.memory_service import memory_service
+        subs = memory_service.get_all_subscriptions()
+        if not subs:
+            await message.answer("ℹ️ Hozircha hech qanday mijoz obunasi yo'q.\n\nYangi qo'shish: `/grant <user_id> <kun> [biznes nomi]`")
+            return
+
+        lines = ["📋 **Barcha Mijozlar:**\n"]
+        for i, s in enumerate(subs, 1):
+            status = "✅ Faol" if s.get("active") else "❌ To'xtatilgan"
+            username = f"@{s['username']}" if s.get("username") else "—"
+            group = f"✅ `{s['group_id']}`" if s.get("group_id") else "⏳ Ulanmagan"
+            lines.append(
+                f"**{i}.** `{s['user_id']}` ({username})\n"
+                f"   🏢 {s.get('business_name', '—')} | {status}\n"
+                f"   📅 {s.get('expires_at', '—')} gacha | Guruh: {group}"
+            )
+        lines.append(f"\n**Jami:** {len(subs)} ta mijoz")
+        await message.answer("\n".join(lines))
+
+    # =========================================================================
+    # ChatMemberUpdated — Bot guruhga qo'shilganda avtomatik onboarding
+    # =========================================================================
+
+    @d.my_chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
+    async def on_bot_added_to_group(event: types.ChatMemberUpdated):
+        """Bot yangi guruhga qo'shilganda — avtomatik ulash va Mini App pin qilish."""
+        from services.memory_service import memory_service
+
+        # Faqat guruh/superguruhda ishlaydi
+        if event.chat.type not in ("group", "supergroup"):
+            return
+
+        # Kim qo'shganini aniqlash
+        adder = event.from_user
+        adder_id = adder.id if adder else None
+        group_id = event.chat.id
+        group_title = event.chat.title or "Nomsiz guruh"
+
+        logger.info("Bot guruhga qo'shildi: chat=%s (%s), qo'shgan=%s", group_id, group_title, adder_id)
+
+        # 1. Super Admin qo'shgan — doim ruxsat
+        if is_admin(adder_id):
+            # Super Admin uchun alohida — uni ham link qilish (agar hali yo'q bo'lsa)
+            # lekin asosiy escalation_chat uchun emas
+            if str(group_id) not in (str(config.escalation_chat), "-1005388159517", "-5388159517"):
+                memory_service.link_user_group(adder_id, group_id)
+
+            kb = get_group_keyboard(adder_id)
+            group_text = (
+                "🎛 <b>coddyHelper — Boshqaruv Paneli (Mini App)</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"Assalomu alaykum, Ustoz (<b>@mentor_cc</b>)!\n\n"
+                "Guruhdan turib botni boshqarish uchun pastdagi tugmani bosing:\n\n"
+                "🛡 <i>Xavfsizlik: Faqat ruxsat etilgan foydalanuvchilar uchun.</i>"
+            )
+            try:
+                sent = await event.bot.send_message(
+                    chat_id=group_id, text=group_text, reply_markup=kb, parse_mode="HTML"
+                )
+                await event.bot.pin_chat_message(
+                    chat_id=group_id, message_id=sent.message_id, disable_notification=True
+                )
+                logger.info("Super Admin guruhi uchun Mini App pin qilindi: %s", group_id)
+            except Exception as e:
+                logger.warning("Guruhga xabar yuborishda xatolik: %s", e)
+            return
+
+        # 2. Obunali foydalanuvchi qo'shgan — tekshirish va ulash
+        if is_authorized_user(adder_id):
+            sub = memory_service.get_subscription(adder_id)
+            if sub and sub.get("active") and not sub.get("is_expired"):
+                # Guruhni foydalanuvchiga biriktirish
+                memory_service.link_user_group(adder_id, group_id)
+                biz_name = sub.get("business_name") or "Mening Boshqaruvim"
+
+                kb = get_group_keyboard(adder_id)
+                welcome_text = (
+                    f"🎛 <b>{biz_name} — Shaxsiy Boshqaruv Paneli</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"✅ Guruh muvaffaqiyatli ulandi!\n\n"
+                    "Botni boshqarish uchun pastdagi tugmani bosing:\n\n"
+                    "💡 <i>Bu guruhda bot barcha xabarlarni AI yordamida tahlil qiladi.</i>"
+                )
+                try:
+                    sent = await event.bot.send_message(
+                        chat_id=group_id, text=welcome_text, reply_markup=kb, parse_mode="HTML"
+                    )
+                    await event.bot.pin_chat_message(
+                        chat_id=group_id, message_id=sent.message_id, disable_notification=True
+                    )
+                    logger.info("Mijoz guruhi ulandi va Mini App pin qilindi: user=%s, group=%s", adder_id, group_id)
+                except Exception as e:
+                    logger.warning("Mijoz guruhiga xabar yuborishda xatolik: %s", e)
+                return
+
+        # 3. Ruxsatsiz foydalanuvchi — ogohlantirish va chiqib ketish
+        try:
+            await event.bot.send_message(
+                chat_id=group_id,
+                text=(
+                    "⛔ <b>Kechirasiz, sizda botdan foydalanish uchun ruxsat yo'q.</b>\n\n"
+                    "Obuna olish uchun @mentor_cc ga murojaat qiling.\n\n"
+                    "<i>Bot guruhdan chiqmoqda...</i>"
+                ),
+                parse_mode="HTML",
+            )
+            await event.bot.leave_chat(group_id)
+            logger.info("Ruxsatsiz foydalanuvchi guruhi tark etildi: user=%s, group=%s", adder_id, group_id)
+        except Exception as e:
+            logger.warning("Ruxsatsiz guruhdan chiqishda xatolik: %s", e)
+
     @d.callback_query(F.data == "post_group_button")
     async def on_post_group_button(call: types.CallbackQuery):
+        if not is_admin(call.from_user.id):
+            await call.answer("⛔ Bu amal faqat Super Admin uchun.", show_alert=True)
+            return
+
         target_chat = config.escalation_chat
         if not target_chat or target_chat == "me":
             await call.answer("⚠️ ESCALATION_CHAT guruhi belgilanmagan!", show_alert=True)
@@ -185,6 +510,10 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
     # 6. Callback Query: "💾 Baza Zaxirasini Yangilash (Backup)"
     @d.callback_query(F.data == "refresh_backup")
     async def on_refresh_backup(call: types.CallbackQuery):
+        if not is_admin(call.from_user.id):
+            await call.answer("⛔ Bu amal faqat Super Admin uchun.", show_alert=True)
+            return
+
         await call.answer("⏳ Zaxira yangilanmoqda...")
         ok, err = await send_or_update_database_backup()
         if ok:
@@ -195,6 +524,10 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
     # 7. Lichka: /backup buyrug'i
     @d.message(F.chat.type == "private", Command(commands=["backup", "db", "baza"]))
     async def cmd_backup_private(message: types.Message):
+        if not is_admin(message.from_user.id):
+            await message.answer("⛔ Bu buyruq faqat Super Admin uchun.")
+            return
+
         await message.answer("⏳ **Baza zaxiralanmoqda va yangilanmoqda...**")
         ok, err = await send_or_update_database_backup()
         if not ok:
@@ -204,14 +537,16 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
     @d.message(F.chat.type == "private", Command(commands=["eslatmalar", "reminders"]))
     async def cmd_reminders_list(message: types.Message):
         from services.memory_service import memory_service
-        reminders = memory_service.get_active_reminders(limit=20)
+        reminders = memory_service.get_active_reminders(limit=50)
+        if not is_admin(message.from_user.id):
+            reminders = [r for r in reminders if r.get("chat_id") == message.chat.id or r.get("creator_id") == message.from_user.id]
         if not reminders:
             await message.answer("ℹ️ Hozirda hech qanday faol eslatma yo'q.\n\nYangi eslatma qo'shish uchun: `ai eslatma 2 soatdan keyin dars` deb yozing.")
             return
 
         lines = ["⏰ **Faol Eslatmalar Ro'yxati:**\n"]
-        for r in reminders:
-            lines.append(f"• **[ID: {r['id']}]** `{r['remind_at']}`: {r['task']}")
+        for r in reminders[:20]:
+            lines.append(f"• **[ID: {r['id']}]** `{r['remind_at']}`: {r.get('task') or r.get('text', '')}")
         lines.append("\nBekor qilish uchun: `/bekor <ID>`")
         await message.answer("\n".join(lines), parse_mode="Markdown")
 
@@ -233,6 +568,9 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
     # 10. Lichka: Mentor tomonidan .db fayl yuborilganda avtomatik qabul qilish va birlashtirish
     @d.message(F.chat.type == "private", F.document)
     async def handle_db_document(message: types.Message):
+        if not is_admin(message.from_user.id):
+            return
+
         doc = message.document
         if not doc or not doc.file_name:
             return
@@ -304,6 +642,24 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
                 )
                 return
 
+        # AI bilan muloqot: agar xabar 'ai ' bilan boshlansa
+        if lower.startswith("ai ") or lower.startswith("/ai "):
+            ai_query = text[3:].strip() if lower.startswith("ai ") else text[4:].strip()
+            if ai_query:
+                from services.ai_service import ai_service
+                try:
+                    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+                    res = await ai_service.generate_reply(
+                        chat_id=message.chat.id,
+                        user_message=ai_query,
+                        user_id=message.from_user.id,
+                    )
+                    if res and res.text:
+                        await message.answer(res.text)
+                        return
+                except Exception as ai_err:
+                    logger.warning("Botda AI javob olishda xatolik: %s", ai_err)
+
         # Boshqa hollarda menyuni eslatish
         kb = get_private_keyboard(message.from_user.id)
         await message.answer(
@@ -312,6 +668,8 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
             "• `eslatma 2 soatdan keyin dars`\n"
             "• `eslatma 30 minutdan song kitob o'qish`\n"
             "• `eslatma ertaga 10:00 da imtihon`\n\n"
+            "AI yordamchiga murojaat qilish uchun:\n"
+            "• `ai <savolingiz yoki vazifangiz>`\n\n"
             "Boshqaruv panelini ochish uchun quyidagi tugmani bosing 👇",
             reply_markup=kb,
         )
@@ -453,7 +811,11 @@ async def start_bot_service() -> None:
     # Guruhga har restartda avtomatik xabar tashlash o'chirildi (Faqat /panel buyrug'ida yuboriladi)
 
     logger.info("🚀 Telegram Bot polling xizmati faollashdi.")
-    await dp.start_polling(bot, handle_signals=False)
+    await dp.start_polling(
+        bot,
+        allowed_updates=dp.resolve_used_update_types(),
+        handle_signals=False,
+    )
 
 
 async def stop_bot_service() -> None:

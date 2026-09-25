@@ -1,0 +1,140 @@
+"""
+Multi-User Obuna Tizimi va Avtomatik Guruh Biriktirish Testlari
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from unittest.mock import MagicMock
+
+# Agar aiohttp yoki telethon bo'lmasa, test uchun mock qilish
+for mod in ["aiohttp", "aiohttp.web", "telethon", "telethon.tl", "telethon.tl.types", "aiogram"]:
+    if mod not in sys.modules:
+        try:
+            __import__(mod)
+        except ImportError:
+            sys.modules[mod] = MagicMock()
+
+from config import config
+from services.memory_service import memory_service
+from web_app import (
+    generate_admin_token,
+    verify_admin_token,
+    get_token_user_id,
+    MASTER_ADMIN_TOKEN,
+)
+
+
+class TestMultiUserSubscription(unittest.TestCase):
+    def setUp(self):
+        # Test uchun vaqtinchalik test user ID
+        self.test_user_id = 9876543210
+        self.test_group_id = -1009988776655
+
+    def tearDown(self):
+        # Test user ma'lumotlarini tozalash
+        try:
+            with memory_service._get_connection() as conn:
+                conn.execute("DELETE FROM user_subscriptions WHERE user_id = ?", (self.test_user_id,))
+                conn.commit()
+        except Exception:
+            pass
+
+    def test_super_admin_status(self):
+        """Super Admin aniqlanishini tekshirish."""
+        self.assertTrue(memory_service.is_super_admin(config.mentor_user_id))
+        self.assertTrue(memory_service.is_super_admin(8105823872))
+        self.assertFalse(memory_service.is_super_admin(self.test_user_id))
+        self.assertFalse(memory_service.is_super_admin(None))
+
+    def test_super_admin_subscription_always_active(self):
+        """Super Admin uchun get_subscription doim aktiv qaytarishi kerak."""
+        sub = memory_service.get_subscription(config.mentor_user_id)
+        self.assertIsNotNone(sub)
+        self.assertEqual(sub["role"], "super_admin")
+        self.assertFalse(sub["is_expired"])
+        self.assertTrue(memory_service.is_subscription_active(config.mentor_user_id))
+
+    def test_unregistered_user(self):
+        """Ro'yxatdan o'tmagan foydalanuvchi obunasi bo'lmasligi kerak."""
+        sub = memory_service.get_subscription(self.test_user_id)
+        self.assertIsNone(sub)
+        self.assertFalse(memory_service.is_subscription_active(self.test_user_id))
+
+    def test_upsert_and_get_subscription(self):
+        """Yangi obuna ochish va uni o'qish."""
+        sub = memory_service.upsert_subscription(
+            user_id=self.test_user_id,
+            username="test_client",
+            full_name="Akmal Testov",
+            days=30,
+            business_name="Akmal Mebel",
+            profession="Mebel Ishlab Chiqaruvchi",
+        )
+        self.assertIsNotNone(sub)
+        self.assertEqual(sub["user_id"], self.test_user_id)
+        self.assertEqual(sub["business_name"], "Akmal Mebel")
+        self.assertEqual(sub["profession"], "Mebel Ishlab Chiqaruvchi")
+        self.assertEqual(sub["active"], 1)
+        self.assertFalse(sub["is_expired"])
+        self.assertTrue(memory_service.is_subscription_active(self.test_user_id))
+
+    def test_link_user_group(self):
+        """Foydalanuvchiga shaxsiy guruhni biriktirish."""
+        memory_service.upsert_subscription(
+            user_id=self.test_user_id,
+            days=30,
+            business_name="Akmal Mebel",
+        )
+        ok = memory_service.link_user_group(self.test_user_id, self.test_group_id)
+        self.assertTrue(ok)
+
+        # Guruh ID bo'yicha qidirish
+        found_sub = memory_service.get_subscription_by_group(self.test_group_id)
+        self.assertIsNotNone(found_sub)
+        self.assertEqual(found_sub["user_id"], self.test_user_id)
+        self.assertEqual(found_sub["group_id"], self.test_group_id)
+
+    def test_revoke_subscription(self):
+        """Obunani to'xtatish."""
+        memory_service.upsert_subscription(
+            user_id=self.test_user_id,
+            days=30,
+        )
+        self.assertTrue(memory_service.is_subscription_active(self.test_user_id))
+
+        ok = memory_service.revoke_subscription(self.test_user_id)
+        self.assertTrue(ok)
+        self.assertFalse(memory_service.is_subscription_active(self.test_user_id))
+
+    def test_get_all_subscriptions(self):
+        """Barcha obunalarni ro'yxatda ko'rish."""
+        memory_service.upsert_subscription(
+            user_id=self.test_user_id,
+            username="test_client2",
+            days=15,
+            business_name="Test Business",
+        )
+        all_subs = memory_service.get_all_subscriptions()
+        self.assertIsInstance(all_subs, list)
+        user_ids = [s["user_id"] for s in all_subs]
+        self.assertIn(self.test_user_id, user_ids)
+
+    def test_web_app_token_scoping(self):
+        """Har bir foydalanuvchi o'z tokeni orqali to'g'ri user_id ga bog'lanishi."""
+        token = generate_admin_token(user_id=self.test_user_id)
+        self.assertTrue(verify_admin_token(token))
+        extracted_uid = get_token_user_id(token)
+        self.assertEqual(extracted_uid, self.test_user_id)
+
+        # Master admin tokeni doim mentor_user_id ga bog'lanadi
+        master_uid = get_token_user_id(MASTER_ADMIN_TOKEN)
+        self.assertEqual(master_uid, config.mentor_user_id)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -186,6 +186,46 @@ def is_authenticated(request: web.Request) -> bool:
     return verify_admin_token(token)
 
 
+def get_token_user_id(token: str) -> int:
+    """Token egasining Telegram user_id sini qaytaradi."""
+    if not token or not isinstance(token, str):
+        return 0
+    token = token.strip()
+    if token == MASTER_ADMIN_TOKEN:
+        return config.mentor_user_id or 8105823872
+    if token in ACTIVE_ADMIN_TOKENS:
+        return ACTIVE_ADMIN_TOKENS[token].get("user_id", 0)
+    try:
+        val = memory_service.get_setting(f"admintoken_{token}")
+        if val and ":" in val:
+            uid_str, _ = val.split(":", 1)
+            return int(uid_str)
+    except Exception:
+        pass
+    return 0
+
+
+def get_current_user(request: web.Request) -> dict:
+    """So'rovdan foydalanuvchi ma'lumotlarini (role, user_id, subscription) oladi."""
+    token = get_request_token(request)
+    if not token and "token" in request.query:
+        token = request.query["token"].strip()
+    if not token:
+        token = MASTER_ADMIN_TOKEN
+
+    user_id = get_token_user_id(token)
+    is_super = memory_service.is_super_admin(user_id) if user_id else (token == MASTER_ADMIN_TOKEN)
+    sub = memory_service.get_subscription(user_id) if user_id else None
+
+    return {
+        "user_id": user_id,
+        "is_super_admin": is_super,
+        "subscription": sub,
+        "business_name": (sub.get("business_name") if sub else "Coddy IT Academy") if not is_super else "Coddy IT Academy",
+        "role": "super_admin" if is_super else (sub.get("role", "client") if sub else "client"),
+    }
+
+
 def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     """Aiohttp ilovasiga WebApp va API endpointlarini bog'laydi."""
 
@@ -444,6 +484,7 @@ self.addEventListener('fetch', (event) => {
                 },
                 "ai_metrics": ai_service.get_metrics(),
                 "autonomous_brain": autonomous_brain_service.get_status(),
+                "current_user": get_current_user(request),
             }
         )
 
@@ -1551,6 +1592,69 @@ self.addEventListener('fetch', (event) => {
 
         return web.json_response({"ok": False, "error": f"Noma'lum amal: {action}"}, status=400)
 
+    # -----------------------------------------------------------
+    # 16. Multi-User Obuna va Mijozlar Boshqaruvi API
+    # -----------------------------------------------------------
+    async def handle_api_get_subscriptions(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        user_info = get_current_user(request)
+        if user_info["is_super_admin"]:
+            subs = memory_service.get_all_subscriptions()
+            return web.json_response({"ok": True, "subscriptions": subs, "is_super_admin": True})
+        else:
+            sub = user_info["subscription"]
+            return web.json_response({"ok": True, "subscriptions": [sub] if sub else [], "is_super_admin": False})
+
+    async def handle_api_upsert_subscription(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        user_info = get_current_user(request)
+        if not user_info["is_super_admin"]:
+            return web.json_response({"ok": False, "error": "Faqat Super Admin obuna yarata oladi!"}, status=403)
+
+        try:
+            data = await request.json()
+            user_id = int(data.get("user_id", 0))
+            if not user_id:
+                return web.json_response({"ok": False, "error": "user_id kiritilishi shart"}, status=400)
+            username = str(data.get("username", "")).strip()
+            full_name = str(data.get("full_name", "")).strip()
+            days = int(data.get("days", 30))
+            business_name = str(data.get("business_name", "")).strip()
+            profession = str(data.get("profession", "")).strip()
+            system_prompt = str(data.get("system_prompt", "")).strip()
+
+            sub = memory_service.upsert_subscription(
+                user_id=user_id,
+                username=username,
+                full_name=full_name,
+                days=days,
+                business_name=business_name,
+                profession=profession,
+                system_prompt=system_prompt,
+            )
+            return web.json_response({"ok": True, "subscription": sub})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_api_revoke_subscription(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        user_info = get_current_user(request)
+        if not user_info["is_super_admin"]:
+            return web.json_response({"ok": False, "error": "Faqat Super Admin obunani to'xtata oladi!"}, status=403)
+
+        try:
+            data = await request.json()
+            user_id = int(data.get("user_id", 0))
+            if not user_id:
+                return web.json_response({"ok": False, "error": "user_id kiritilishi shart"}, status=400)
+            ok = memory_service.revoke_subscription(user_id)
+            return web.json_response({"ok": ok})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     # Routerga qo'shish
     app.router.add_get("/app", handle_app_page)
     app.router.add_get("/manifest.json", handle_manifest_json)
@@ -1606,6 +1710,9 @@ self.addEventListener('fetch', (event) => {
     app.router.add_get("/api/self-mistakes", handle_api_get_self_mistakes)
     app.router.add_get("/api/gemini/settings", handle_api_gemini_settings)
     app.router.add_post("/api/gemini/settings", handle_api_gemini_settings)
+    app.router.add_get("/api/subscriptions", handle_api_get_subscriptions)
+    app.router.add_post("/api/subscriptions", handle_api_upsert_subscription)
+    app.router.add_post("/api/subscriptions/revoke", handle_api_revoke_subscription)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

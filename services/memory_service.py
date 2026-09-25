@@ -328,6 +328,31 @@ class SQLiteMemoryService:
                     )
                     """
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_subscriptions (
+                        user_id INTEGER PRIMARY KEY,
+                        username TEXT DEFAULT '',
+                        full_name TEXT DEFAULT '',
+                        phone TEXT DEFAULT '',
+                        business_name TEXT DEFAULT '',
+                        profession TEXT DEFAULT '',
+                        system_prompt TEXT DEFAULT '',
+                        group_id INTEGER DEFAULT 0,
+                        active INTEGER DEFAULT 1,
+                        expires_at TIMESTAMP,
+                        role TEXT DEFAULT 'client',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_subs_group_id ON user_subscriptions (group_id)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_subs_active ON user_subscriptions (active, expires_at)"
+                )
                 conn.commit()
         except Exception as e:
             logger.error("SQLite xotirasini ishga tushirishda xatolik: %s", e)
@@ -3445,6 +3470,228 @@ class SQLiteMemoryService:
             "total_xp": agent_stats.get("total_xp", 0),
             "progress_pct": agent_stats.get("progress_pct", 0),
         }
+
+    # =========================================================================
+    # Multi-User Obuna va Shaxsiy Guruh Boshqaruvi
+    # =========================================================================
+    def is_super_admin(self, user_id: int | None) -> bool:
+        """Faqat tizim egasi (@mentor_cc / ID: 8105823872) ekanligini tekshiradi."""
+        if not user_id:
+            return False
+        return user_id == config.mentor_user_id or user_id == 8105823872
+
+    def get_subscription(self, user_id: int) -> dict | None:
+        """Foydalanuvchi obunasini oladi (Super Admin bo'lsa doim cheksiz aktiv)."""
+        if self.is_super_admin(user_id):
+            return {
+                "user_id": user_id,
+                "username": "mentor_cc",
+                "full_name": "Super Admin",
+                "business_name": "Coddy IT Academy",
+                "profession": "Bosh Mentor & Tizim Egasi",
+                "system_prompt": "",
+                "group_id": config.escalation_chat,
+                "active": 1,
+                "expires_at": "2099-12-31 23:59:59",
+                "role": "super_admin",
+                "is_expired": False,
+            }
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT user_id, username, full_name, phone, business_name,
+                           profession, system_prompt, group_id, active, expires_at, role, created_at
+                    FROM user_subscriptions WHERE user_id = ?
+                    """,
+                    (user_id,)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    if mongo_memory_service.is_connected():
+                        m_sub = mongo_memory_service.get_user_subscription(user_id)
+                        if m_sub:
+                            return m_sub
+                    return None
+
+                exp_str = str(row[9]) if row[9] else ""
+                is_expired = False
+                if exp_str:
+                    try:
+                        exp_dt = datetime.fromisoformat(exp_str.replace("Z", "+00:00"))
+                        now = datetime.now(ZoneInfo("Asia/Tashkent"))
+                        if exp_dt.tzinfo is None:
+                            exp_dt = exp_dt.replace(tzinfo=ZoneInfo("Asia/Tashkent"))
+                        is_expired = exp_dt < now
+                    except Exception:
+                        pass
+
+                return {
+                    "user_id": row[0],
+                    "username": row[1] or "",
+                    "full_name": row[2] or "",
+                    "phone": row[3] or "",
+                    "business_name": row[4] or "Mening Boshqaruvim",
+                    "profession": row[5] or "Tadbirkor / Ekspert",
+                    "system_prompt": row[6] or "",
+                    "group_id": row[7] or 0,
+                    "active": int(row[8] or 0),
+                    "expires_at": exp_str,
+                    "role": row[10] or "client",
+                    "created_at": str(row[11]) if row[11] else "",
+                    "is_expired": is_expired,
+                }
+        except Exception as e:
+            logger.error("Obunani o'qishda xatolik [%s]: %s", user_id, e)
+            if mongo_memory_service.is_connected():
+                return mongo_memory_service.get_user_subscription(user_id)
+            return None
+
+    def is_subscription_active(self, user_id: int) -> bool:
+        """Foydalanuvchida faol (muddati o'tmagan) obuna borligini tekshiradi."""
+        if self.is_super_admin(user_id):
+            return True
+        sub = self.get_subscription(user_id)
+        if not sub:
+            return False
+        return bool(sub.get("active") and not sub.get("is_expired"))
+
+    def upsert_subscription(
+        self,
+        user_id: int,
+        username: str = "",
+        full_name: str = "",
+        days: int = 30,
+        business_name: str = "",
+        profession: str = "",
+        system_prompt: str = "",
+        role: str = "client",
+    ) -> dict:
+        """Yangi obuna ochadi yoki muddatini uzaytiradi (kunlarda)."""
+        from datetime import timedelta
+        tashkent_tz = ZoneInfo("Asia/Tashkent")
+        now = datetime.now(tashkent_tz)
+        expires_at = (now + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO user_subscriptions (
+                        user_id, username, full_name, business_name, profession,
+                        system_prompt, active, expires_at, role, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        username = CASE WHEN excluded.username != '' THEN excluded.username ELSE user_subscriptions.username END,
+                        full_name = CASE WHEN excluded.full_name != '' THEN excluded.full_name ELSE user_subscriptions.full_name END,
+                        business_name = CASE WHEN excluded.business_name != '' THEN excluded.business_name ELSE user_subscriptions.business_name END,
+                        profession = CASE WHEN excluded.profession != '' THEN excluded.profession ELSE user_subscriptions.profession END,
+                        system_prompt = CASE WHEN excluded.system_prompt != '' THEN excluded.system_prompt ELSE user_subscriptions.system_prompt END,
+                        active = 1,
+                        expires_at = excluded.expires_at,
+                        role = excluded.role,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        user_id,
+                        (username or "").lstrip("@"),
+                        full_name or "",
+                        business_name or "Mening Boshqaruvim",
+                        profession or "",
+                        system_prompt or "",
+                        expires_at,
+                        role,
+                    )
+                )
+                conn.commit()
+
+            sub_data = self.get_subscription(user_id) or {}
+            if mongo_memory_service.is_connected() and sub_data:
+                mongo_memory_service.upsert_user_subscription(sub_data)
+            return sub_data
+        except Exception as e:
+            logger.error("Obuna yaratishda xatolik [%s]: %s", user_id, e)
+            return {}
+
+    def link_user_group(self, user_id: int, group_id: int) -> bool:
+        """Foydalanuvchiga uning shaxsiy Vazifalar guruhini biriktiradi."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE user_subscriptions
+                    SET group_id = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                    """,
+                    (group_id, user_id)
+                )
+                conn.commit()
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.link_user_group(user_id, group_id)
+            logger.info("Foydalanuvchiga shaxsiy guruh biriktirildi: user_id=%s, group_id=%s", user_id, group_id)
+            return True
+        except Exception as e:
+            logger.error("Guruhni biriktirishda xatolik: %s", e)
+            return False
+
+    def get_subscription_by_group(self, group_id: int) -> dict | None:
+        """Guruh ID bo'yicha uning egasi (obunachi)ni topadi."""
+        if str(group_id) in (str(config.escalation_chat), "-1005388159517", "-5388159517"):
+            return self.get_subscription(config.mentor_user_id or 8105823872)
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT user_id FROM user_subscriptions WHERE group_id = ? AND active = 1", (group_id,))
+                row = cursor.fetchone()
+                if row:
+                    return self.get_subscription(row[0])
+        except Exception as e:
+            logger.error("Guruh bo'yicha obunachini qidirishda xatolik: %s", e)
+        return None
+
+    def revoke_subscription(self, user_id: int) -> bool:
+        """Foydalanuvchi obunasini bekor qiladi / to'xtatadi."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute("UPDATE user_subscriptions SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
+                conn.commit()
+            if mongo_memory_service.is_connected():
+                mongo_memory_service.revoke_user_subscription(user_id)
+            return True
+        except Exception as e:
+            logger.error("Obunani bekor qilishda xatolik: %s", e)
+            return False
+
+    def get_all_subscriptions(self) -> list[dict]:
+        """Super Admin paneli uchun barcha obunachilarni qaytaradi."""
+        subs = []
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT user_id, username, full_name, business_name, profession,
+                           group_id, active, expires_at, role, created_at
+                    FROM user_subscriptions ORDER BY created_at DESC
+                    """
+                )
+                for r in cursor.fetchall():
+                    subs.append({
+                        "user_id": r[0],
+                        "username": r[1] or "",
+                        "full_name": r[2] or "",
+                        "business_name": r[3] or "",
+                        "profession": r[4] or "",
+                        "group_id": r[5] or 0,
+                        "active": int(r[6] or 0),
+                        "expires_at": str(r[7]) if r[7] else "",
+                        "role": r[8] or "client",
+                        "created_at": str(r[9]) if r[9] else "",
+                    })
+        except Exception as e:
+            logger.error("Barcha obunachilarni olishda xatolik: %s", e)
+        return subs
 
 
 # Global xotira instansiyasi

@@ -98,6 +98,9 @@ class MongoMemoryService:
             self._db["brain_cognitive.self_mistakes"].create_index([("created_at", -1)])
             # 10. brain_cognitive.daily_debriefs
             self._db["brain_cognitive.daily_debriefs"].create_index([("date", 1)], unique=True)
+            # 11. system_core.user_subscriptions
+            self._db["system_core.user_subscriptions"].create_index([("user_id", 1)], unique=True)
+            self._db["system_core.user_subscriptions"].create_index([("group_id", 1)])
             logger.info("🧠 MongoDB Kognitiv Miya indekslari to'liq tasdiqlandi.")
         except Exception as e:
             logger.warning("MongoDB indekslarini sozlashda ogohlantirish: %s", e)
@@ -1100,6 +1103,69 @@ class MongoMemoryService:
             return False
 
     # ==========================================
+    # 4.7. system_core (Multi-User Obuna Tizimi)
+    # ==========================================
+    def upsert_user_subscription(self, doc: dict) -> bool:
+        """Foydalanuvchi obunasini MongoDB Atlas ga yozadi / yangilaydi."""
+        if not self.is_connected() or not doc.get("user_id"):
+            return False
+        try:
+            now = datetime.now(ZoneInfo("Asia/Tashkent"))
+            doc_to_save = dict(doc)
+            doc_to_save["updated_at"] = now
+            self._db["system_core.user_subscriptions"].update_one(
+                {"user_id": doc["user_id"]},
+                {"$set": doc_to_save, "$setOnInsert": {"created_at": now}},
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB upsert_user_subscription xatolik: %s", e)
+            return False
+
+    def link_user_group(self, user_id: int, group_id: int) -> bool:
+        """Foydalanuvchiga shaxsiy guruh ID sini MongoDB da biriktiradi."""
+        if not self.is_connected() or not user_id:
+            return False
+        try:
+            self._db["system_core.user_subscriptions"].update_one(
+                {"user_id": user_id},
+                {"$set": {"group_id": group_id, "updated_at": datetime.now(ZoneInfo("Asia/Tashkent"))}},
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB link_user_group xatolik: %s", e)
+            return False
+
+    def revoke_user_subscription(self, user_id: int) -> bool:
+        """Foydalanuvchi obunasini MongoDB da to'xtatadi."""
+        if not self.is_connected() or not user_id:
+            return False
+        try:
+            self._db["system_core.user_subscriptions"].update_one(
+                {"user_id": user_id},
+                {"$set": {"active": 0, "updated_at": datetime.now(ZoneInfo("Asia/Tashkent"))}},
+            )
+            return True
+        except Exception as e:
+            logger.error("MongoDB revoke_user_subscription xatolik: %s", e)
+            return False
+
+    def get_user_subscription(self, user_id: int) -> dict | None:
+        """Foydalanuvchi obunasini MongoDB dan oladi."""
+        if not self.is_connected() or not user_id:
+            return None
+        try:
+            doc = self._db["system_core.user_subscriptions"].find_one({"user_id": user_id})
+            if doc:
+                doc.pop("_id", None)
+                return doc
+        except Exception as e:
+            logger.error("MongoDB get_user_subscription xatolik: %s", e)
+        return None
+
+    # ==========================================
     # 5. Zero-Loss SQLite <-> MongoDB Synchronization
     # ==========================================
     def restore_to_sqlite(self, sqlite_path: Path) -> dict[str, int]:
@@ -1114,6 +1180,7 @@ class MongoMemoryService:
             "ignored_users": 0,
             "precomputed_answers": 0,
             "messages": 0,
+            "user_subscriptions": 0,
         }
         if not self.is_connected():
             logger.warning("MongoDB ulanmagan, SQLite'ga tiklash o'tkazib yuborildi.")
@@ -1452,6 +1519,51 @@ class MongoMemoryService:
             except Exception as e:
                 logger.debug("Restore bot_patterns ogohlantirish: %s", e)
 
+            # 15. user_subscriptions (Multi-User Obuna Tizimi)
+            try:
+                for doc in self._db["system_core.user_subscriptions"].find():
+                    uid = doc.get("user_id")
+                    if uid:
+                        cursor.execute(
+                            """
+                            INSERT INTO user_subscriptions (
+                                user_id, username, full_name, phone, business_name,
+                                profession, system_prompt, group_id, active, expires_at, role,
+                                created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(user_id) DO UPDATE SET
+                                username = CASE WHEN excluded.username != '' THEN excluded.username ELSE user_subscriptions.username END,
+                                full_name = CASE WHEN excluded.full_name != '' THEN excluded.full_name ELSE user_subscriptions.full_name END,
+                                phone = CASE WHEN excluded.phone != '' THEN excluded.phone ELSE user_subscriptions.phone END,
+                                business_name = CASE WHEN excluded.business_name != '' THEN excluded.business_name ELSE user_subscriptions.business_name END,
+                                profession = CASE WHEN excluded.profession != '' THEN excluded.profession ELSE user_subscriptions.profession END,
+                                system_prompt = CASE WHEN excluded.system_prompt != '' THEN excluded.system_prompt ELSE user_subscriptions.system_prompt END,
+                                group_id = CASE WHEN excluded.group_id != 0 THEN excluded.group_id ELSE user_subscriptions.group_id END,
+                                active = excluded.active,
+                                expires_at = excluded.expires_at,
+                                role = excluded.role,
+                                updated_at = excluded.updated_at
+                            """,
+                            (
+                                uid,
+                                doc.get("username", ""),
+                                doc.get("full_name", ""),
+                                doc.get("phone", ""),
+                                doc.get("business_name", ""),
+                                doc.get("profession", ""),
+                                doc.get("system_prompt", ""),
+                                doc.get("group_id", 0),
+                                doc.get("active", 1),
+                                str(doc.get("expires_at") or ""),
+                                doc.get("role", "client"),
+                                str(doc.get("created_at") or ""),
+                                str(doc.get("updated_at") or ""),
+                            ),
+                        )
+                        stats["user_subscriptions"] += 1
+            except Exception as e:
+                logger.debug("Restore user_subscriptions ogohlantirish: %s", e)
+
             conn.commit()
             conn.close()
             logger.info("🧠 [Auto-Restore] MongoDB Atlas -> SQLite tiklanishi yakunlandi: %s", stats)
@@ -1470,6 +1582,7 @@ class MongoMemoryService:
             "students": 0,
             "daily_plans": 0,
             "precomputed_answers": 0,
+            "user_subscriptions": 0,
         }
         if not self.is_connected() or not sqlite_path.exists():
             logger.warning("Migratsiya bajarilmadi: Mongo ulanmagan yoki SQLite fayli topilmadi: %s", sqlite_path)
@@ -1618,6 +1731,35 @@ class MongoMemoryService:
                     stats["precomputed_answers"] += 1
             except Exception as e_pa:
                 logger.warning("Migrate precomputed_answers ogohlantirish: %s", e_pa)
+
+            # 8. user_subscriptions -> system_core.user_subscriptions
+            try:
+                cursor.execute("SELECT * FROM user_subscriptions")
+                for r in cursor.fetchall():
+                    r_keys = r.keys()
+                    doc = {
+                        "user_id": r["user_id"],
+                        "username": r["username"] if "username" in r_keys else "",
+                        "full_name": r["full_name"] if "full_name" in r_keys else "",
+                        "phone": r["phone"] if "phone" in r_keys else "",
+                        "business_name": r["business_name"] if "business_name" in r_keys else "",
+                        "profession": r["profession"] if "profession" in r_keys else "",
+                        "system_prompt": r["system_prompt"] if "system_prompt" in r_keys else "",
+                        "group_id": r["group_id"] if "group_id" in r_keys else 0,
+                        "active": r["active"] if "active" in r_keys else 1,
+                        "expires_at": str(r["expires_at"]) if "expires_at" in r_keys and r["expires_at"] else "",
+                        "role": r["role"] if "role" in r_keys else "client",
+                        "created_at": str(r["created_at"]) if "created_at" in r_keys and r["created_at"] else "",
+                        "updated_at": str(r["updated_at"]) if "updated_at" in r_keys and r["updated_at"] else "",
+                    }
+                    self._db["system_core.user_subscriptions"].update_one(
+                        {"user_id": r["user_id"]},
+                        {"$set": doc},
+                        upsert=True,
+                    )
+                    stats["user_subscriptions"] += 1
+            except Exception as e_sub:
+                logger.warning("Migrate user_subscriptions ogohlantirish: %s", e_sub)
 
             conn.close()
             logger.info("🎉 SQLite -> MongoDB Atlas migratsiyasi 100% muvaffaqiyatli: %s", stats)
