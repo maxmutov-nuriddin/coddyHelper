@@ -143,6 +143,41 @@ class TestMultiUserSubscription(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIsNone(memory_service.get_subscription(self.test_user_id))
 
+    def test_edit_subscription_system_prompt_preservation(self):
+        """Tahrirlashda system_prompt saqlanishi va get_all_subscriptions da qaytishi."""
+        prompt_v1 = "Do'kon mahsulotlari: Divan 3 mln so'm, Stol 1.5 mln so'm."
+        memory_service.upsert_subscription(
+            user_id=self.test_user_id,
+            business_name="Akmal Mebel",
+            profession="Mebelchi",
+            system_prompt=prompt_v1,
+            days=30,
+        )
+
+        all_subs = memory_service.get_all_subscriptions()
+        found = next((s for s in all_subs if s["user_id"] == self.test_user_id), None)
+        self.assertIsNotNone(found)
+        self.assertEqual(found["system_prompt"], prompt_v1)
+        self.assertEqual(found["profession"], "Mebelchi")
+
+        # Tahrirlash: promptni o'zgartirish
+        prompt_v2 = "Yangi aksiya: barcha mebellarga 10% chegirma!"
+        memory_service.upsert_subscription(
+            user_id=self.test_user_id,
+            business_name="Akmal Mebel Premium",
+            profession="Mebel ustasi",
+            system_prompt=prompt_v2,
+            days=0,
+            is_edit=True,
+        )
+
+        all_subs2 = memory_service.get_all_subscriptions()
+        found2 = next((s for s in all_subs2 if s["user_id"] == self.test_user_id), None)
+        self.assertIsNotNone(found2)
+        self.assertEqual(found2["system_prompt"], prompt_v2)
+        self.assertEqual(found2["business_name"], "Akmal Mebel Premium")
+        self.assertEqual(found2["profession"], "Mebel ustasi")
+
 
 if __name__ == "__main__":
     unittest.main()

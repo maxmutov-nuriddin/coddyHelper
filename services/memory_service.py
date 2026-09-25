@@ -3567,23 +3567,41 @@ class SQLiteMemoryService:
         profession: str = "",
         system_prompt: str = "",
         role: str = "client",
+        is_edit: bool = False,
     ) -> dict:
-        """Yangi obuna ochadi yoki muddatini uzaytiradi (kunlarda)."""
+        """Yangi obuna ochadi yoki mavjud mijoz ma'lumotlarini yangilaydi."""
         from datetime import timedelta
         tashkent_tz = ZoneInfo("Asia/Tashkent")
         now = datetime.now(tashkent_tz)
         start_dt = now
         existing = self.get_subscription(user_id)
-        if existing and existing.get("expires_at") and not existing.get("is_expired"):
-            try:
-                cur_exp = datetime.fromisoformat(existing["expires_at"].replace("Z", "+00:00"))
-                if cur_exp.tzinfo is None:
-                    cur_exp = cur_exp.replace(tzinfo=tashkent_tz)
-                if cur_exp > now:
-                    start_dt = cur_exp
-            except Exception:
-                pass
-        expires_at = (start_dt + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+        if is_edit and existing and existing.get("expires_at"):
+            # Tahrirlash rejimida: agar kun qo'shilmasa (days <= 0), mavjud muddatni saqlaymiz
+            if days <= 0:
+                expires_at = existing["expires_at"]
+            else:
+                try:
+                    cur_exp = datetime.fromisoformat(existing["expires_at"].replace("Z", "+00:00"))
+                    if cur_exp.tzinfo is None:
+                        cur_exp = cur_exp.replace(tzinfo=tashkent_tz)
+                    start_dt = max(now, cur_exp)
+                except Exception:
+                    start_dt = now
+                expires_at = (start_dt + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            # Yangi obuna ochish yoki muddat uzaytirish
+            if existing and existing.get("expires_at") and not existing.get("is_expired"):
+                try:
+                    cur_exp = datetime.fromisoformat(existing["expires_at"].replace("Z", "+00:00"))
+                    if cur_exp.tzinfo is None:
+                        cur_exp = cur_exp.replace(tzinfo=tashkent_tz)
+                    if cur_exp > now:
+                        start_dt = cur_exp
+                except Exception:
+                    pass
+            days_to_add = max(1, days)
+            expires_at = (start_dt + timedelta(days=days_to_add)).strftime("%Y-%m-%d %H:%M:%S")
 
         try:
             with self._get_connection() as conn:
@@ -3597,8 +3615,8 @@ class SQLiteMemoryService:
                         username = CASE WHEN excluded.username != '' THEN excluded.username ELSE user_subscriptions.username END,
                         full_name = CASE WHEN excluded.full_name != '' THEN excluded.full_name ELSE user_subscriptions.full_name END,
                         business_name = CASE WHEN excluded.business_name != '' THEN excluded.business_name ELSE user_subscriptions.business_name END,
-                        profession = CASE WHEN excluded.profession != '' THEN excluded.profession ELSE user_subscriptions.profession END,
-                        system_prompt = CASE WHEN excluded.system_prompt != '' THEN excluded.system_prompt ELSE user_subscriptions.system_prompt END,
+                        profession = excluded.profession,
+                        system_prompt = excluded.system_prompt,
                         active = 1,
                         expires_at = excluded.expires_at,
                         role = excluded.role,
@@ -3696,7 +3714,7 @@ class SQLiteMemoryService:
                 cursor.execute(
                     """
                     SELECT user_id, username, full_name, business_name, profession,
-                           group_id, active, expires_at, role, created_at
+                           system_prompt, group_id, active, expires_at, role, created_at
                     FROM user_subscriptions ORDER BY created_at DESC
                     """
                 )
@@ -3707,11 +3725,12 @@ class SQLiteMemoryService:
                         "full_name": r[2] or "",
                         "business_name": r[3] or "",
                         "profession": r[4] or "",
-                        "group_id": r[5] or 0,
-                        "active": int(r[6] or 0),
-                        "expires_at": str(r[7]) if r[7] else "",
-                        "role": r[8] or "client",
-                        "created_at": str(r[9]) if r[9] else "",
+                        "system_prompt": r[5] or "",
+                        "group_id": r[6] or 0,
+                        "active": int(r[7] or 0),
+                        "expires_at": str(r[8]) if r[8] else "",
+                        "role": r[9] or "client",
+                        "created_at": str(r[10]) if r[10] else "",
                     })
         except Exception as e:
             logger.error("Barcha obunachilarni olishda xatolik: %s", e)

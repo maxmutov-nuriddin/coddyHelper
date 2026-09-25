@@ -1761,6 +1761,7 @@ self.addEventListener('fetch', (event) => {
             business_name = str(data.get("business_name", "")).strip()
             profession = str(data.get("profession", "")).strip()
             system_prompt = str(data.get("system_prompt", "")).strip()
+            is_edit = bool(data.get("is_edit", False))
 
             sub = memory_service.upsert_subscription(
                 user_id=user_id,
@@ -1770,6 +1771,7 @@ self.addEventListener('fetch', (event) => {
                 business_name=business_name,
                 profession=profession,
                 system_prompt=system_prompt,
+                is_edit=is_edit,
             )
             return web.json_response({"ok": True, "subscription": sub})
         except Exception as e:
