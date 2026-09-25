@@ -550,16 +550,24 @@ def apply_socratic_critic(answer: str, user_message: str) -> str:
     return transformed_answer
 
 
-def optimize_image_for_vision(image_bytes: bytes, max_dim: int = 960, quality: int = 80) -> bytes:
+def optimize_image_for_vision(
+    image_bytes: bytes,
+    max_dim: int = 1200,
+    quality: int = 85,
+    enhance_for_code: bool = True,
+) -> bytes:
     """
-    Katta hajmdagi skrinshot va rasmlarni Groq token limitlariga (7000 ITPM) moslash uchun
-    sifatini buzmagan holda o'lchamini ixchamlashtiradi va JPEG siqadi.
+    Katta hajmdagi yoki xira olingan monitor skrinshotlarini AI Vision uchun tiniqlashtiradi:
+    1. O'lchamini optimal darajaga moslaydi (max 1200px - mayda kod va qavslar buzilmasligi uchun).
+    2. Adaptive Auto-Contrast: Qorong'i yoki yorug'lik tushgan rasmlarda dinamik diapazonni normallashtiradi.
+    3. Sharpness Enhancement: Matn va kod shriftlari qirralarini (edges) 1.6x ga charxlaydi.
+    4. Contrast Boost: Terminal va kod fonidagi harflarni 1.2x ga yaqqol ajratadi.
     """
     if not image_bytes:
         return image_bytes
     try:
         import io
-        from PIL import Image
+        from PIL import Image, ImageEnhance, ImageOps
 
         img = Image.open(io.BytesIO(image_bytes))
         if img.mode in ("RGBA", "P", "LA"):
@@ -575,12 +583,28 @@ def optimize_image_for_vision(image_bytes: bytes, max_dim: int = 960, quality: i
                 new_w = int(w * (max_dim / h))
             img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
+        # Kod va mayda matnlarni tiniqlashtirish filtri (Adaptive Computer Vision)
+        if enhance_for_code:
+            try:
+                # 1. Avtomatik kontrast (qirqilgan ranglar 0.5% chegara bilan)
+                img = ImageOps.autocontrast(img, cutoff=0.5)
+
+                # 2. Kontrastni biroz oshirish (matn aniqroq ko'rinishi uchun)
+                enhancer_contrast = ImageEnhance.Contrast(img)
+                img = enhancer_contrast.enhance(1.2)
+
+                # 3. Mayda shriftlar va belgilarni charxlash (Sharpness)
+                enhancer_sharpness = ImageEnhance.Sharpness(img)
+                img = enhancer_sharpness.enhance(1.6)
+            except Exception as enh_e:
+                logger.debug("Rasm kontrastini charxlashda ogohlantirish: %s", enh_e)
+
         out_buf = io.BytesIO()
         img.save(out_buf, format="JPEG", quality=quality, optimize=True)
         compressed = out_buf.getvalue()
         logger.info(
-            "Rasm AI Vision uchun optimizatsiya qilindi: %d bayt -> %d bayt (o'lchami: %dx%d)",
-            len(image_bytes), len(compressed), img.size[0], img.size[1]
+            "👁️ Rasm AI Vision uchun tiniqlashtirildi: %d bayt -> %d bayt (%dx%d, charxlandi=%s)",
+            len(image_bytes), len(compressed), img.size[0], img.size[1], enhance_for_code
         )
         return compressed
     except Exception as e:
@@ -2083,7 +2107,10 @@ class AIService:
         )
 
         if image_bytes:
-            candidate_models = [config.groq_vision_model or "qwen/qwen3.8-27b"]
+            candidate_models = []
+            for vm in [config.groq_vision_model, "qwen/qwen3.8-27b", "meta-llama/llama-4-scenery", "llama-3.2-11b-vision-preview"]:
+                if vm and vm not in candidate_models:
+                    candidate_models.append(vm)
         else:
             candidate_models = []
             # Faqat Groq klasterida 100% mavjud va ishlaydigan haqiqiy modellar
@@ -2751,31 +2778,18 @@ class AIService:
                     return bool(image_bytes)
                 return True
 
-            # 0-ustuvorlik: Gemini Asosiy Miya sifatida (gemini_first / primary_first)
-            # Har doim 1-o'rinda Google Gemini ishlaydi, Groq esa uning zaxirasi bo'lib turadi
+            # 0-ustuvorlik: Faqat admin gemini_first deb majburiy belgilagan bo'lsa
             if not answer and gemini_trigger_after in ("gemini_first", "primary_first") and _is_gemini_allowed_for_request():
-                logger.info("🥇 [gemini_first] Google Gemini Asosiy Miya (1-o'rinda) sifatida ishga tushirildi...")
+                logger.info("🥇 [gemini_first] Google Gemini Asosiy Miya sifatida ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
                     chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode, user_id=user_id
                 )
 
-            # 0.5-ustuvorlik: Agar "vision_first" tanlangan bo'lsa va rasm bo'lsa, 1-o'rinda Gemini Vision ishlaydi
-            if not answer and image_bytes and gemini_trigger_after == "vision_first" and _is_gemini_allowed_for_request():
-                logger.info("🖼️ [vision_first] Rasm tahlili uchun to'g'ridan-to'g'ri 1-o'rinda Google Gemini Vision ishga tushirildi...")
-                answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode, user_id=user_id
-                )
-
-            # 0.7-ustuvorlik: Agar "smart_hybrid" tanlangan bo'lsa va VIP/Mentor yoki rasm bo'lsa, 1-o'rinda Gemini ishlaydi
-            if not answer and (is_vip or image_bytes) and gemini_trigger_after == "smart_hybrid" and _is_gemini_allowed_for_request():
-                logger.info("👑 [smart_hybrid] VIP/Murakkab so'rov uchun Gemini 1-o'rinda ishga tushirildi...")
-                answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode, user_id=user_id
-                )
-
-            # 1-ustuvorlik: Groq Birlamchi Miya (Miya 1: Frontline yoki Miya 2: VIP)
+            # 1-ustuvorlik: Groq Birlamchi Miya (Miya 1: Frontline yoki Miya 2: VIP, shu jumladan Groq Vision)
             if not answer and self._groq_clients:
                 try:
+                    if image_bytes:
+                        logger.info("👁️ [Groq Vision] Rasm tahlili uchun 1-o'rinda mustaqil Groq Vision Klasteri ishga tushirildi...")
                     answer = await asyncio.wait_for(
                         self._generate_with_groq(
                             chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode, is_administration_mode=is_administration_mode, user_id=user_id
@@ -3201,15 +3215,133 @@ class AIService:
 
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
         """
-        Ovozli xabarni matnga o'giradi (Multi-Tier Kaskad - UZ, RU, EN):
-        1-bosqich: Google Gemini 3 Flash Preview (Multimodal Audio, eng yuqori aniqlik)
-        2-bosqich: Groq Whisper Large v3 (verbose_json + turkcha adashganda majburiy uz tili)
-        3-bosqich: Groq LLM Polish (Agar turkcha qoldiqlar bo'lsa, 100% sof o'zbekchaga tiklash)
+        Ovozli xabarni matnga o'giradi (Mustaqil va Tiniq STT Arxitekturasi):
+        1-bosqich: Groq Whisper Large-v3 Turbo / Large-v3 (Frontline Klasteri - 0.2s chaqmoqdek tez)
+        2-bosqich: Groq Whisper Large-v3 (Zaxira Qalqoni - 12 ta kalit)
+        3-bosqich: Google Gemini (Faqat barcha Groq kalitlari limitga uchraganda Favqulodda Zaxira)
         """
         if not audio_bytes:
             return ""
 
-        # 1-bosqich: Google Gemini Multimodal Audio (Eng yuqori aniqlik, 0 turkcha adashish)
+        multilingual_prompt = (
+            "O'zbekiston, Toshkent, CoddyCamp dasturlash akademiyasi. Bu audio O'zbek tilida (yoki rus/ingliz). "
+            "Assalomu alaykum ustoz, dars, uyga vazifa, topshiriq, o'quvchi, darsga kechikaman, kasalman, kela olmayman, kod, dasturlash, Python, CoddyCamp, Rustamjon, Amirbek. "
+            "Здравствуйте учитель, урок, домашнее задание, опоздаю, не смогу прийти, заболел, код, ошибка, проект. "
+            "Hello teacher, lesson, homework, coding, class, late, project, error, syntax, loop, def, function."
+        )
+        hallucinations = ("subtitles by", "amara.org", "sous-titres", "transcription par", "thank you for watching", "продолжение следует")
+        turkish_markers = (
+            "öğretmen", "yapıyorum", "geliyorum", "lütfen", "merhaba", "dersime",
+            "ödev", "hastayım", "nasılsınız", "hocam", "böyle", "şimdi", "görüşürüz",
+            "tamam mı", "ben ", " benim", " dersler", "derse "
+        )
+
+        whisper_models = ["whisper-large-v3-turbo", "whisper-large-v3"]
+
+        # 1-bosqich: Groq Whisper Large-v3 (Frontline Klasteri - 12 ta kalit, 0.2s chaqmoqdek tez va mustaqil)
+        pool = self._frontline_clients if self._frontline_clients else self._groq_clients
+        if pool:
+            for _ in range(min(5, len(pool))):
+                client = pool[self._frontline_idx % len(pool)]
+                self._frontline_idx = (self._frontline_idx + 1) % len(pool)
+                for w_model in whisper_models:
+                    try:
+                        transcription = await client.audio.transcriptions.create(
+                            file=("voice.ogg", audio_bytes),
+                            model=w_model,
+                            response_format="verbose_json",
+                            prompt=multilingual_prompt,
+                            temperature=0.0,
+                        )
+                        det_lang = str(getattr(transcription, "language", "") or "").lower()
+                        text = str(getattr(transcription, "text", transcription)).strip()
+
+                        if any(h in text.lower() for h in hallucinations) and len(text) < 45:
+                            text = ""
+
+                        # Agar Whisper o'zbekchani turkcha deb yanglishsa, majburiy language='uz' bilan qayta o'qish:
+                        is_turkish = (
+                            det_lang in ("tr", "turkish", "az", "azerbaijani", "tk", "turkmen", "kk", "kazakh", "ky", "kyrgyz")
+                            or any(tm in text.lower() for tm in turkish_markers)
+                        )
+                        if is_turkish and audio_bytes:
+                            logger.warning("⚠️ Whisper o'zbekcha nutqni turkcha deb o'yladi (det_lang=%s), majburiy language='uz' bilan qayta o'qilmoqda...", det_lang)
+                            uz_prompt = (
+                                "Assalomu alaykum ustoz, CoddyCamp dasturlash maktabi. Bugun darsga kela olmayman, kechikaman, kasalman, mazam yo'q, uyga vazifa, topshiriq, kod, o'quvchi."
+                            )
+                            try:
+                                trans_uz = await client.audio.transcriptions.create(
+                                    file=("voice.ogg", audio_bytes),
+                                    model=w_model,
+                                    language="uz",
+                                    prompt=uz_prompt,
+                                    temperature=0.0,
+                                )
+                                uz_text = str(getattr(trans_uz, "text", trans_uz)).strip()
+                                if uz_text and len(uz_text) > 3:
+                                    text = uz_text
+                                    det_lang = "uz"
+                                    logger.info("✅ language='uz' bilan muvaffaqiyatli transkripsiya qilindi: %s", text[:80])
+                            except Exception as uz_err:
+                                logger.warning("language='uz' bilan transkripsiyada ogohlantirish: %s", uz_err)
+
+                        if text:
+                            polished = await self._polish_voice_transcription(text, detected_lang=det_lang)
+                            logger.info("✅ Groq Whisper (%s) ovozli xabarni 0.2s da matnga aylantirdi: %s", w_model, polished[:80])
+                            return polished
+                    except Exception as e:
+                        logger.debug("Groq Whisper (%s) xatolik: %s", w_model, e)
+                        continue
+
+        # 2-bosqich: Groq Zaxira Qalqoni orqali urinish (12 ta kalit)
+        if self._reserve_clients:
+            for _ in range(min(3, len(self._reserve_clients))):
+                client = self._reserve_clients[self._reserve_idx % len(self._reserve_clients)]
+                self._reserve_idx = (self._reserve_idx + 1) % len(self._reserve_clients)
+                for w_model in whisper_models:
+                    try:
+                        transcription = await client.audio.transcriptions.create(
+                            file=("voice.ogg", audio_bytes),
+                            model=w_model,
+                            response_format="verbose_json",
+                            prompt=multilingual_prompt,
+                            temperature=0.0,
+                        )
+                        det_lang = str(getattr(transcription, "language", "") or "").lower()
+                        text = str(getattr(transcription, "text", transcription)).strip()
+
+                        if any(h in text.lower() for h in hallucinations) and len(text) < 45:
+                            text = ""
+
+                        is_turkish = (
+                            det_lang in ("tr", "turkish", "az", "azerbaijani", "tk", "turkmen")
+                            or any(tm in text.lower() for tm in turkish_markers)
+                        )
+                        if is_turkish and audio_bytes:
+                            try:
+                                trans_uz = await client.audio.transcriptions.create(
+                                    file=("voice.ogg", audio_bytes),
+                                    model=w_model,
+                                    language="uz",
+                                    prompt="Assalomu alaykum ustoz, CoddyCamp dasturlash. Darsga kela olmayman, kasalman, vazifa, topshiriq.",
+                                    temperature=0.0,
+                                )
+                                uz_text = str(getattr(trans_uz, "text", trans_uz)).strip()
+                                if uz_text:
+                                    text = uz_text
+                                    det_lang = "uz"
+                            except Exception:
+                                pass
+
+                        if text:
+                            polished = await self._polish_voice_transcription(text, detected_lang=det_lang)
+                            logger.info("🛡️ Groq Whisper (Zaxira Qalqoni) ovozli xabarni matnga aylantirdi: %s", polished[:80])
+                            return polished
+                    except Exception as e:
+                        logger.debug("Groq Whisper Zaxira xatolik: %s", e)
+                        continue
+
+        # 3-bosqich: Favqulodda Zaxira (Faqat barcha 24 ta Groq kalitlari to'lgan taqdirda Google Gemini)
         if self._gemini_client:
             gem_candidates = [
                 getattr(config, "gemini_model", "gemini-3-flash-preview") or "gemini-3-flash-preview",
@@ -3222,7 +3354,7 @@ class AIService:
                     continue
                 seen_models.add(gem_model)
                 try:
-                    logger.info("🎙️ Google Gemini (%s) orqali ovozli xabar transkripsiyasi boshlandi...", gem_model)
+                    logger.info("⚡ Favqulodda zaxira: Google Gemini (%s) orqali transkripsiya...", gem_model)
                     from google.genai import types
                     loop = asyncio.get_running_loop()
 
@@ -3236,9 +3368,8 @@ class AIService:
                                     "Ushbu ovozli xabarni (audio) juda diqqat bilan eshiting.\n\n"
                                     "QAT'IY QOIDALAR:\n"
                                     "1. Ushbu audio O'ZBEKCHA (o'zbek tili, Toshkent og'zaki nutqi), RUSCHA yoki INGLIZCHA nutqdir.\n"
-                                    "2. O'zbek tilidagi nutqni aslo TURKCHA (Turkish) deb xato o'ylamang! Bu turk tili emas, O'ZBEK TILI.\n"
-                                    "3. So'zlashuvchi aytgan har bir so'zni 100% tiniq, to'liq va aniq qilib so'zma-so'z matnga o'giring (Transkripsiya).\n"
-                                    "4. Hech qanday qo'shimcha so'z, kirish, xulosa yoki izoh yozmang. Faqat to'g'ridan-to'g'ri eshitilgan haqiqiy nutq matnini qaytaring."
+                                    "2. So'zlashuvchi aytgan har bir so'zni 100% tiniq, to'liq va aniq qilib so'zma-so'z matnga o'giring.\n"
+                                    "3. Hech qanday qo'shimcha so'z, kirish yoki izoh yozmang. Faqat haqiqiy nutq matnini qaytaring."
                                 )
                             ],
                         )
@@ -3246,126 +3377,12 @@ class AIService:
 
                     gemini_text = await asyncio.wait_for(loop.run_in_executor(None, _gemini_transcribe), timeout=8.0)
                     if gemini_text:
-                        logger.info("✅ Google Gemini orqali ovozli xabar 100% tiniq o'qildi: %s", gemini_text[:80])
+                        logger.info("✅ Google Gemini Favqulodda Zaxira orqali audio o'qildi: %s", gemini_text[:80])
                         return await self._polish_voice_transcription(gemini_text)
                     break
                 except Exception as gem_err:
-                    logger.warning("Google Gemini (%s) transkripsiyasida ogohlantirish: %s", gem_model, gem_err)
-                    if "503" in str(gem_err) or "404" in str(gem_err):
-                        continue
+                    logger.warning("Google Gemini transkripsiyasida ogohlantirish: %s", gem_err)
                     break
-
-        # 2-bosqich: Groq Whisper zaxirasi
-        multilingual_prompt = (
-            "O'zbekiston, Toshkent, CoddyCamp dasturlash akademiyasi. Bu audio O'zbek tilida (yoki rus/ingliz). "
-            "Assalomu alaykum ustoz, dars, uyga vazifa, topshiriq, o'quvchi, darsga kechikaman, kasalman, kela olmayman, kod, dasturlash, Python, CoddyCamp, Rustamjon, Amirbek. "
-            "Здравствуйте учитель, урок, домашнее задание, опоздаю, не смогу прийти, заболел, код, ошибка, проект. "
-            "Hello teacher, lesson, homework, coding, class, late, project."
-        )
-        hallucinations = ("subtitles by", "amara.org", "sous-titres", "transcription par", "thank you for watching")
-        turkish_markers = (
-            "öğretmen", "yapıyorum", "geliyorum", "lütfen", "merhaba", "dersime",
-            "ödev", "hastayım", "nasılsınız", "hocam", "böyle", "şimdi", "görüşürüz",
-            "tamam mı", "ben ", " benim", " dersler", "derse "
-        )
-
-        pool = self._frontline_clients if self._frontline_clients else self._groq_clients
-        if pool:
-            for _ in range(min(5, len(pool))):
-                client = pool[self._frontline_idx % len(pool)]
-                self._frontline_idx = (self._frontline_idx + 1) % len(pool)
-                try:
-                    transcription = await client.audio.transcriptions.create(
-                        file=("voice.ogg", audio_bytes),
-                        model="whisper-large-v3",
-                        response_format="verbose_json",
-                        prompt=multilingual_prompt,
-                        temperature=0.0,
-                    )
-                    det_lang = str(getattr(transcription, "language", "") or "").lower()
-                    text = str(getattr(transcription, "text", transcription)).strip()
-
-                    if any(h in text.lower() for h in hallucinations) and len(text) < 45:
-                        text = ""
-
-                    # Agar Whisper o'zbekchani turkcha yoki boshqa turkiy til deb o'ylagan bo'lsa:
-                    is_turkish = (
-                        det_lang in ("tr", "turkish", "az", "azerbaijani", "tk", "turkmen", "kk", "kazakh", "ky", "kyrgyz")
-                        or any(tm in text.lower() for tm in turkish_markers)
-                    )
-                    if is_turkish and audio_bytes:
-                        logger.warning("⚠️ Whisper o'zbekcha nutqni turkcha deb o'yladi (det_lang=%s), darhol language='uz' bilan majburiy qayta o'qilmoqda...", det_lang)
-                        uz_prompt = (
-                            "Assalomu alaykum ustoz, CoddyCamp dasturlash maktabi. Bugun darsga kela olmayman, kechikaman, kasalman, mazam yo'q, uyga vazifa, topshiriq, kod, o'quvchi."
-                        )
-                        try:
-                            trans_uz = await client.audio.transcriptions.create(
-                                file=("voice.ogg", audio_bytes),
-                                model="whisper-large-v3",
-                                language="uz",
-                                prompt=uz_prompt,
-                                temperature=0.0,
-                            )
-                            uz_text = str(getattr(trans_uz, "text", trans_uz)).strip()
-                            if uz_text and len(uz_text) > 3:
-                                text = uz_text
-                                det_lang = "uz"
-                                logger.info("✅ language='uz' bilan muvaffaqiyatli transkripsiya qilindi: %s", text[:80])
-                        except Exception as uz_err:
-                            logger.warning("language='uz' bilan transkripsiyada xatolik: %s", uz_err)
-
-                    if text:
-                        polished = await self._polish_voice_transcription(text, detected_lang=det_lang)
-                        logger.info("✅ Groq Whisper (Frontline) ovozli xabarni matnga aylantirdi: %s", polished[:80])
-                        return polished
-                except Exception as e:
-                    logger.warning("Groq Whisper (Frontline) xatolik, keyingi kalitga o'tilmoqda: %s", e)
-
-        # 3-bosqich: Groq Zaxira Qalqoni orqali urinish
-        if self._reserve_clients:
-            for _ in range(min(3, len(self._reserve_clients))):
-                client = self._reserve_clients[self._reserve_idx % len(self._reserve_clients)]
-                self._reserve_idx = (self._reserve_idx + 1) % len(self._reserve_clients)
-                try:
-                    transcription = await client.audio.transcriptions.create(
-                        file=("voice.ogg", audio_bytes),
-                        model="whisper-large-v3",
-                        response_format="verbose_json",
-                        prompt=multilingual_prompt,
-                        temperature=0.0,
-                    )
-                    det_lang = str(getattr(transcription, "language", "") or "").lower()
-                    text = str(getattr(transcription, "text", transcription)).strip()
-
-                    if any(h in text.lower() for h in hallucinations) and len(text) < 45:
-                        text = ""
-
-                    is_turkish = (
-                        det_lang in ("tr", "turkish", "az", "azerbaijani", "tk", "turkmen")
-                        or any(tm in text.lower() for tm in turkish_markers)
-                    )
-                    if is_turkish and audio_bytes:
-                        try:
-                            trans_uz = await client.audio.transcriptions.create(
-                                file=("voice.ogg", audio_bytes),
-                                model="whisper-large-v3",
-                                language="uz",
-                                prompt="Assalomu alaykum ustoz, CoddyCamp dasturlash. Darsga kela olmayman, kasalman, vazifa, topshiriq.",
-                                temperature=0.0,
-                            )
-                            uz_text = str(getattr(trans_uz, "text", trans_uz)).strip()
-                            if uz_text:
-                                text = uz_text
-                                det_lang = "uz"
-                        except Exception:
-                            pass
-
-                    if text:
-                        polished = await self._polish_voice_transcription(text, detected_lang=det_lang)
-                        logger.info("🛡️ Groq Whisper (Zaxira Qalqoni) ovozli xabarni matnga aylantirdi: %s", polished[:80])
-                        return polished
-                except Exception as e:
-                    logger.warning("Groq Whisper (Zaxira Qalqoni) xatolik: %s", e)
 
         return ""
 
