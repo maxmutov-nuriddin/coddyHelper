@@ -133,13 +133,16 @@ class MongoMemoryService:
             logger.error("MongoDB conversations xatolik: %s", e)
             return False
 
-    def get_conversation_history(self, chat_id: int, limit: int = 15) -> list[dict]:
+    def get_conversation_history(self, chat_id: int, limit: int = 15, sender_id: Optional[int] = None) -> list[dict]:
         if not self.is_connected():
             return []
         try:
+            query: dict[str, Any] = {"chat_id": chat_id}
+            if sender_id is not None and chat_id < 0:
+                query["$or"] = [{"sender_id": sender_id}, {"sender_id": None}]
             cursor = (
                 self._db["brain_frontline.conversations"]
-                .find({"chat_id": chat_id})
+                .find(query)
                 .sort("timestamp", -1)
                 .limit(limit)
             )

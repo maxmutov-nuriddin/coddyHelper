@@ -2,6 +2,7 @@
 AI integratsiyasi (Groq Multi-Key va Google Gemini qo'llab-quvvatlanadi)
 """
 
+import ast
 import asyncio
 import base64
 import inspect
@@ -459,9 +460,11 @@ def detect_student_feedback_reaction(text: str) -> str | None:
 
 def apply_socratic_critic(answer: str, user_message: str) -> str:
     """
-    Pedagogik Sifat Nazoratchisi (Critic):
-    O'quvchilarga tayyor uy vazifasi yechimini 100% ko'chirishga berib yubormaydi.
-    Katta (25+ qatorli) tayyor kod bloklarini scaffold + yo'naltiruvchi sokratik savolga aylantiradi.
+    Pedagogik Sifat Nazoratchisi va Reflection Tizimi (Critic):
+    1. O'quvchilarga tayyor uy vazifasi yechimini (spoon-feeding) berib yuborishni to'xtatadi.
+    2. Tayyor kod bloklarini scaffold + yo'naltiruvchi Sokratik savolga aylantiradi.
+    3. Model berayotgan Python kod namunalarini sintaktik tekshirib (ast.parse), xato kod yuborilishini oldini oladi.
+    4. Agar javobda pedagogik yo'naltiruvchi savol bo'lmasa, rag'batlantiruvchi Sokratik savol qo'shadi.
     """
     if not answer:
         return answer
@@ -469,56 +472,80 @@ def apply_socratic_critic(answer: str, user_message: str) -> str:
     # Ortiqcha tizim taglarini tozalash
     answer = re.sub(r"<<<[A-Za-z0-9_]+:[^>]*>>>", "", answer)
 
-    # Markdown kod bloklarini tekshirish
+    is_ru = is_russian_text(user_message) or is_russian_text(answer)
+    u_lower = (user_message or "").lower()
+
+    # Foydalanuvchi to'g'ridan-to'g'ri tayyor yechim talab qilayotganini aniqlash
+    is_asking_for_solution = any(p in u_lower for p in [
+        "yechib ber", "yechimi bormi", "kodini yozib ber", "qilib ber", "to'liq kod",
+        "vazifamni", "uyga vazifa", "tayyor yechim", "kodini ber", "реши за меня",
+        "напиши код", "сделай за меня", "готовый код", "полный код"
+    ])
+
     code_block_regex = re.compile(r"```([a-zA-Z0-9_\-\+]*)\n([\s\S]*?)```")
 
-    def _truncate_code_block(match: re.Match) -> str:
-        lang = match.group(1) or "python"
+    def _inspect_and_scaffold_code(match: re.Match) -> str:
+        lang = (match.group(1) or "python").lower()
         code = match.group(2)
         lines = code.splitlines()
 
-        # Agar kod 25 qatordan kam bo'lsa, o'zgartirmaymiz
-        if len(lines) <= 25:
+        # 1. Bot berayotgan Python kod sintaksisini ast.parse orqali tekshirish
+        if lang in ("python", "py"):
+            try:
+                ast.parse(code)
+            except SyntaxError as se:
+                logger.warning("Critic: AI bergan kodda sintaksis xatosi (%s, qator %s).", se.msg, se.lineno)
+                comment = f"# Eslatma: Ushbu kod shablon sifatida keltirilgan (sintaksisni tekshiring: {se.msg})"
+                return f"```{lang}\n{comment}\n{code}\n```"
+
+        # 2. Tayyor yechimni cheklash (Spoon-feeding guard)
+        max_allowed_lines = 5 if is_asking_for_solution else 22
+        if len(lines) <= max_allowed_lines:
             return match.group(0)
 
-        is_ru = is_russian_text(user_message) or is_russian_text(answer)
-
-        # 12 qator saqlab qolamiz, qolganini scaffold qilamiz
-        kept_lines = lines[:12]
-        comment_prefix = "//" if lang.lower() in ("javascript", "js", "cpp", "c", "csharp", "cs", "java", "dart") else "#"
+        # Qisqartirish va scaffold qilish
+        kept_lines_count = 3 if is_asking_for_solution else 12
+        kept_lines = lines[:kept_lines_count]
+        comment_prefix = "//" if lang in ("javascript", "js", "cpp", "c", "csharp", "cs", "java", "dart") else "#"
 
         if is_ru:
             placeholder = (
                 f"\n{comment_prefix} ... [ОСТАЛЬНУЮ ЧАСТЬ КОДА НАПИШИТЕ САМОСТОЯТЕЛЬНО] ...\n"
-                f"{comment_prefix} Подсказка: Попробуйте применить условие или цикл здесь.\n"
+                f"{comment_prefix} Подсказка: Примените подходящее условие или цикл здесь.\n"
             )
         else:
             placeholder = (
-                f"\n{comment_prefix} ... [QOLGAN MANTIQNI O'ZINGIZ YOZIB KO'RING] ...\n"
-                f"{comment_prefix} Maslahat: Shu yerda shart yoki tsikl yordamida davom ettiring.\n"
+                f"\n{comment_prefix} ... [QOLGAN QISMINI O'ZINGIZ MUSTAQIL YOZIB KO'RING] ...\n"
+                f"{comment_prefix} Maslahat: Shu yerda kerakli shart (if) yoki tsiklni (for/while) davom ettiring.\n"
             )
 
         new_code = "\n".join(kept_lines) + placeholder
         return f"```{lang}\n{new_code}\n```"
 
-    transformed_answer = code_block_regex.sub(_truncate_code_block, answer)
+    transformed_answer = code_block_regex.sub(_inspect_and_scaffold_code, answer)
 
-    # Agar kod qisqartirilgan bo'lsa, oxiriga Sokratik pedagogik savol qo'shamiz
+    # 3. Agar kod scaffold qilingan bo'lsa, Sokratik yo'naltiruvchi qo'llanma qo'shish
     if transformed_answer != answer:
-        is_ru = is_russian_text(user_message) or is_russian_text(answer)
         if is_ru:
             socratic_hint = (
                 "\n\n💡 **Совет наставника:** Полное копирование готового кода не научит программировать. "
-                "Я дал вам базовый шаблон выше. Как вы думаете, какой следующий шаг нужно сделать? "
-                "Напишите свой вариант, и я с радостью помогу его доработать!"
+                "Я дал вам базовый каркас выше. Как вы думаете, какой следующий шаг нужно сделать? "
+                "Напишите свой вариант, и мы вместе его разберем 😊"
             )
         else:
             socratic_hint = (
-                "\n\n💡 **Ustoz maslahati:** Tayyor kodni to'liq ko'chirib qo'yish dasturlashni o'rganishga yordam bermaydi. "
-                "Yuqorida sizga asosiy skeletni (shablonni) berdim. Sizningcha, keyingi qadamda nima qilishimiz kerak? "
-                "O'z fikringizni yoki kodingizni yozing, birgalikda tekshiramiz 😊"
+                "\n\n💡 **Ustoz maslahati:** Tayyor kodni ko'chirib olish dasturlashni o'rganishga yordam bermaydi. "
+                "Yuqorida sizga asosiy skeletni (shablonni) qoldirdim. Sizningcha, keyingi qadamda qaysi o'zgaruvchi yoki shartdan foydalanishimiz kerak? "
+                "O'z fikringizni yozing, birgalikda tekshiramiz 😊"
             )
         transformed_answer += socratic_hint
+
+    # 4. Sokratik savol mavjudligini tekshirish (faqat kod mavjud bo'lib, savol umuman berilmaganda)
+    elif "?" not in transformed_answer and "```" in transformed_answer:
+        if is_ru:
+            transformed_answer += "\n\n💡 **Вопрос наставника:** Попробовали ли вы запустить этот код? Что вывела программа?"
+        else:
+            transformed_answer += "\n\n💡 **Ustoz savoli:** Ushbu qismni kodingizda sinab ko'rdingizmi? Qanday natija chiqdi?"
 
     return transformed_answer
 
@@ -1962,8 +1989,9 @@ class AIService:
         pool_override: list[Any] | None = None,
         brain_type_override: str | None = None,
         is_administration_mode: bool = False,
+        user_id: int | None = None,
     ) -> str:
-        history = memory_service.get_history(chat_id)
+        history = memory_service.get_history(chat_id, user_id=user_id)
         if image_bytes:
             opt_image = optimize_image_for_vision(image_bytes, max_dim=960, quality=80)
             img_b64 = base64.b64encode(opt_image).decode("utf-8")
@@ -2430,6 +2458,7 @@ class AIService:
         image_bytes: bytes | None = None,
         brain_tag: str = "reserve",
         is_administration_mode: bool = False,
+        user_id: int | None = None,
     ) -> str | None:
         """Google Gemini zaxira miyasi orqali javob shakllantiradi va token metrikalarini qayd etadi."""
         if not self._gemini_client:
@@ -2437,7 +2466,7 @@ class AIService:
         try:
             logger.info("⚡ Google Gemini zaxira tizimi ishga tushirildi (vision=%s)...", bool(image_bytes))
             self._recalculate_cascade_states(active_override="Google Gemini")
-            history = memory_service.get_history(chat_id)
+            history = memory_service.get_history(chat_id, user_id=user_id)
             recent_history = history[-6:] if not is_admin_mode else history[-8:]
             history_lines = []
             for m in recent_history:
@@ -2484,6 +2513,7 @@ class AIService:
         file_text: str | None = None,
         is_admin_mode: bool | None = None,
         is_administration_mode: bool = False,
+        user_id: int | None = None,
     ) -> AIResult:
         """
         Xabarni tahlil qilib AI javobini qaytaradi (matn, fayl yoki rasm/skrinshot bilan).
@@ -2502,8 +2532,8 @@ class AIService:
             fast_faq = check_fast_faq(user_message)
             if fast_faq:
                 logger.info("Fast FAQ mos keldi [%s], tezkor javob berildi.", chat_id)
-                memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
-                memory_service.add_message(chat_id=chat_id, role="model", content=fast_faq)
+                memory_service.add_message(chat_id=chat_id, role="user", content=user_message, user_id=user_id)
+                memory_service.add_message(chat_id=chat_id, role="model", content=fast_faq, user_id=user_id)
                 return AIResult(fast_faq)
 
             # 0-Bosqich: Miya 5 (Avtonom Ong) oldindan keshlab qo'ygan yechimni tekshirish (0.02s - Limit sarflanmaydi)
@@ -2513,8 +2543,8 @@ class AIService:
                 if ans_text:
                     match_type = precomputed.get("match_type", "kesh")
                     logger.info("⚡ Miya 5 (Zero-Latency Cache Hit) qo'llanildi [%s: %s | %s]", chat_id, precomputed.get("topic"), match_type)
-                    memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
-                    memory_service.add_message(chat_id=chat_id, role="model", content=ans_text)
+                    memory_service.add_message(chat_id=chat_id, role="user", content=user_message, user_id=user_id)
+                    memory_service.add_message(chat_id=chat_id, role="model", content=ans_text, user_id=user_id)
                     return AIResult(ans_text)
 
         # Javob berilayotgan kontekst
@@ -2538,11 +2568,39 @@ class AIService:
                     logger.info("⚡ Universal Linter sintaksis xatosini aniqladi [%s: %s]", chat_id, lint_topic)
                     if lint_topic:
                         memory_service.record_student_topic_struggle(chat_id, lint_topic, user_message[:200])
-                    memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
-                    memory_service.add_message(chat_id=chat_id, role="model", content=lint_err)
+                    memory_service.add_message(chat_id=chat_id, role="user", content=user_message, user_id=user_id)
+                    memory_service.add_message(chat_id=chat_id, role="model", content=lint_err, user_id=user_id)
                     return AIResult(lint_err)
             except Exception as l_err:
                 logger.warning("Universal Linter tekshiruvida ogohlantirish: %s", l_err)
+
+            # 0.3-Bosqich: Safe Code Runner Sandbox (Python real runtime tekshiruvi)
+            # O'quvchi yuborgan Python kodini xavfsiz izolyatsiyada (0.5s timeout) bajarib,
+            # real IndexError, TypeError, ZeroDivisionError yoki cheksiz tsikl (timeout) borligini aniqlash.
+            try:
+                code_cand = file_text if file_text else user_message
+                is_py = (file_name and file_name.endswith(".py")) or ("```python" in code_cand) or (
+                    any(kw in code_cand for kw in ("def ", "for ", "while ", "print(", "class ", "import "))
+                )
+                if is_py and len(code_cand.strip()) >= 10:
+                    from services.code_sandbox_service import execute_student_python_code, format_sandbox_context_for_ai
+                    py_blocks = re.findall(r"```(?:python|py)?\n([\s\S]*?)```", code_cand)
+                    target_code = py_blocks[0] if py_blocks else code_cand
+                    if any(tok in target_code for tok in ("print", "def ", "for ", "while ", "if ", "=")):
+                        sb_res = execute_student_python_code(target_code, timeout_seconds=0.5)
+                        if sb_res.executed:
+                            sb_ctx = format_sandbox_context_for_ai(sb_res)
+                            if sb_ctx:
+                                effective_prompt = f"{effective_prompt}\n{sb_ctx}"
+                                logger.info(
+                                    "🧪 Safe Code Sandbox tahlili promptga qo'shildi [%s: success=%s, err=%s, timeout=%s]",
+                                    chat_id,
+                                    sb_res.success,
+                                    sb_res.error_type,
+                                    sb_res.timed_out,
+                                )
+            except Exception as sb_err:
+                logger.debug("Sandbox tahlilida ogohlantirish: %s", sb_err)
 
         # Web Search & Rasmiy IT Dokumentatsiyalardan qidiruv (Real-time docs)
         web_search_enabled = memory_service.get_setting("web_search_enabled", "true").lower() == "true"
@@ -2622,7 +2680,7 @@ class AIService:
                 # Pedagogical Outcome Tracker (Implicit RLHF)
                 reaction = detect_student_feedback_reaction(user_message)
                 if reaction:
-                    hist = memory_service.get_history(chat_id)
+                    hist = memory_service.get_history(chat_id, user_id=user_id)
                     last_model_msg = None
                     last_user_msg = None
                     for h in reversed(hist):
@@ -2698,21 +2756,21 @@ class AIService:
             if not answer and gemini_trigger_after in ("gemini_first", "primary_first") and _is_gemini_allowed_for_request():
                 logger.info("🥇 [gemini_first] Google Gemini Asosiy Miya (1-o'rinda) sifatida ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode, user_id=user_id
                 )
 
             # 0.5-ustuvorlik: Agar "vision_first" tanlangan bo'lsa va rasm bo'lsa, 1-o'rinda Gemini Vision ishlaydi
             if not answer and image_bytes and gemini_trigger_after == "vision_first" and _is_gemini_allowed_for_request():
                 logger.info("🖼️ [vision_first] Rasm tahlili uchun to'g'ridan-to'g'ri 1-o'rinda Google Gemini Vision ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode, user_id=user_id
                 )
 
             # 0.7-ustuvorlik: Agar "smart_hybrid" tanlangan bo'lsa va VIP/Mentor yoki rasm bo'lsa, 1-o'rinda Gemini ishlaydi
             if not answer and (is_vip or image_bytes) and gemini_trigger_after == "smart_hybrid" and _is_gemini_allowed_for_request():
                 logger.info("👑 [smart_hybrid] VIP/Murakkab so'rov uchun Gemini 1-o'rinda ishga tushirildi...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode, user_id=user_id
                 )
 
             # 1-ustuvorlik: Groq Birlamchi Miya (Miya 1: Frontline yoki Miya 2: VIP)
@@ -2720,7 +2778,7 @@ class AIService:
                 try:
                     answer = await asyncio.wait_for(
                         self._generate_with_groq(
-                            chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode, is_administration_mode=is_administration_mode
+                            chat_id, effective_prompt, image_bytes=image_bytes, is_admin_mode=is_admin_mode, is_administration_mode=is_administration_mode, user_id=user_id
                         ),
                         timeout=30.0,
                     )
@@ -2736,7 +2794,7 @@ class AIService:
             if not answer and gemini_trigger_after == "after_primary" and _is_gemini_allowed_for_request():
                 logger.info("⚡ [after_primary] Asosiy miya to'ldi. Gemini'ga darhol o'tilmoqda (Groq Zaxira kutib o'tirilmaydi)...")
                 answer = await self._generate_gemini_reply(
-                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
+                    chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode, user_id=user_id
                 )
 
             # 3-ustuvorlik: Miya 3: Groq Zaxira Qalqoni (12 ta kalit, Jamoalar #9-#12)
@@ -2753,6 +2811,7 @@ class AIService:
                             pool_override=self._reserve_clients,
                             brain_type_override="groq_reserve",
                             is_administration_mode=is_administration_mode,
+                            user_id=user_id,
                         ),
                         timeout=30.0,
                     )
@@ -2771,7 +2830,7 @@ class AIService:
                 if gemini_trigger_after != "vision_only_trigger" or image_bytes or file_text:
                     logger.info("⚡ So'nggi istehkom: Google Gemini zaxira tizimi ulanmoqda (scope=%s, trigger=%s)...", gemini_scope, gemini_trigger_after)
                     answer = await self._generate_gemini_reply(
-                        chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode
+                        chat_id, effective_prompt, is_admin_mode=is_admin_mode, image_bytes=image_bytes, brain_tag="reserve", is_administration_mode=is_administration_mode, user_id=user_id
                     )
 
             if not answer:
@@ -2848,8 +2907,8 @@ class AIService:
                 answer = apply_socratic_critic(answer, user_message)
 
             # Xotiraga tozalangan javobni saqlash
-            memory_service.add_message(chat_id=chat_id, role="user", content=user_message)
-            memory_service.add_message(chat_id=chat_id, role="model", content=answer)
+            memory_service.add_message(chat_id=chat_id, role="user", content=user_message, user_id=user_id)
+            memory_service.add_message(chat_id=chat_id, role="model", content=answer, user_id=user_id)
 
             return AIResult(answer, escalation=escalation_info)
 

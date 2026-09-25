@@ -59,14 +59,22 @@ class SQLiteMemoryService:
                     CREATE TABLE IF NOT EXISTS messages (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         chat_id INTEGER NOT NULL,
+                        user_id INTEGER,
                         role TEXT NOT NULL,
                         content TEXT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                     """
                 )
+                try:
+                    conn.execute("ALTER TABLE messages ADD COLUMN user_id INTEGER")
+                except Exception:
+                    pass
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_chat_id ON messages (chat_id, id)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_chat_user ON messages (chat_id, user_id, id)"
                 )
                 conn.execute(
                     """
@@ -543,7 +551,7 @@ class SQLiteMemoryService:
         self.set_curriculum_topics(filtered)
         return True
 
-    def add_message(self, chat_id: int, role: Literal["user", "model"], content: str) -> None:
+    def add_message(self, chat_id: int, role: Literal["user", "model"], content: str, user_id: Optional[int] = None) -> None:
         """Yangi xabarni doimiy bazaga qo'shadi (Dual-Persistence: MongoDB + SQLite)."""
         if not content or not content.strip():
             return
@@ -551,7 +559,7 @@ class SQLiteMemoryService:
         # 1. MongoDB Atlas'ga yozish
         try:
             if mongo_memory_service.is_connected():
-                mongo_memory_service.add_conversation_message(chat_id, role, content.strip())
+                mongo_memory_service.add_conversation_message(chat_id, role, content.strip(), sender_id=user_id)
         except Exception as me:
             logger.debug("MongoDB ga suhbat yozishda ogohlantirish: %s", me)
 
@@ -559,8 +567,8 @@ class SQLiteMemoryService:
         try:
             with self._get_connection() as conn:
                 conn.execute(
-                    "INSERT INTO messages (chat_id, role, content) VALUES (?, ?, ?)",
-                    (chat_id, role, content.strip()),
+                    "INSERT INTO messages (chat_id, user_id, role, content) VALUES (?, ?, ?, ?)",
+                    (chat_id, user_id, role, content.strip()),
                 )
                 conn.commit()
         except Exception as e:
@@ -582,11 +590,11 @@ class SQLiteMemoryService:
         except Exception as e:
             logger.error("Oxirgi xabarni yangilashda xatolik: %s", e)
 
-    def get_history(self, chat_id: int) -> list[ChatMessage]:
+    def get_history(self, chat_id: int, user_id: Optional[int] = None) -> list[ChatMessage]:
         """Oxirgi N ta xabarlar tarixini xronologik tartibda vaqti (Toshkent vaqti) bilan qaytaradi (MongoDB -> SQLite)."""
         try:
             if mongo_memory_service.is_connected():
-                docs = mongo_memory_service.get_conversation_history(chat_id, limit=self.limit)
+                docs = mongo_memory_service.get_conversation_history(chat_id, limit=self.limit, sender_id=user_id)
                 if docs:
                     return [
                         ChatMessage(
@@ -602,16 +610,28 @@ class SQLiteMemoryService:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT role, content, datetime(created_at, '+5 hours') FROM (
-                        SELECT id, role, content, created_at FROM messages 
-                        WHERE chat_id = ? 
-                        ORDER BY id DESC LIMIT ?
-                    ) ORDER BY id ASC
-                    """,
-                    (chat_id, self.limit),
-                )
+                if user_id is not None and chat_id < 0:
+                    cursor.execute(
+                        """
+                        SELECT role, content, datetime(created_at, '+5 hours') FROM (
+                            SELECT id, role, content, created_at FROM messages 
+                            WHERE chat_id = ? AND (user_id = ? OR user_id IS NULL)
+                            ORDER BY id DESC LIMIT ?
+                        ) ORDER BY id ASC
+                        """,
+                        (chat_id, user_id, self.limit),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT role, content, datetime(created_at, '+5 hours') FROM (
+                            SELECT id, role, content, created_at FROM messages 
+                            WHERE chat_id = ? 
+                            ORDER BY id DESC LIMIT ?
+                        ) ORDER BY id ASC
+                        """,
+                        (chat_id, self.limit),
+                    )
                 rows = cursor.fetchall()
                 return [
                     ChatMessage(

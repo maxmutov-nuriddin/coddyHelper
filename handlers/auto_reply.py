@@ -1389,6 +1389,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                                 file_name=file_name,
                                 file_text=file_text,
                                 is_admin_mode=True,
+                                user_id=reply_sender_id,
                             ),
                             timeout=40.0,
                         )
@@ -2896,6 +2897,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                                 file_name=file_name,
                                 file_text=file_text,
                                 is_administration_mode=True,
+                                user_id=sender_id,
                             ),
                             timeout=40.0,
                         )
@@ -2916,6 +2918,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                                     image_bytes=image_bytes,
                                     file_name=file_name,
                                     file_text=file_text,
+                                    user_id=sender_id,
                                 ),
                                 timeout=35.0,
                             )
@@ -2932,6 +2935,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                                 image_bytes=image_bytes,
                                 file_name=file_name,
                                 file_text=file_text,
+                                user_id=sender_id,
                             ),
                             timeout=40.0,
                         )
