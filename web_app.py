@@ -2377,6 +2377,8 @@ self.addEventListener('fetch', (event) => {
                 "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
                 "reply_language": memory_service.get_setting(f"reply_language_{uid}", "auto"),
                 "accept_media": memory_service.get_setting("accept_media", "all"),
+                "auto_answer_calls": memory_service.get_setting("auto_answer_calls", "false").lower() == "true",
+                "call_auto_reply": memory_service.get_setting("call_auto_reply", ""),
             },
             "profile": {
                 "business_name": sub.get("business_name", ""),

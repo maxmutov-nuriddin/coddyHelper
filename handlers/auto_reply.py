@@ -1553,6 +1553,49 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         logger.info("Mentor o'zi xabar yozdi [%s], AI kutish vazifalari bekor qilindi.", chat_id)
 
     # -----------------------------------------------------------
+    # 3a-0. Kiruvchi Telegram qo'ng'iroqlarga avtomatik javob
+    # -----------------------------------------------------------
+    @client.on(events.Raw())
+    async def on_incoming_call(update):
+        try:
+            from telethon.tl.types import UpdatePhoneCall, PhoneCallRequested
+            if not isinstance(update, UpdatePhoneCall):
+                return
+            call = getattr(update, "phone_call", None)
+            if not isinstance(call, PhoneCallRequested):
+                return
+            if memory_service.get_setting("auto_answer_calls", "false") != "true":
+                return
+            caller_id = getattr(call, "admin_id", None)
+            if not caller_id:
+                return
+            # Qo'ng'iroqni rad etish
+            try:
+                from telethon.tl.types import InputPhoneCall, PhoneCallDiscardReasonBusy
+                from telethon.tl.functions.phone import DiscardCallRequest
+                await client(DiscardCallRequest(
+                    peer=InputPhoneCall(id=call.id, access_hash=call.access_hash),
+                    duration=0,
+                    reason=PhoneCallDiscardReasonBusy(),
+                    connection_id=0,
+                ))
+            except Exception as _disc_e:
+                logger.debug("Qo'ng'iroqni rad etishda xatolik: %s", _disc_e)
+            # Avtomatik matn xabari
+            custom_msg = memory_service.get_setting("call_auto_reply", "")
+            if not custom_msg:
+                custom_msg = (
+                    "📞 Salom! Hozir qo'ng'iroqqa javob bera olmayman.\n\n"
+                    "💬 Iltimos, savolingizni **yozib yuboring** — men tezda javob beraman! 🤖"
+                )
+            await client.send_message(caller_id, custom_msg, parse_mode="md")
+            logger.info("Main bot: qo'ng'iroq rad etildi, %s ga xabar yuborildi", caller_id)
+        except ImportError:
+            pass
+        except Exception as _e:
+            logger.warning("Main bot qo'ng'iroq handlerda xatolik: %s", _e)
+
+    # -----------------------------------------------------------
     # 3a. Owner xabarni o'qidi (ikkita ko'k galichka) — read receipt
     # Faqat shaxsiy chatlarda: o'qilgan bo'lsa, debounce tugagandan keyin
     # 5 daqiqa kutiladi. Agar shu vaqt ichida javob bermasa — AI javob beradi.

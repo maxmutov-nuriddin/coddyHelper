@@ -887,16 +887,18 @@
       line-height: 1.1;
     }
 
-    /* Ko'p tab ko'rinadigan (super admin) hollarda labellarni yashir */
-    body.super-nav .nav-item span:last-child {
-      display: none;
-    }
-    body.super-nav .nav-item {
-      gap: 0;
-      padding: 5px 0;
-    }
-    body.super-nav .nav-icon {
-      font-size: 19px;
+    /* Super admin: mobil da 9 tab sig'diring — faqat ikonalar, yozuvsiz */
+    @media (max-width: 899px) {
+      body.super-nav .nav-item span:last-child {
+        display: none;
+      }
+      body.super-nav .nav-item {
+        gap: 0;
+        padding: 5px 0;
+      }
+      body.super-nav .nav-icon {
+        font-size: 19px;
+      }
     }
 
     /* COMPREHENSIVE RESPONSIVE MEDIA QUERIES */
