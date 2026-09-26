@@ -600,6 +600,36 @@ class SQLiteMemoryService:
         except Exception:
             pass
 
+    def delete_setting(self, key: str) -> None:
+        """Sozlamani butunlay o'chiradi (masalan muddati o'tgan auth tokenlarni tozalash uchun)."""
+        if not is_main_tenant() and key.startswith(CORE_SETTING_PREFIXES):
+            with tenant_scope(0):
+                return self.delete_setting(key)
+        self._settings_cache.pop(key, None)
+        try:
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+                conn.commit()
+        except Exception as e:
+            logger.debug("Sozlamani o'chirishda ogohlantirish: %s", e)
+
+    def delete_settings_by_prefix(self, prefix: str) -> int:
+        """Berilgan prefiks bilan boshlanadigan barcha sozlamalarni o'chiradi, o'chirilgan son qaytadi."""
+        if not is_main_tenant() and prefix.startswith(CORE_SETTING_PREFIXES):
+            with tenant_scope(0):
+                return self.delete_settings_by_prefix(prefix)
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("DELETE FROM settings WHERE key LIKE ?", (f"{prefix}%",))
+                conn.commit()
+                for k in list(self._settings_cache.keys()):
+                    if k.startswith(prefix):
+                        self._settings_cache.pop(k, None)
+                return cursor.rowcount
+        except Exception as e:
+            logger.debug("Sozlamalarni ommaviy o'chirishda ogohlantirish: %s", e)
+            return 0
+
     def get_private_quiet_window(self) -> int:
         """
         Mentor shaxsiy chatda yozib bo'lgandan so'ng, yangi kelgan xabarlarga

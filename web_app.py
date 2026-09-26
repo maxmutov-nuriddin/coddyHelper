@@ -178,10 +178,38 @@ def verify_admin_token(token: str) -> bool:
                     "expires_at": exp_float,
                 }
                 return True
+            # Muddati o'tgan token — bazada abadiy chiqindi bo'lib qolmasligi uchun o'chiramiz
+            memory_service.delete_setting(f"admintoken_{token}")
     except Exception as e:
         logger.debug("SQLite dan tokenni tekshirishda ogohlantirish: %s", e)
 
     return False
+
+
+def cleanup_expired_tokens() -> int:
+    """
+    Bazadagi barcha `admintoken_*` yozuvlarini tekshirib, muddati o'tganlarini o'chiradi.
+    Har bir token tekshirilganda ham tozalanadi, lekin ISHLATILMAGAN (hech kim login qilmagan)
+    eskirgan tokenlar shu funksiyasiz umuman o'chmay, chiqindi sifatida to'planib qolaverardi.
+    """
+    removed = 0
+    try:
+        with memory_service._get_connection() as conn:
+            rows = conn.execute("SELECT key, value FROM settings WHERE key LIKE 'admintoken_%'").fetchall()
+        now = time.time()
+        for key, val in rows:
+            try:
+                _, exp_str = str(val).split(":", 1)
+                if float(exp_str) < now:
+                    memory_service.delete_setting(key)
+                    removed += 1
+            except Exception:
+                continue
+    except Exception as e:
+        logger.debug("Eskirgan tokenlarni tozalashda ogohlantirish: %s", e)
+    if removed:
+        logger.info("🧹 %d ta muddati o'tgan admin-token tozalandi.", removed)
+    return removed
 
 
 def get_request_token(request: web.Request) -> str:
@@ -363,6 +391,12 @@ def _handle_client_toggle(user_info: dict, feature: str, enabled: bool, data: di
 
 def setup_web_app_routes(app: web.Application, get_client_func) -> None:
     """Aiohttp ilovasiga WebApp va API endpointlarini bog'laydi."""
+
+    # Har ishga tushishda: bazada to'planib qolgan muddati o'tgan tokenlarni tozalash
+    try:
+        cleanup_expired_tokens()
+    except Exception as e:
+        logger.debug("Startup token tozalashda ogohlantirish: %s", e)
 
     @web.middleware
     async def api_tenant_guard(request: web.Request, handler):
