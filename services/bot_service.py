@@ -239,8 +239,11 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
                     "1️⃣ Pastdagi tugma orqali panelni oching\n"
                     "2️⃣ **🤖 Mening Agentim** bo'limida Telegram akkauntingizni ulang (raqam + kod)\n"
                     "3️⃣ **Bilimlar** bo'limiga biznesingiz qoidalari, narxlar va ma'lumotlarni kiriting\n\n"
-                    "💡 _Ixtiyoriy: o'zingiz uchun yopiq guruh ochib, meni admin qilib qo'shsangiz, "
-                    "u sizning boshqaruv guruhingiz sifatida biriktiriladi._",
+                    "💡 _Ixtiyoriy — boshqaruv guruhi: o'zingiz uchun guruh ochib, ULANGAN akkauntingiz "
+                    "(2-qadamda ulagan raqamingiz) o'sha guruhda turib `ai ulash` deb yozing — shu guruh "
+                    "darhol boshqaruv guruhingiz sifatida biriktiriladi va @mention'siz ham javob beradi. "
+                    "(Diqqat: buni shaxsiy akkauntingiz bilan qiling — meni, ya'ni botni guruhga qo'shish "
+                    "yetarli emas, chunki javob beradigan aynan sizning ULANGAN akkauntingizdir.)_",
                     reply_markup=kb,
                 )
             return
@@ -483,9 +486,11 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
                 welcome_text = (
                     f"🎛 <b>{biz_name} — Shaxsiy Boshqaruv Paneli</b>\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"✅ Guruh muvaffaqiyatli ulandi!\n\n"
-                    "Botni boshqarish uchun pastdagi tugmani bosing:\n\n"
-                    "💡 <i>Bu guruhda bot barcha xabarlarni AI yordamida tahlil qiladi.</i>"
+                    f"✅ Guruh ID tizimga saqlandi. Boshqaruv panelini ochish uchun pastdagi tugmani bosing.\n\n"
+                    "⚠️ <b>Muhim:</b> bu bot faqat boshqaruv tugmasini ko'rsatadi — mijozlaringizga AI javob "
+                    "berishi uchun sizning Mini App'da <b>🤖 Mening Agentim</b> orqali ULANGAN shaxsiy "
+                    "akkauntingiz ham shu guruhga a'zo bo'lishi shart. Agar u allaqachon shu yerda bo'lsa, "
+                    "o'sha akkauntingiz bilan bu guruhda <code>ai ulash</code> deb yozing — tasdiqlash uchun."
                 )
                 try:
                     sent = await event.bot.send_message(

@@ -191,6 +191,29 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         await self._incoming(make_event(STRANGER, other_group, "umumiy gap", private=False, mentioned=False))
         self.assertEqual(self.replies_tenants, [])
 
+    async def test_owner_can_link_group_via_command_single_account(self):
+        """
+        Bot orqali avtomatik bog'lash o'rniga, egasi o'zi agent akkaunti a'zo bo'lgan istalgan
+        guruhda `ai ulash` deb yozib, o'sha guruhni xavfsiz va aniq ravishda biriktira oladi
+        (bitta akkauntli sozlamada — xabar OUTGOING hodisa sifatida keladi).
+        """
+        new_group = -100800
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "ai ulash", private=False))
+        sub = memory_service.get_subscription(OWNER)
+        self.assertEqual(sub["group_id"], new_group)
+        self.assertTrue(self.client.sent and "boshqaruv guruhingiz" in self.client.sent[-1][1])
+        # Endi shu guruh @mention'siz ham javob berishi kerak
+        await self._incoming(make_event(STRANGER, new_group, "narx qancha?", private=False, mentioned=False))
+        self.assertEqual(self.replies_tenants, [OWNER])
+
+    async def test_random_group_membership_does_not_auto_link(self):
+        """Agent a'zo bo'lgan tasodifiy guruhlar, egasi buyruq bermaguncha, ULANMASLIGI kerak."""
+        random_group = -100801
+        await self._incoming(make_event(STRANGER, random_group, "salom hammaga", private=False, mentioned=False))
+        sub = memory_service.get_subscription(OWNER)
+        self.assertNotEqual(sub.get("group_id"), random_group)
+        self.assertEqual(self.replies_tenants, [])
+
     async def test_auto_reply_off_is_respected(self):
         from services.tenant_context import tenant_scope
         with tenant_scope(OWNER):

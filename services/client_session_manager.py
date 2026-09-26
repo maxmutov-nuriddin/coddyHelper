@@ -85,6 +85,25 @@ def _extract_owner_command(text: str) -> str | None:
     return None
 
 
+# Guruhni "boshqaruv guruhi" sifatida biriktirish uchun tan olinadigan iboralar
+# ("ai " prefiksidan keyin). Aynan shu guruhda, egasi o'zi yozganda ishlaydi — shuning
+# uchun avtomatik (bot qo'shilganda) bog'lashdan farqli o'laroq 100% xavfsiz: mijozning
+# shaxsiy akkaunti (agent) a'zo bo'lgan istalgan tasodifiy guruh o'zi ulanib qolmaydi.
+_LINK_GROUP_PHRASES = (
+    "ulash", "guruhni ulash", "shu guruhni ulash", "bu guruhni ulash",
+    "guruh ulash", "boshqaruv guruhi qil", "boshqaruv guruhiga qil",
+    "biriktir", "guruhni biriktir", "link this group", "link group",
+)
+
+
+def _is_link_group_command(owner_command: str | None) -> bool:
+    """`ai <buyruq>`dan ajratilgan matn guruhni ulash so'rovi ekanligini tekshiradi."""
+    if not owner_command:
+        return False
+    c = owner_command.strip().lower().rstrip("?!. ")
+    return c in _LINK_GROUP_PHRASES
+
+
 def _is_same_group(chat_id, group_id) -> bool:
     """
     Ikkita guruh ID sini solishtiradi ("-100xxxxxxxxxx" supergroup prefiksidan qat'i nazar).
@@ -481,11 +500,26 @@ class ClientSessionManager:
             sub = memory_service.get_subscription(user_id)
         except Exception:
             sub = None
+
+        # Guruhni "boshqaruv guruhi" sifatida ulash: egasi o'zi (bu guruhda, agent akkauntidan)
+        # `ai ulash` deb yozsa, shu guruh darhol biriktiriladi. Bu — bot guruhga qo'shilganda
+        # avtomatik bog'lashdan farqli, 100% ANIQ va XAVFSIZ usul: mijozning shaxsiy akkaunti
+        # (agent) a'zo bo'lgan boshqa tasodifiy guruhlar hech qachon o'zi ulanib qolmaydi.
+        command_for_link = _extract_owner_command(text)
+        if sub and _is_link_group_command(command_for_link):
+            memory_service.link_user_group(user_id, chat_id)
+            self._log(user_id, f"📌 Boshqaruv guruhi biriktirildi: {chat_id}")
+            await self._send(
+                user_id, client, chat_id,
+                "✅ Ushbu guruh sizning **boshqaruv guruhingiz** sifatida biriktirildi!\n"
+                "Endi bu yerda @mention qilmasdan ham javob beraman va `ai ...` buyruqlarini qabul qilaman.",
+            )
+            return
+
         if sub and _is_same_group(chat_id, sub.get("group_id")):
-            command = _extract_owner_command(text)
-            if command:
-                self._log(user_id, f"👤 Egasining buyrug'i (boshqaruv guruhidan): {command[:80]}")
-                result = await self.run_owner_command(user_id, command)
+            if command_for_link:
+                self._log(user_id, f"👤 Egasining buyrug'i (boshqaruv guruhidan): {command_for_link[:80]}")
+                result = await self.run_owner_command(user_id, command_for_link)
                 await self._send(user_id, client, chat_id, f"🤖 {result}")
                 return
             # Boshqaruv guruhida egasi oddiy gapirsa ham, AI'ni "jim tur" holatiga o'tkazmaymiz —
@@ -536,6 +570,21 @@ class ClientSessionManager:
 
         if memory_service.is_user_ignored(sender_id):
             return
+
+        # Guruhni "boshqaruv guruhi" sifatida ulash (agent alohida akkauntda ishlagan holat):
+        # egasi (haqiqiy o'zi, boshqa hech kim emas) shu guruhda `ai ulash` deb yozsa, biriktiriladi.
+        if not event.is_private and sender_id == user_id:
+            link_command = _extract_owner_command(text)
+            if _is_link_group_command(link_command):
+                memory_service.link_user_group(user_id, chat_id)
+                self._log(user_id, f"📌 Boshqaruv guruhi biriktirildi: {chat_id}")
+                await self._send(
+                    user_id, client, chat_id,
+                    "✅ Ushbu guruh sizning **boshqaruv guruhingiz** sifatida biriktirildi!\n"
+                    "Endi bu yerda @mention qilmasdan ham javob beraman va `ai ...` buyruqlarini qabul qilaman.",
+                    reply_to=event.id,
+                )
+                return
 
         # Mijozning O'Z (Mini App'da biriktirgan) boshqaruv guruhi — mentorning Vazifalar guruhi
         # bilan bir xil mantiqda ishlaydi: @mention shart emas, egasi shu yerdan `ai ...` buyrug'ini
