@@ -764,9 +764,16 @@ class ClientSessionManager:
             if self._tenant_setting("voice_reply_enabled", "true") == "true":
                 await self._send_voice(user_id, client, event.chat_id, answer_text)
 
-        # AI aniq javob bera olmadi -> egasiga xabar (u o'zi aralashishi uchun)
-        if UNSURE_ANSWER_RE.search(answer_text) and self._tenant_setting("escalate_to_owner", "true") == "true":
-            await self._escalate_to_owner(user_id, client, event, sender_id, combined)
+        # AI aniq javob bera olmadi -> egasiga xabar (u o'zi aralashishi uchun).
+        # ANIQ (ishonchli) signal: AI system promptida ko'rsatilgan <<<ESCALATE>>> belgisi — bu
+        # tuzilmali va aniq, AI qanday so'z bilan "yetkazaman" desa ham ishlaydi. Belgi topilmasa,
+        # zaxira sifatida javob matnidagi keng tarqalgan iboralarni ham tekshiramiz (UNSURE_ANSWER_RE) —
+        # lekin AI belgi qo'yishni "unutib", faqat og'zaki "yetkazdim" desayu HAQIQATDA yetkazmasligi
+        # aynan shu ikkinchi yo'l yetarli bo'lmagani uchun sodir bo'lgan edi.
+        escalation_reason = getattr(answer, "escalation", None)
+        should_escalate = bool(escalation_reason) or UNSURE_ANSWER_RE.search(answer_text)
+        if should_escalate and self._tenant_setting("escalate_to_owner", "true") == "true":
+            await self._escalate_to_owner(user_id, client, event, sender_id, escalation_reason or combined)
 
     async def _send_voice(self, user_id: int, client: TelegramClient, chat_id: int, text: str) -> None:
         try:

@@ -416,6 +416,29 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(group_msgs and "Mijoz savoliga aniq javob kerak" in group_msgs[-1])
         self.assertEqual(dm_sent, [])  # guruh ulangani uchun zaxira DM shart emas
 
+    async def test_escalate_tag_is_reliable_regardless_of_ai_wording(self):
+        """
+        AI xar xil so'z bilan "yetkazdim" desa ham (regex ushlay olmaydigan iboralar bilan),
+        agar u <<<ESCALATE>>> belgisini qo'ygan bo'lsa (AIResult.escalation), eskalatsiya ISHONCHLI
+        ishlashi kerak — aynan shu bo'shliq sabab avval "yetkazdim deydi, lekin guruhga tushmaydi" bug bor edi.
+        """
+        from services.ai_service import AIResult
+        import services.ai_service as ai_mod
+
+        owner_group = -100831
+        memory_service.link_user_group(OWNER, owner_group)
+
+        async def tagged_reply(**kwargs):
+            # Odatiy regex bu iborani UMUMAN ushlamaydi (masalan "yetkazdim" so'zi UNSURE_ANSWER_RE'da yo'q)
+            return AIResult("Xabaringizni qabul qildim va egamga yetkazdim, tez orada javob berishadi 😊", escalation="Savol: chegirma bormi?")
+
+        ai_mod.ai_service.generate_reply = tagged_reply
+        await self._incoming(make_event(STRANGER, STRANGER, "Chegirma bormi?"))
+
+        group_msgs = [t for cid, t in self.client.sent if cid == owner_group]
+        self.assertTrue(group_msgs, "AIResult.escalation bo'lsa ham guruhga hech narsa yuborilmadi")
+        self.assertIn("Savol: chegirma bormi?", group_msgs[-1])
+
 
 if __name__ == "__main__":
     unittest.main()
