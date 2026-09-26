@@ -9,6 +9,7 @@ Mijoz agenti handlerining xulq-atvori (Telegram'siz, soxta hodisalar bilan):
 import tests._isolated_env  # noqa: F401
 
 import asyncio
+import itertools
 import unittest
 from types import SimpleNamespace
 
@@ -19,6 +20,10 @@ from services.tenant_context import get_tenant_id
 OWNER = 700000501
 AGENT_ACCOUNT = 700000501  # agent egasining o'z akkauntida ishlaydi
 STRANGER = 900000001
+
+# Har bir make_event() chaqiruvi (msg_id berilmasa) o'ziga xos xabar ID olishi kerak — aks holda
+# services.event_dedup ularni "bir xil, qayta yetkazilgan xabar" deb bir-biriga aralashtirib yuboradi.
+_msg_id_counter = itertools.count(1)
 
 
 class FakeClient:
@@ -42,7 +47,9 @@ class FakeClient:
         return True
 
 
-def make_event(sender_id, chat_id, text, *, private=True, bot=False, mentioned=False, channel=False, msg_id=1):
+def make_event(sender_id, chat_id, text, *, private=True, bot=False, mentioned=False, channel=False, msg_id=None):
+    if msg_id is None:
+        msg_id = next(_msg_id_counter)
     sender = SimpleNamespace(id=sender_id, bot=bot)
 
     async def get_sender():
@@ -57,6 +64,8 @@ def make_event(sender_id, chat_id, text, *, private=True, bot=False, mentioned=F
 
 class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        from services.event_dedup import reset as reset_event_dedup
+        reset_event_dedup()  # global holat testlar orasida sizib chiqmasligi uchun
         memory_service.upsert_subscription(user_id=OWNER, days=30, business_name="Test Mebel", full_name="Akmal")
         self.mgr = ClientSessionManager()
         self.client = FakeClient()

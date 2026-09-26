@@ -23,6 +23,7 @@ from services.telegram_agent_service import (
     format_davomat_card,
     _get_tashkent_time,
 )
+from services.event_dedup import is_duplicate_event
 
 logger = logging.getLogger(__name__)
 
@@ -992,6 +993,12 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         """
         chat_id = event.chat_id
 
+        # 🛡 Telethon qayta ulanganda ba'zan bir xil xabarni ikkinchi marta yuborishi mumkin
+        # (masalan Render "uxlab" qayta uyg'onganda) — bunday holda eslatma/javob 2x yaratilmasin.
+        if is_duplicate_event(chat_id, event.message.id):
+            logger.debug("Takroriy (qayta yetkazilgan) xabar e'tiborsiz qoldirildi: chat=%s, msg=%s", chat_id, event.message.id)
+            return
+
         # ⏹ Stop buyrug'i: har qanday osilib qolgan vazifa yoki qulfni darhol tozalaydi
         raw_txt_check = (event.raw_text or event.message.message or "").strip().lower()
         if raw_txt_check in ("stop", "/stop", "to'xtat", "toxtat"):
@@ -1511,6 +1518,11 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         chat_id = event.chat_id
+        # handle_vazifalar_chat o'zi ham tekshiradi, lekin bu yerda ham tekshirish orqali
+        # quyidagi PENDING_TASKS bekor qilish logikasi ham takror ishlamaydi.
+        if is_duplicate_event(chat_id, event.message.id):
+            return
+
         my_user_id = await get_my_id()
         # Izbrannoe (Saved Messages) — foydalanuvchi talabi: AI bu yerda mutlaqo ishlamaydi!
         if chat_id == my_user_id or (event.is_private and chat_id in (config.mentor_user_id, 8105823872)):
@@ -1547,6 +1559,9 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         chat_id = event.chat_id
+        if is_duplicate_event(chat_id, event.message.id):
+            logger.debug("Takroriy (qayta yetkazilgan) kiruvchi xabar e'tiborsiz qoldirildi: chat=%s, msg=%s", chat_id, event.message.id)
+            return
         sender_id = event.sender_id or chat_id
         is_private = event.is_private
         is_group = event.is_group or event.is_channel

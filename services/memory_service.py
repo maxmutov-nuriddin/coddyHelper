@@ -2117,6 +2117,19 @@ class SQLiteMemoryService:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                # Himoya: aynan bir xil (chat, matn, vaqt) uchun hali yuborilmagan eslatma
+                # allaqachon mavjud bo'lsa, ikkinchi nusxasini yaratmaymiz. Bu Telethon/Bot API
+                # ulanish qayta tiklanganda bir xil buyruqni ikki marta yuborib yuborishi
+                # (Render "uxlab" qayta uyg'onishi kabi holatlar) natijasida eslatma
+                # ikki marta paydo bo'lishining oldini oladi.
+                cursor.execute(
+                    "SELECT id FROM reminders WHERE chat_id = ? AND reminder_text = ? AND remind_at = ? AND is_sent = 0",
+                    (chat_id, clean_text, remind_at),
+                )
+                existing = cursor.fetchone()
+                if existing:
+                    logger.info("⏭ Bir xil eslatma allaqachon mavjud (ID #%d), takror yaratilmadi.", existing[0])
+                    return existing[0]
                 cursor.execute(
                     """
                     INSERT INTO reminders (chat_id, creator_id, reminder_text, remind_at, is_sent)
@@ -2701,8 +2714,18 @@ class SQLiteMemoryService:
             return 0
 
     def get_saved_location(self, query: str) -> dict | None:
-        """Nom bo'yicha eng mos lokatsiyani topadi."""
+        """Nom bo'yicha eng mos lokatsiyani topadi (aniq -> ichma-ich -> imlo xatolariga chidamli)."""
         clean = query.lower().strip()
+        if not clean:
+            return None
+
+        def _row_to_dict(row) -> dict:
+            return {
+                "id": row[0], "name": row[1], "lat": row[2], "long": row[3],
+                "latitude": row[2], "longitude": row[3], "address": row[4],
+                "created_at": str(row[5]),
+            }
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -2710,31 +2733,31 @@ class SQLiteMemoryService:
                 cursor.execute("SELECT id, name, lat, long, address, created_at FROM saved_locations WHERE name_clean = ? ORDER BY id DESC LIMIT 1", (clean,))
                 row = cursor.fetchone()
                 if row:
-                    return {
-                        "id": row[0],
-                        "name": row[1],
-                        "lat": row[2],
-                        "long": row[3],
-                        "latitude": row[2],
-                        "longitude": row[3],
-                        "address": row[4],
-                        "created_at": str(row[5]),
-                    }
+                    return _row_to_dict(row)
 
-                # 2. Qidiruv mosligi (LIKE)
-                cursor.execute("SELECT id, name, lat, long, address, created_at FROM saved_locations WHERE name_clean LIKE ? ORDER BY id DESC LIMIT 1", (f"%{clean}%",))
-                row = cursor.fetchone()
-                if row:
-                    return {
-                        "id": row[0],
-                        "name": row[1],
-                        "lat": row[2],
-                        "long": row[3],
-                        "latitude": row[2],
-                        "longitude": row[3],
-                        "address": row[4],
-                        "created_at": str(row[5]),
-                    }
+                # 2. Ichma-ich moslik (ikkala yo'nalishda: so'rov nomni yoki nom so'rovni o'z ichiga olsin)
+                cursor.execute(
+                    "SELECT id, name, name_clean, lat, long, address, created_at FROM saved_locations "
+                    "WHERE name_clean LIKE ? OR ? LIKE ('%' || name_clean || '%') ORDER BY id DESC",
+                    (f"%{clean}%", clean),
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    # Eng qisqa nom farqiga ega (eng mos) natijani tanlaymiz
+                    best = min(rows, key=lambda r: abs(len(r[2]) - len(clean)))
+                    return _row_to_dict((best[0], best[1], best[3], best[4], best[5], best[6]))
+
+                # 3. Imlo xatolariga chidamli (fuzzy) moslik — masalan "ishh" -> "ish", "uyi" -> "uy"
+                cursor.execute("SELECT id, name, name_clean, lat, long, address, created_at FROM saved_locations")
+                all_rows = cursor.fetchall()
+                if not all_rows:
+                    return None
+                import difflib
+                names_clean = [r[2] for r in all_rows]
+                close = difflib.get_close_matches(clean, names_clean, n=1, cutoff=0.6)
+                if close:
+                    best = next(r for r in all_rows if r[2] == close[0])
+                    return _row_to_dict((best[0], best[1], best[3], best[4], best[5], best[6]))
                 return None
         except Exception as e:
             logger.error("Lokatsiyani qidirishda xatolik: %s", e)
@@ -4177,7 +4200,15 @@ class SQLiteMemoryService:
                     if not mongo_memory_service.is_connected():
                         mongo_memory_service._init_mongo()
                     if mongo_memory_service.is_connected():
-                        mongo_memory_service.upsert_user_subscription(sub_data)
+                        # DIQQAT: sub_data["session_string"] `get_subscription` tomonidan DESHIFRLANGAN
+                        # (ochiq) holatda qaytariladi va "is_expired" hisoblangan (bazada mavjud
+                        # bo'lmagan) maydon. Buni to'g'ridan-to'g'ri Mongo'ga yuborish HSS kodini
+                        # ochiq matnda saqlab qo'yadi va sxemani "iflослantiradi" — shuning uchun
+                        # faqat shu funksiya tegishli bo'lgan maydonlarni, qayta shifrlab yuboramiz.
+                        mongo_payload = {k: v for k, v in sub_data.items() if k not in ("is_expired", "session_string")}
+                        if sub_data.get("session_string"):
+                            mongo_payload["session_string"] = encrypt_secret(sub_data["session_string"])
+                        mongo_memory_service.upsert_user_subscription(mongo_payload)
                         logger.info("✅ Obuna MongoDB Atlas ga muvaffaqiyatli saqlandi: user_id=%s", user_id)
                     else:
                         logger.warning("⚠️ MongoDB ulanmagan! Obuna faqat SQLite ga saqlandi: user_id=%s", user_id)

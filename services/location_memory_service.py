@@ -74,6 +74,11 @@ async def save_pending_location(chat_id: int, name_reply: str, client: TelegramC
     )
 
 
+# Barcha saqlangan lokatsiyalarni ro'yxatlashni so'rashni bildiruvchi maxsus belgi
+# (masalan: "Barcha joylashuvlar lokatsiyasini ber", "hammasini ko'rsat")
+ALL_LOCATIONS_SENTINEL = "__ALL__"
+
+
 def extract_location_query(text: str) -> str | None:
     """Matnda lokatsiyani so'rash talabi borligini aniqlaydi va qidirilayotgan joy nomini ajratadi."""
     t = text.lower().strip().rstrip("?!. ")
@@ -102,6 +107,12 @@ def extract_location_query(text: str) -> str | None:
     if not any(k in t for k in ("lokatsiya", "joylashuv", "manzil", "geopozitsiya", "gps", "koordinata", "xarita", "qayerda", "qayer", "qattaligi")):
         return None
 
+    # 2. "Barcha/hammasi/barchasini ko'rsat" — bitta joyni emas, RO'YXATNI so'ramoqda.
+    #    Bu tekshiruv pastdagi qidiruv patternlaridan OLDIN turishi shart, aks holda "barcha"
+    #    so'zining o'zi (xato) joy nomi sifatida ajratib olinardi.
+    if re.search(r"\b(?:barcha|barchasi(?:ni)?|hamma(?:si)?(?:ni)?)\b", t):
+        return ALL_LOCATIONS_SENTINEL
+
     # Qidiruv namunalari - eng aniqlaridan boshlab
     patterns = [
         # 1. "ofis lokatsiyasini tashla", "ishxona manzilini ber", "filial lokatsiyasi"
@@ -116,8 +127,11 @@ def extract_location_query(text: str) -> str | None:
         m = re.search(p, t)
         if m:
             q = m.group(1).strip()
-            # Keraksiz so'zlarni tozalash
-            q = re.sub(r"\b(?:menga|bizga|o['’`]?sha|shu|joyni|joyning|mening|bizning|iltimos)\b", "", q).strip()
+            # Keraksiz so'zlarni tozalash. "ni/uni/buni/shuni" — ko'pincha imlo xatosi tufayli
+            # so'zdan alohida yozilib qolgan tushum kelishigi qo'shimchasi (masalan "Ish ni ber"
+            # -> "Ish"), shuning uchun ajratilgan nomdan olib tashlanadi.
+            q = re.sub(r"\b(?:menga|bizga|o['’`]?sha|shu|joyni|joyning|mening|bizning|iltimos|ni|uni|buni|shuni)\b", " ", q)
+            q = re.sub(r"\s+", " ", q).strip()
             # O'zbekcha egalik qo'shimchasini tozalash: "ishxonam" -> "ishxona", "ofisim" -> "ofis"
             if q.endswith("m") and len(q) > 4:
                 if q[-2] in ("a", "e", "i", "o", "u"):
@@ -136,6 +150,37 @@ def extract_location_query(text: str) -> str | None:
 
 async def handle_find_location_request(client: TelegramClient, chat_id: int, query: str, full_text: str = "") -> str | None:
     """Qidirilgan nom bo'yicha lokatsiyani topib, rasmiy xarita pin xabari bilan yuboradi."""
+    # "Barcha joylashuvlarni ko'rsat" so'ralgan bo'lsa — nomlar ro'yxatini emas, HAR BIRINI xaritada yuboramiz.
+    if query == ALL_LOCATIONS_SENTINEL:
+        all_locs = memory_service.list_saved_locations(limit=30)
+        if not all_locs:
+            return "🔍 Hozircha birorta ham lokatsiya saqlanmagan."
+        # Telegram flood-limitidan himoya: faqat cheklangan sondagi joylashuvni alohida
+        # xarita-pin sifatida yuboramiz, qolganlari matnli ro'yxatda (havolalar bilan) qoladi.
+        max_pins = 8
+        if client:
+            for loc in all_locs[:max_pins]:
+                try:
+                    lat, long = float(loc["lat"]), float(loc["long"])
+                    media = InputMediaGeoPoint(InputGeoPoint(lat=lat, long=long))
+                    await client.send_file(chat_id, media, caption=f"📍 {loc['name']}")
+                except (TypeError, ValueError):
+                    continue
+                except Exception as pe:
+                    logger.warning("Barcha lokatsiyalarni yuborishda ogohlantirish (%s): %s", loc.get("name"), pe)
+
+        def _fmt(l: dict) -> str:
+            try:
+                lat, long = float(l["lat"]), float(l["long"])
+                gmaps = f"https://www.google.com/maps?q={lat},{long}"
+                return f"• **«{l['name']}»**: `{lat:.6f}, {long:.6f}` — [Google Maps]({gmaps})"
+            except (TypeError, ValueError):
+                return f"• **«{l['name']}»**"
+
+        lines = [_fmt(l) for l in all_locs]
+        pin_note = f" (dastlabki {max_pins} tasi xaritada yuqorida ham yuborildi)" if len(all_locs) > 1 else ""
+        return f"📍 **Jami {len(all_locs)} ta saqlangan joylashuv**{pin_note}:\n\n" + "\n".join(lines)
+
     loc = memory_service.get_saved_location(query)
     if not loc:
         # Agar foydalanuvchi EXPLICIT (aniq) lokatsiya so'zlarini ishlatmagan bo'lsa,

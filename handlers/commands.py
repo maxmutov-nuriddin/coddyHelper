@@ -12,6 +12,7 @@ from telethon import TelegramClient, events
 from config import config
 from services.ai_service import ai_service
 from services.memory_service import memory_service
+from services.event_dedup import is_duplicate_event
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +290,9 @@ def register_command_handlers(client: TelegramClient) -> None:
 
     @client.on(events.NewMessage(outgoing=True))
     async def handle_user_command(event: events.NewMessage.Event):
+        # 🛡 Telethon qayta ulanganda xabar takror kelib qolsa, buyruq ikki marta bajarilmasin
+        if is_duplicate_event(event.chat_id, event.message.id):
+            return
         raw_text = (event.raw_text or "").strip()
 
         # Agar mentor ovozli xabar orqali buyruq bergan bo'lsa
@@ -1158,6 +1162,8 @@ def register_command_handlers(client: TelegramClient) -> None:
     # -----------------------------------------------------------
     @client.on(events.NewMessage(incoming=True, pattern=r"(?i)^([./])?(panel|app|admin|webapp|button|tugma)($|\s)"))
     async def handle_incoming_panel_command(event: events.NewMessage.Event):
+        if is_duplicate_event(event.chat_id, event.message.id):
+            return
         from config import is_escalation_chat
         if not (is_escalation_chat(event.chat_id) or event.is_private):
             return

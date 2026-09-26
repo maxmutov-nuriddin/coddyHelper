@@ -26,6 +26,30 @@ def str_to_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in ("true", "1", "yes", "y", "on")
 
 
+def _clean_env_value(value: str) -> str:
+    """
+    Render/Railway kabi hosting panellarining "Environment Variables" qutisiga
+    `.env` uslubidagi `KEY="qiymat"` qatori to'g'ridan-to'g'ri (tirnoqlari bilan) joylashtirilsa,
+    tirnoq belgilari qiymatning bir qismi bo'lib qolib ketadi (masalan MONGODB_URI="mongodb+srv://..."
+    butunlay yaroqsiz manzilga aylanadi va ulanish hech qachon muvaffaqiyatli bo'lmaydi — bu esa
+    ma'lumotlar Render qayta ishga tushganda "yo'qolib qolgandek" ko'rinishiga olib keladi).
+    Bu funksiya bunday tashqi juft tirnoqlarni avtomatik olib tashlaydi.
+    """
+    v = (value or "").strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+        v = v[1:-1].strip()
+    return v
+
+
+def _env(key: str, default: str = "") -> str:
+    """`os.getenv` + tashqi tirnoqlarni tozalash (qarang: `_clean_env_value`)."""
+    raw = os.getenv(key, default)
+    cleaned = _clean_env_value(raw)
+    if raw and raw.strip() != cleaned and cleaned:
+        print(f"⚠️  [config] {key} muhit o'zgaruvchisida tashqi tirnoq belgilari topildi va avtomatik olib tashlandi.")
+    return cleaned
+
+
 @dataclass
 class Config:
     api_id: int
@@ -63,27 +87,27 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config":
-        raw_api_id = os.getenv("TELEGRAM_API_ID", "").strip()
+        raw_api_id = _env("TELEGRAM_API_ID", "").strip()
         api_id = int(raw_api_id) if raw_api_id.isdigit() else 0
 
-        api_hash = os.getenv("TELEGRAM_API_HASH", "").strip()
-        phone = os.getenv("TELEGRAM_PHONE", "").strip()
-        bot_token = os.getenv("BOT_TOKEN", "").strip()
-        bot_username = os.getenv("BOT_USERNAME", "coddyassistanstbot").strip().lstrip("@")
-        gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+        api_hash = _env("TELEGRAM_API_HASH", "").strip()
+        phone = _env("TELEGRAM_PHONE", "").strip()
+        bot_token = _env("BOT_TOKEN", "").strip()
+        bot_username = _env("BOT_USERNAME", "coddyassistanstbot").strip().lstrip("@")
+        gemini_api_key = _env("GEMINI_API_KEY", "").strip()
+        gemini_model = _env("GEMINI_MODEL", "gemini-3.8-flash").strip()
         
-        raw_frontline = os.getenv("GROQ_FRONTLINE_KEYS", "").strip()
-        raw_vip = os.getenv("GROQ_VIP_KEYS", "").strip()
-        raw_reserve = os.getenv("GROQ_RESERVE_KEYS", "").strip()
-        raw_auto = os.getenv("GROQ_AUTONOMOUS_KEYS", "").strip() or os.getenv("GROQ_EXTRA_KEYS", "").strip()
+        raw_frontline = _env("GROQ_FRONTLINE_KEYS", "").strip()
+        raw_vip = _env("GROQ_VIP_KEYS", "").strip()
+        raw_reserve = _env("GROQ_RESERVE_KEYS", "").strip()
+        raw_auto = _env("GROQ_AUTONOMOUS_KEYS", "").strip() or _env("GROQ_EXTRA_KEYS", "").strip()
 
         groq_frontline_keys = [k.strip() for k in raw_frontline.split(",") if k.strip()]
         groq_vip_keys = [k.strip() for k in raw_vip.split(",") if k.strip()]
         groq_reserve_keys = [k.strip() for k in raw_reserve.split(",") if k.strip()]
         groq_autonomous_keys = [k.strip() for k in raw_auto.split(",") if k.strip()]
 
-        raw_groq_keys = os.getenv("GROQ_API_KEYS", "").strip() or os.getenv("GROQ_API_KEY", "").strip()
+        raw_groq_keys = _env("GROQ_API_KEYS", "").strip() or _env("GROQ_API_KEY", "").strip()
         all_keys_list = [k.strip() for k in raw_groq_keys.split(",") if k.strip()]
 
         combined_keys = []
@@ -101,7 +125,7 @@ class Config:
             "llama3-70b-8192",
             "llama3-8b-8192",
         }
-        raw_groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+        raw_groq_model = _env("GROQ_MODEL", "openai/gpt-oss-120b").strip()
         if not raw_groq_model or raw_groq_model in deprecated_text_models:
             groq_model = "openai/gpt-oss-120b"
         else:
@@ -111,44 +135,44 @@ class Config:
             "llama-3.2-11b-vision-preview",
             "llama-3.2-90b-vision-preview",
         }
-        raw_vision = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
+        raw_vision = _env("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
         if not raw_vision or raw_vision in deprecated_vision_models:
             groq_vision_model = "qwen/qwen3.8-27b"
         else:
             groq_vision_model = raw_vision
 
-        auto_reply_enabled = str_to_bool(os.getenv("AUTO_REPLY_ENABLED", "true"), default=True)
-        group_reply_enabled = str_to_bool(os.getenv("GROUP_REPLY_ENABLED", "true"), default=True)
-        command_prefix = os.getenv("COMMAND_PREFIX", ".").strip()
-        raw_esc = os.getenv("ESCALATION_CHAT", "-5388159517").strip()
+        auto_reply_enabled = str_to_bool(_env("AUTO_REPLY_ENABLED", "true"), default=True)
+        group_reply_enabled = str_to_bool(_env("GROUP_REPLY_ENABLED", "true"), default=True)
+        command_prefix = _env("COMMAND_PREFIX", ".").strip()
+        raw_esc = _env("ESCALATION_CHAT", "-5388159517").strip()
         if not raw_esc or raw_esc.lower() in ("me", "self", "8105823872"):
             escalation_chat = "-5388159517"
         else:
             escalation_chat = raw_esc
-        string_session = os.getenv("TELEGRAM_STRING_SESSION", "").strip()
+        string_session = _env("TELEGRAM_STRING_SESSION", "").strip()
 
-        raw_port = os.getenv("PORT", "10000").strip()
+        raw_port = _env("PORT", "10000").strip()
         port = int(raw_port) if raw_port.isdigit() else 10000
 
-        secret_stop_word = os.getenv("SECRET_STOP_WORD", "ai stop").strip().lower()
-        secret_start_word = os.getenv("SECRET_START_WORD", "ai start").strip().lower()
-        secret_group_stop_word = os.getenv("SECRET_GROUP_STOP_WORD", "guruh stop").strip().lower()
-        secret_group_start_word = os.getenv("SECRET_GROUP_START_WORD", "guruh start").strip().lower()
+        secret_stop_word = _env("SECRET_STOP_WORD", "ai stop").strip().lower()
+        secret_start_word = _env("SECRET_START_WORD", "ai start").strip().lower()
+        secret_group_stop_word = _env("SECRET_GROUP_STOP_WORD", "guruh stop").strip().lower()
+        secret_group_start_word = _env("SECRET_GROUP_START_WORD", "guruh start").strip().lower()
 
-        raw_wait = os.getenv("MENTOR_WAIT_SECONDS", "5").strip()
+        raw_wait = _env("MENTOR_WAIT_SECONDS", "5").strip()
         mentor_wait_seconds = float(raw_wait) if raw_wait.replace(".", "", 1).isdigit() else 5.0
 
-        raw_memory_limit = os.getenv("MEMORY_LIMIT", "10").strip()
+        raw_memory_limit = _env("MEMORY_LIMIT", "10").strip()
         memory_limit = int(raw_memory_limit) if raw_memory_limit.isdigit() else 10
 
-        web_app_url = os.getenv("RENDER_EXTERNAL_URL", os.getenv("WEB_APP_URL", "https://coddyhelper.onrender.com")).strip().rstrip("/")
-        raw_mentor_id = os.getenv("MENTOR_USER_ID", "8105823872").strip()
+        web_app_url = _env("RENDER_EXTERNAL_URL", _env("WEB_APP_URL", "https://coddyhelper.onrender.com")).strip().rstrip("/")
+        raw_mentor_id = _env("MENTOR_USER_ID", "8105823872").strip()
         mentor_user_id = int(raw_mentor_id) if raw_mentor_id.isdigit() else 8105823872
-        mongodb_uri = os.getenv(
+        mongodb_uri = _env(
             "MONGODB_URI",
             "mongodb+srv://mahmudovnuriddin35_db_user:a5YQNcWB2EzfMKLy@agent.i4l6lje.mongodb.net/?appName=Agent"
         ).strip()
-        mongodb_db_name = os.getenv("MONGODB_DB_NAME", "CoddyAgentBrain").strip()
+        mongodb_db_name = _env("MONGODB_DB_NAME", "CoddyAgentBrain").strip()
 
         return cls(
             api_id=api_id,

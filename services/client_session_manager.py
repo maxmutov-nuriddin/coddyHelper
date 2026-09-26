@@ -32,6 +32,7 @@ from telethon.sessions import StringSession
 
 from config import config
 from services.tenant_context import tenant_scope
+from services.event_dedup import is_duplicate_event
 
 logger = logging.getLogger(__name__)
 
@@ -444,6 +445,11 @@ class ClientSessionManager:
         if self._agent_sending.get(key) or event.id in self._agent_sent_ids.get(user_id, ()):
             return
 
+        # 🛡 Telethon qayta ulanganda ba'zan bir xil xabarni ikkinchi marta yuborishi mumkin —
+        # bunday holda egasining buyrug'i (masalan xabar yuborish) ikki marta bajarilib qolmasin.
+        if is_duplicate_event(chat_id, event.id, scope=user_id):
+            return
+
         text = (event.raw_text or "").strip()
         if chat_id == me_id:
             command = _extract_owner_command(text)
@@ -463,6 +469,9 @@ class ClientSessionManager:
 
     async def _handle_incoming(self, user_id: int, client: TelegramClient, event) -> None:
         from services.memory_service import memory_service
+
+        if is_duplicate_event(event.chat_id, event.id, scope=user_id):
+            return
 
         sub = memory_service.get_subscription(user_id)
         if not sub or not sub.get("active") or self._is_expired(sub):

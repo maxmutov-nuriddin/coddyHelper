@@ -738,7 +738,7 @@ class ProfileIntelligenceService:
 
         parsed = self._parse_dossier_json(raw)
         if parsed:
-            return self._render_dossier_analysis(parsed, own_msg_count)
+            return self._render_dossier_analysis(parsed, profile)
 
         if raw:
             return raw
@@ -783,18 +783,69 @@ class ProfileIntelligenceService:
             return f"🟡 {p}% (o'rta)"
         return f"🔴 {p}% (past — ehtiyot bo'ling)"
 
-    def _render_dossier_analysis(self, d: dict, own_msg_count: int) -> str:
-        """Parslangan JSON tahlildan ishonch foizli, o'qishga qulay xulosa yasaydi."""
+    @staticmethod
+    def _signal_ceiling(clues_str: str) -> tuple[int, bool]:
+        """
+        Kod darajasida "yerga bog'lash" (grounding): AI'ning o'zi da'vo qilgan ishonch foizi
+        haqiqiy dalil kuchidan OSHIB ketmasligini kafolatlaydi. LLM promptga rioya qilmasa yoki
+        haddan tashqari o'ziga ishonib xulosa chiqarsa ham, bu funksiya uni haqiqiy signalga
+        qarab pastga tortadi — shu bilan noto'g'ri "yuqori ishonchli" xulosalarni kamaytiradi.
+
+        Qaytaradi: (maksimal ruxsat etilgan ishonch foizi, kamida bitta signal topilganmi)
+        """
+        if not clues_str:
+            return 25, False
+        c = clues_str.upper()
+        strong = c.count("KUCHLI")
+        medium = c.count("O'RTA") + c.count("O’RTA") + c.count("ORTA")
+        weak = c.count("ZAIF")
+        if strong >= 2:
+            return 95, True
+        if strong == 1:
+            return 85, True
+        if medium >= 2:
+            return 70, True
+        if medium == 1:
+            return 58, True
+        if weak >= 1:
+            return 40, True
+        return 25, False
+
+    def _render_dossier_analysis(self, d: dict, profile: dict) -> str:
+        """Parslangan JSON tahlildan ishonch foizli, o'qishga qulay xulosa yasaydi (kod darajasida kalibrlangan)."""
+        own_msg_count = profile.get("own_msg_count", 0)
+        role_ceiling, role_has_signal = self._signal_ceiling(profile.get("role_clues", ""))
+        age_ceiling, age_has_signal = self._signal_ceiling(profile.get("age_clues", ""))
+
+        def _as_int(v) -> int:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return 0
+
         role = str(d.get("role") or "Aniq emas").strip()
         age = str(d.get("age_range") or "Aniq emas").strip()
+        role_conf = min(_as_int(d.get("role_confidence", 0)), role_ceiling)
+        age_conf = min(_as_int(d.get("age_confidence", 0)), age_ceiling)
+
+        # Hech qanday to'g'ridan-to'g'ri signal topilmasa, AI nima deb da'vo qilishidan qat'i
+        # nazar, xulosani "Aniq emas" ga majburlaymiz — taxminni haqiqat sifatida ko'rsatmaslik uchun.
+        if not role_has_signal:
+            role = "Aniq emas"
+            role_conf = min(role_conf, 30)
+        if not age_has_signal:
+            age = "Aniq emas"
+            age_conf = min(age_conf, 25)
+
         prof = str(d.get("profession") or "Aniq emas").strip()
         style = str(d.get("communication_style") or "Standart hurmatli muloqot").strip()
         summary = str(d.get("summary") or "").strip()
-        overall = d.get("overall_confidence", d.get("role_confidence", 0))
+        overall_cap = max(role_conf, age_conf, 30 if own_msg_count > 0 else 20)
+        overall = min(_as_int(d.get("overall_confidence", 0)) or max(role_conf, age_conf), overall_cap)
 
         lines = [
-            f"🎯 **Ijtimoiy rol:** {role} — {self._conf_badge(d.get('role_confidence', 0))}",
-            f"🎂 **Yosh oralig'i:** {age} — {self._conf_badge(d.get('age_confidence', 0))}",
+            f"🎯 **Ijtimoiy rol:** {role} — {self._conf_badge(role_conf)}",
+            f"🎂 **Yosh oralig'i:** {age} — {self._conf_badge(age_conf)}",
             f"💼 **Kasbi/faoliyati:** {prof}",
             f"💬 **Tavsiya etilgan muloqot:** {style}",
         ]
