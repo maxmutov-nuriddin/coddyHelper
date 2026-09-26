@@ -286,6 +286,19 @@ Loyihani **barcha obunachilar uchun o'rnatiladigan** qilish:
   6. **Bazadagi takrorlangan eslatmalar tozalandi** (faqat `is_sent=1` deb belgilandi, o'chirilmadi — qaytarib bo'ladi): jami 22 ta ortiqcha nusxa (asosan Sep 14 sinov "uyg'otish" eslatmalari + "Katta imtihon" ikkinchi nusxasi). Amaliyotdan oldin `/tmp/coddy_memory_backup_before_cleanup.db` ga zaxira olindi va tozalashdan keyin `diff` orqali BOSHQA hech qanday ma'lumot o'zgarmaganligi (faqat `is_sent` ustuni) tasdiqlandi.
 - **Tekshirildi:** to'liq kompilyatsiya, JS, import zanjiri, 75 ta test (barchasi o'tdi, fayllarni ko'chirish hech narsani buzmadi), token tozalash funksiyasi va eslatma deduplikatsiyasi jonli bazada qo'lda tasdiqlandi.
 
+### Sessiya 16 — 2026-09-26
+- **So'rov:** (1) mijozlar guruhida "Menga yozilgan songi habarlarni olib kel" dedanda "Buyruqni bajarib bo'lmadi. Iltimos, aniqroq yozing (masalan: 'ai Alisherga...')" xatosi; (2) "menda nechta chat bor" dedanda agent javob bilan birga tool ro'yxatini chiqarib yubormoqda; (3) "har bir mijozni guruhi bor, shu guruhga mijoz nima buyursa shuni bajarishi kerak, faqat ozini akkauntiga oid ishlari, barchasi chegara bolmasligi kerak".
+- **Ildiz sabablari:**
+  1. `TENANT_REACT_PROMPT` juda minimal edi — AI qaysi so'rov uchun qaysi tool ishlatish kerakligini bilmasdi. Natija: noto'g'ri tool chaqiriladi yoki tool chaqirilmaydi → `run_autonomous_agent_loop` `None` qaytaradi.
+  2. `TENANT_REACT_PROMPT`da "tool ro'yxatini ko'rsatma" qoidasi yo'q edi → AI "menda nechta chat bor" kabi so'rovlarda tool sxemalarini chiqarib yuborardi.
+  3. Fallback xato xabari ("Iltimos, aniqroq yozing (masalan: 'ai Alisherga ertaga uchrashuv...')") chalkash va yo'ltaratuvchi edi — eslatma formati ko'rsatilgan, holbuki bu eslatma bilan bog'liq emas edi.
+  4. `get_recent_senders` tool tavsifi ("Oxirgi yozganlar ro'yxati") AI uchun "menga yozilgan xabarlarni olib kel" kabi so'rovlarga mos tushmasdi.
+- **Tuzatildi:**
+  1. `TENANT_REACT_PROMPT` kuchaytirildi: "TEMIR QOIDALAR" qo'shildi (chegara yo'q, rad etish yo'q), "tool ro'yxatini ko'rsatma" qoidasi, va "QAYSI TOOL QO'LLASH KERAKLIGI" bo'limi bilan aniq yo'riqnoma.
+  2. Fallback xato xabari: "Kechirasiz, bu so'rovni bajarishda xatolik yuz berdi. Iltimos qaytadan urinib ko'ring..." — endi yanada aniq va chalkash emas.
+  3. `get_recent_senders` tool tavsifi kuchaytirildi: "menga yozilgan", "kelgan", "o'qilmagan", "kim yozdi", "yangi xabar bormi" kabi so'rovlar uchun ishlatilishi aniq ko'rsatildi.
+- **Tekshirildi:** 3 ta o'zgartirilgan fayl sintaksis jihatdan to'g'ri (ast.parse).
+
 ### Sessiya 15 — 2026-09-26
 - **So'rov:** "chatga kimdir yozsa agent menga yetqazib berdim deyapti ammo admin gruhiga jonaymyopti" — AI "yetkazdim" deydi, lekin haqiqatda boshqaruv guruhiga hech narsa yuborilmaydi.
 - **Ildiz sababi topildi:** Sessiya 12'da qo'shilgan guruhga-eskalatsiya funksiyasi to'g'ri ishlagan, lekin uni CHAQIRISH mexanizmi ishonchsiz edi — `UNSURE_ANSWER_RE` faqat juda tor, qat'iy iboralarni ("aniqlab ... xabar beraman") tanirdi. AI (LLM sifatida) har safar boshqacha so'z bilan gapiradi ("egamga yetkazdim", "ma'muriyatga xabar berdim" va h.k.) — bu iboralarning aksariyati regex bilan MUTLAQO mos kelmaydi, shuning uchun eskalatsiya funksiyasi umuman CHAQIRILMAGAN, garchi guruhga yozish kodi to'g'ri bo'lsa ham. Bundan tashqari, mentor tizimida (`prompts.py`) allaqachon ISHONCHLI, tuzilmali `<<<ESCALATE>>>...<<<END_ESCALATE>>>` belgi mexanizmi bor edi (`ai_service.py`da qayta ishlanadi, `AIResult.escalation` orqali qaytariladi) — lekin (a) mijoz (tenant) persona prompti bu belgini ISHLATISHNI umuman o'rgatmagan, va (b) `client_session_manager.py` `AIResult.escalation` atributini umuman O'QIMAGAN (faqat matnni `str()`ga aylantirib, regex bilan tekshirgan).

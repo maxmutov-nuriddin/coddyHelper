@@ -222,7 +222,7 @@ AGENT_TOOL_SCHEMAS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get_recent_senders",
-            "description": "Oxirgi yozganlar ro'yxati, kelgan yangi va o'qilmagan xabarlarni ko'rish.",
+            "description": "Menga yozilgan/kelgan/o'qilmagan xabarlarni va kim yozganini ko'rish. Ishlatish holatlari: 'menga kim yozdi', 'yangi xabar bormi', 'o'qilmagan xabarlar', 'kimdan xabar keldi', 'kelgan xabarlarni olib kel'.",
             "parameters": {
                 "type": "object",
                 "properties": {

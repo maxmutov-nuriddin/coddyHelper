@@ -1103,7 +1103,7 @@ class ClientSessionManager:
             except Exception as e:
                 logger.error("Egasining buyrug'ini bajarishda xatolik [user_id=%s]: %s", user_id, e)
                 result = None
-        return (result or "Buyruqni bajarib bo'lmadi. Iltimos, aniqroq yozing (masalan: 'ai Alisherga ertaga uchrashuv borligini yoz').").strip()
+        return (result or "Kechirasiz, bu so'rovni bajarishda xatolik yuz berdi. Iltimos qaytadan urinib ko'ring yoki boshqacha so'roq bilan yozing.").strip()
 
     # ──────────────────────────────────────────────────────
     # Fon xizmatlari: eslatmalar va obuna muddati
