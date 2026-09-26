@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from telethon import TelegramClient, events
+from telethon.tl.types import UpdateReadHistoryInbox, PeerUser, PeerChat, PeerChannel
 from config import config, is_escalation_chat, is_administration_chat_or_user
 from services.ai_service import ai_service
 from services.memory_service import memory_service
@@ -38,6 +39,11 @@ CURRENT_SENDING_CHATS: set[int] = set()
 MIN_INTERVAL_SECONDS = 2.0
 RECENT_ACTIVITY_LOGS: list[str] = []
 
+# Owner (agent egasi) xabarni o'qigan vaqt: {chat_id: read_timestamp}
+OWNER_READ_TIMES: dict[int, float] = {}
+# O'qib javob bermasa — qancha kutilsin (soniyada)
+OWNER_READ_FALLBACK_SECONDS = 300  # 5 daqiqa
+
 
 def log_activity(msg: str) -> None:
     from zoneinfo import ZoneInfo
@@ -61,6 +67,7 @@ def clear_all_pending_tasks() -> int:
     BOT_SENT_MESSAGE_IDS.clear()
     USER_REQUEST_TIMESTAMPS.clear()
     LAST_REPLIES.clear()
+    OWNER_READ_TIMES.clear()
     log_activity(f"🔄 Agent qayta ishga tushirildi ({cancelled} ta vazifa tozalandi).")
     logger.info("Agent tozalash: %d ta vazifa bekor qilindi, barcha bufferlar tozalandi.", cancelled)
     return cancelled
@@ -1546,7 +1553,26 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         logger.info("Mentor o'zi xabar yozdi [%s], AI kutish vazifalari bekor qilindi.", chat_id)
 
     # -----------------------------------------------------------
-    # 3. Kelgan xabarni qabul qilish va 5 soniya kutish
+    # 3a. Owner xabarni o'qidi (ikkita ko'k galichka) — read receipt
+    # Faqat shaxsiy chatlarda: o'qilgan bo'lsa, debounce tugagandan keyin
+    # 5 daqiqa kutiladi. Agar shu vaqt ichida javob bermasa — AI javob beradi.
+    # -----------------------------------------------------------
+    @client.on(events.Raw(UpdateReadHistoryInbox))
+    async def on_owner_read_inbox(update: UpdateReadHistoryInbox):
+        peer = update.peer
+        if isinstance(peer, PeerUser):
+            chat_id = peer.user_id
+        elif isinstance(peer, PeerChat):
+            chat_id = -peer.chat_id
+        elif isinstance(peer, PeerChannel):
+            chat_id = -peer.channel_id
+        else:
+            return
+        OWNER_READ_TIMES[chat_id] = time.time()
+        logger.debug("Owner [%s] chatini o'qidi (max_id: %s)", chat_id, update.max_id)
+
+    # -----------------------------------------------------------
+    # 3b. Kelgan xabarni qabul qilish va 5 soniya kutish
     # -----------------------------------------------------------
     @client.on(events.NewMessage(incoming=True))
     async def handle_incoming_message(event: events.NewMessage.Event):
@@ -2270,6 +2296,31 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                         log_activity(f"Mentor o'zi javob yozgani uchun AI aralashmadi [{chat_id}]")
                         logger.info("Mentor o'zi javob yozgan ekan [%s]. AI aralashmadi.", chat_id)
                         return
+
+                    # Owner xabarni o'qidimi? (ikkita ko'k galichka)
+                    # Faqat shaxsiy chatlarda va admin chat bo'lmasa tekshiramiz.
+                    if is_private and not is_admin_chat:
+                        owner_read_t = OWNER_READ_TIMES.get(chat_id, 0.0)
+                        if owner_read_t > message_received_time:
+                            # Owner o'qidi — 5 daqiqa kutib turamiz
+                            log_activity(f"👁 Owner o'qidi, {OWNER_READ_FALLBACK_SECONDS//60} daqiqa kutilmoqda [{chat_id}]")
+                            logger.info(
+                                "Owner xabarni o'qidi [%s]. AI %d soniya kutadi (fallback).",
+                                chat_id, OWNER_READ_FALLBACK_SECONDS,
+                            )
+                            await asyncio.sleep(OWNER_READ_FALLBACK_SECONDS)
+
+                            # 5 daqiqadan keyin: owner javob berdimi?
+                            if LAST_MENTOR_ACTIVITY.get(chat_id, 0.0) > owner_read_t - 1.0:
+                                MESSAGE_ACCUMULATOR.pop(debounce_key, None)
+                                log_activity(f"Owner o'qib javob berdi, AI aralashmadi [{chat_id}]")
+                                logger.info("Owner o'qib javob berdi [%s]. AI aralashmadi.", chat_id)
+                                return
+                            log_activity(f"Owner {OWNER_READ_FALLBACK_SECONDS//60} daqiqa javob bermadi, AI javob bermoqda [{chat_id}]")
+                            logger.info(
+                                "Owner %d soniya javob bermadi [%s]. AI javob beradi.",
+                                OWNER_READ_FALLBACK_SECONDS, chat_id,
+                            )
 
                     # Guruhdagi umumiy savolga boshqa o'quvchi reply qilib javob berdimi? (Sokratik tamoyil)
                     if is_group and not (reply_to_me or is_mentioned):
