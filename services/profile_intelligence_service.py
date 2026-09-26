@@ -559,7 +559,7 @@ class ProfileIntelligenceService:
                 langs.add("ruscha")
             if re.search(r"[a-z]", low_blob) and re.search(r"\b(the|and|please|hello|thanks|how|what)\b", low_blob):
                 langs.add("inglizcha")
-            if re.search(r"[oʻgʻ]|['`]|\b(salom|rahmat|ustoz|yaxshi|qachon|kerak|bo'l|iltimos)\b", low_blob):
+            if re.search(r"[oʻgʻ]|\b(salom|rahmat|ustoz|yaxshi|qachon|kerak|iltimos|nima|qanday|menga|sizga|bo'ladi|bo'ldim|ko'r|o'qi)\b", low_blob):
                 langs.add("o'zbekcha")
             language_str = ", ".join(sorted(langs)) if langs else "Aniqlanmadi (yetarli matn yo'q)"
 
@@ -606,17 +606,23 @@ class ProfileIntelligenceService:
                 a = int(m.group(1))
                 if 6 <= a <= 80:
                     age_clues.append(f"KUCHLI: O'zi yoshini aytgan — {a} yosh")
-            # 8b. To'liq tug'ilgan yil (2000, 1998) — ism/username/bio ichida
-            id_text = f"{username} {full_name} {bio}".lower()
-            for ym in re.findall(r"(?:19[7-9]\d|20[01]\d)", id_text):
+            # 8b. To'liq tug'ilgan yil — FAQAT username va to'liq ismdan (bio EMAS! bio da yil = voqea yili)
+            id_text_safe = f"{username} {full_name}".lower()
+            for ym in re.findall(r"(?:19[7-9]\d|20[0-2]\d)", id_text_safe):
                 y = int(ym)
-                if 1970 <= y <= 2015:
+                if 1975 <= y <= 2016:
                     age_clues.append(f"O'RTA: Username/ismda tug'ilgan yil — {y} (~{now_year - y} yosh)")
-            # 8c. Username oxiridagi 2 xonali yil qo'shimchasi: ali_05, kamol07 (harfdan keyin kelsa)
-            um = re.search(r"[a-z](0[0-9]|1[0-5])\b", (username or "").lower())
+            # 8c. Username oxiridagi 2 xonali yil: ali05, kamol07, john_98 — son so'nggida kelsa
+            um = re.search(r"(?:_|^|[a-z])(0[0-9]|[1-9]\d)$", (username or "").lower())
             if um:
                 yy = int(um.group(1))
-                age_clues.append(f"ZAIF: Username oxirida '{yy:02d}' — ehtimoliy 20{yy:02d} (~{now_year - (2000 + yy)} yosh)")
+                # 90-99 → 1990-1999, 00-26 → 2000-2026, boshqalari aniq emas
+                if 0 <= yy <= 26:
+                    birth_y = 2000 + yy
+                    age_clues.append(f"ZAIF: Username oxirida '{yy:02d}' — ehtimoliy {birth_y} (~{now_year - birth_y} yosh)")
+                elif 70 <= yy <= 99:
+                    birth_y = 1900 + yy
+                    age_clues.append(f"O'RTA: Username oxirida '{yy:02d}' — ehtimoliy {birth_y} (~{now_year - birth_y} yosh)")
 
             return {
                 "user_id": user_id,
@@ -684,7 +690,11 @@ class ProfileIntelligenceService:
             "   - KUCHLI belgi yoki 2+ signal mos kelsa: 80-95.\n"
             "   - Bitta O'RTA belgi: 55-70. Faqat ZAIF belgi yoki umumiy taxmin: 20-45.\n"
             "   - Hech qanday to'g'ridan-to'g'ri signal yo'q (masalan xabar 0 ta): 10-30 va \"Aniq emas\".\n"
-            "3. Yoshni faqat KUCHLI/O'RTA yosh belgisi bo'lsa aniq bering; aks holda rol va leksikadan keng oraliq (masalan 25-45) va past ishonch.\n"
+            "3. YOSH ORALIG'I: Faqat KUCHLI/O'RTA yosh belgisi bo'lsa aniq bering.\n"
+            "   - Agar yosh belgisi 'KUCHLI: O'zi yoshini aytgan' bo'lsa → o'sha aniq yoshni yozing (masalan 19-21).\n"
+            "   - Agar 'O'RTA: tug'ilgan yil' bo'lsa → yildan ±2 oraliq bering (masalan 2005 → 19-23).\n"
+            "   - Agar faqat 'ZAIF' yoki belgi yo'q bo'lsa → keng oraliq (masalan 20-40) va past ishonch yoki 'Aniq emas'.\n"
+            "   - BIO ICHIDAGI YILLARNI hech qachon tug'ilgan yil deb sanalmaydi (voqea yili bo'lishi mumkin).\n"
             "FAQAT quyidagi JSON'ni qaytaring (boshqa matnsiz):\n"
             "{\n"
             '  "role": "Oquvchi | Ota-ona | Mijoz/Tadbirkor | Hamkasb/Ustoz | Aniq emas",\n'
@@ -797,7 +807,7 @@ class ProfileIntelligenceService:
             return 25, False
         c = clues_str.upper()
         strong = c.count("KUCHLI")
-        medium = c.count("O'RTA") + c.count("O’RTA") + c.count("ORTA")
+        medium = c.count("O’RTA") + c.count("ORTA")
         weak = c.count("ZAIF")
         if strong >= 2:
             return 95, True
