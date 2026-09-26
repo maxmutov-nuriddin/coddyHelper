@@ -512,18 +512,20 @@ class ClientSessionManager:
             await self._send(
                 user_id, client, chat_id,
                 "✅ Ushbu guruh sizning **boshqaruv guruhingiz** sifatida biriktirildi!\n"
-                "Endi bu yerda @mention qilmasdan ham javob beraman va `ai ...` buyruqlarini qabul qilaman.",
+                "Endi shu yerga oddiy yozgan har bir xabaringizga to'g'ridan-to'g'ri javob beraman "
+                "(botni chaqirish yoki maxsus so'z aytish shart emas) va topshiriqlarni bajaraman.",
             )
             return
 
         if sub and _is_same_group(chat_id, sub.get("group_id")):
-            if command_for_link:
-                self._log(user_id, f"👤 Egasining buyrug'i (boshqaruv guruhidan): {command_for_link[:80]}")
-                result = await self.run_owner_command(user_id, command_for_link)
-                await self._send(user_id, client, chat_id, f"🤖 {result}")
-                return
-            # Boshqaruv guruhida egasi oddiy gapirsa ham, AI'ni "jim tur" holatiga o'tkazmaymiz —
-            # bu guruh mijozlar guruhi emas, shuning uchun pastdagi pauza mantig'i qo'llanilmaydi.
+            # Boshqaruv guruhi = mentorning Vazifalar guruhi bilan bir xil tajriba: egasi
+            # "ai " prefiksisiz, oddiy tabiiy tilda yozsa ham (masalan "Salom", "Alisherga
+            # xabar yubor") to'liq AI Co-Pilot javob berishi kerak — prefiks talab qilinmaydi.
+            command = command_for_link or text
+            if command:
+                self._log(user_id, f"👤 Egasi (boshqaruv guruhidan): {command[:80]}")
+                result = await self.run_owner_command(user_id, command)
+                await self._send(user_id, client, chat_id, result)
             return
 
         # Egasi o'zi chatga yozdi -> AI shu chatda jim turadi (inson ustuvor)
@@ -581,7 +583,8 @@ class ClientSessionManager:
                 await self._send(
                     user_id, client, chat_id,
                     "✅ Ushbu guruh sizning **boshqaruv guruhingiz** sifatida biriktirildi!\n"
-                    "Endi bu yerda @mention qilmasdan ham javob beraman va `ai ...` buyruqlarini qabul qilaman.",
+                    "Endi shu yerga oddiy yozgan har bir xabaringizga to'g'ridan-to'g'ri javob beraman "
+                    "(botni chaqirish yoki maxsus so'z aytish shart emas) va topshiriqlarni bajaraman.",
                     reply_to=event.id,
                 )
                 return
@@ -592,11 +595,13 @@ class ClientSessionManager:
         # faqat @mention qilinganda javob berardi va egasi "yozsam javob bermayapti" deb qolardi.
         is_owner_group = not event.is_private and _is_same_group(chat_id, sub.get("group_id"))
         if is_owner_group and sender_id == user_id:
-            command = _extract_owner_command(text)
+            # Boshqaruv guruhi = Vazifalar guruhi tajribasi: "ai " prefiksisiz oddiy
+            # xabar ham to'liq AI Co-Pilot javobini olishi kerak.
+            command = _extract_owner_command(text) or text
             if command:
-                self._log(user_id, f"👤 Egasining buyrug'i (boshqaruv guruhidan): {command[:80]}")
+                self._log(user_id, f"👤 Egasi (boshqaruv guruhidan): {command[:80]}")
                 result = await self.run_owner_command(user_id, command)
-                await self._send(user_id, client, chat_id, f"🤖 {result}", reply_to=event.id)
+                await self._send(user_id, client, chat_id, result, reply_to=event.id)
                 return
 
         if event.is_private:

@@ -160,6 +160,21 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         await self._incoming(make_event(STRANGER, owner_group, "narx qancha?", private=False, mentioned=False))
         self.assertEqual(self.replies_tenants, [OWNER])
 
+    async def test_owner_plain_message_via_incoming_path_gets_copilot_reply(self):
+        """
+        Agent ALOHIDA akkauntda ishlagan sozlamada (owner haqiqiy Telegram'da boshqa hisob —
+        agentning o'zidan farqli), egasining boshqaruv guruhidagi 'ai' prefiksisiz xabari
+        INCOMING hodisa sifatida keladi va baribir to'liq AI Co-Pilot buyrug'i sifatida
+        bajarilishi kerak.
+        """
+        separate_agent_id = 999000111  # OWNER dan farqli, alohida agent akkaunti
+        self.mgr._me[OWNER] = {"id": separate_agent_id, "username": "coddy_agent", "name": "Agent"}
+        owner_group = -100705
+        memory_service.link_user_group(OWNER, owner_group)
+        await self._incoming(make_event(OWNER, owner_group, "bugungi ishlar haqida ayt", private=False))
+        self.assertEqual(self.owner_commands, ["bugungi ishlar haqida ayt"])
+        self.assertEqual(self.replies_tenants, [])
+
     async def test_owner_command_works_directly_in_owner_group(self):
         """
         Egasi o'z boshqaruv guruhida ham (Saved Messages'dagi kabi) 'ai ...' buyrug'ini bera olishi kerak.
@@ -172,14 +187,18 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.owner_commands, ["Alisherga xabar yubor"])
         self.assertEqual(self.replies_tenants, [])  # buyruq sifatida bajarildi, oddiy AI javobi emas
 
-    async def test_owner_casual_message_in_owner_group_does_not_pause_ai(self):
+    async def test_owner_plain_message_in_owner_group_gets_copilot_reply_no_prefix_needed(self):
         """
-        Boshqaruv guruhida egasi 'ai' prefiksisiz oddiy gapirsa, bu odatdagi mijozlar guruhidagi
-        kabi AI'ni "jim tur" holatiga o'tkazmasligi kerak (chunki bu guruh mijozlar guruhi emas).
+        Boshqaruv guruhi = Vazifalar guruhi tajribasi: egasi 'ai' prefiksisiz oddiy gapirsa
+        ('Salom' kabi) ham to'liq AI Co-Pilot javobini olishi kerak — prefiks shart emas.
+        Bundan tashqari, bu odatdagi mijozlar guruhidagi kabi AI'ni "jim tur" holatiga
+        o'tkazmasligi kerak (chunki bu guruh mijozlar guruhi emas).
         """
         owner_group = -100704
         memory_service.link_user_group(OWNER, owner_group)
         await self._outgoing(make_event(AGENT_ACCOUNT, owner_group, "salom, tekshirib ko'ryapman", private=False))
+        self.assertEqual(self.owner_commands, ["salom, tekshirib ko'ryapman"])
+        self.assertTrue(self.client.sent and self.client.sent[-1][1] == "bajarildi")
         await self._incoming(make_event(STRANGER, owner_group, "narx qancha?", private=False, mentioned=False))
         self.assertEqual(self.replies_tenants, [OWNER])
 

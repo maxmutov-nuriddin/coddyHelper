@@ -241,7 +241,8 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
                     "3️⃣ **Bilimlar** bo'limiga biznesingiz qoidalari, narxlar va ma'lumotlarni kiriting\n\n"
                     "💡 _Ixtiyoriy — boshqaruv guruhi: o'zingiz uchun guruh ochib, ULANGAN akkauntingiz "
                     "(2-qadamda ulagan raqamingiz) o'sha guruhda turib `ai ulash` deb yozing — shu guruh "
-                    "darhol boshqaruv guruhingiz sifatida biriktiriladi va @mention'siz ham javob beradi. "
+                    "darhol boshqaruv guruhingiz sifatida biriktiriladi — shundan keyin u yerga oddiy "
+                    "yozgan har bir xabaringizga botni chaqirmasdan ham javob beradi. "
                     "(Diqqat: buni shaxsiy akkauntingiz bilan qiling — meni, ya'ni botni guruhga qo'shish "
                     "yetarli emas, chunki javob beradigan aynan sizning ULANGAN akkauntingizdir.)_",
                     reply_markup=kb,
