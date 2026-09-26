@@ -1818,6 +1818,24 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         )
         is_dangerous = is_apk or (doc_ext in DANGEROUS_EXTS)
 
+        # Xavfli fayllarni avtomatik o'chirish (sozlamada yoqilgan bo'lsa)
+        _sender_is_mentor = sender_id in (config.mentor_user_id, 8105823872)
+        if is_dangerous and not _sender_is_mentor:
+            _auto_del = memory_service.get_setting("auto_delete_dangerous_files", "false") == "true"
+            if _auto_del:
+                try:
+                    await event.message.delete()
+                    _warn = (
+                        "🛡 APK fayl xavfsizlik sozlamasi bo'yicha avtomatik o'chirildi."
+                        if is_apk else
+                        f"🛡 Xavfli fayl (`{doc_ext}`) xavfsizlik sozlamasi bo'yicha avtomatik o'chirildi."
+                    )
+                    await client.send_message(event.chat_id, _warn)
+                    logger.info("Xavfli fayl avtomatik o'chirildi [chat=%s file=%s]", event.chat_id, doc_name)
+                except Exception as _del_err:
+                    logger.warning("Xavfli faylni o'chirishda xatolik: %s", _del_err)
+                return
+
         # Fayl hajmi tekshiruvi (Maksimal 10 MB)
         file_size = getattr(event.message.file, "size", 0) or 0
         if file_size > MAX_FILE_SIZE:

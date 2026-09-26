@@ -1944,6 +1944,17 @@
 
         <div class="toggle-row">
           <div class="toggle-info">
+            <h3>🛡 APK va Xavfli Fayllarni O'chirish</h3>
+            <p>Kimdir APK (.apk, .exe, .bat va h.k.) yuborsa, xabar darhol o'chiriladi va ogohlantirish yuboriladi</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="switch-auto-delete-dangerous" onchange="toggleFeature('auto_delete_dangerous_files', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="toggle-row">
+          <div class="toggle-info">
             <h3>💡 Aqlli Reaksiyalar (👍, ❤️, 🔥)</h3>
             <p>"Rahmat", "Tushundim" kabi xabarlarga matnsiz emodzi bosish</p>
           </div>
@@ -3771,6 +3782,9 @@
       const wsSwitch = document.getElementById("switch-web-search");
       if (wsSwitch) wsSwitch.checked = data.web_search_enabled !== false;
 
+      const addSwitch = document.getElementById("switch-auto-delete-dangerous");
+      if (addSwitch) addSwitch.checked = data.auto_delete_dangerous_files === true;
+
       const srSwitch = document.getElementById("switch-smart-reactions");
       if (srSwitch) srSwitch.checked = data.smart_reactions_enabled !== false;
 
@@ -5510,7 +5524,8 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         "smart_reactions": "switch-smart-reactions",
         "vazifalar_status": "switch-vazifalar-status",
         "gemini_backup": "switch-gemini-backup",
-        "silent_mode": "switch-silent-mode"
+        "silent_mode": "switch-silent-mode",
+        "auto_delete_dangerous_files": "switch-auto-delete-dangerous"
       };
       return document.getElementById(map[feature]);
     }

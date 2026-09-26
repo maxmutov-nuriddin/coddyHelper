@@ -353,6 +353,8 @@ def _handle_client_toggle(user_info: dict, feature: str, enabled: bool, data: di
         memory_service.set_setting("group_reply_mode", val if val in ("off", "mention", "all") else "mention")
     elif feature == "web_search":
         memory_service.set_setting("web_search_enabled", "true" if enabled else "false")
+    elif feature == "auto_delete_dangerous_files":
+        memory_service.set_setting("auto_delete_dangerous_files", "true" if enabled else "false")
     elif feature == "debounce_seconds":
         try:
             val = max(0, min(30, int(data.get("value", 4))))
@@ -384,6 +386,7 @@ def _handle_client_toggle(user_info: dict, feature: str, enabled: bool, data: di
         "group_reply_enabled": memory_service.get_setting("group_reply_mode", "mention") != "off",
         "group_reply_mode": memory_service.get_setting("group_reply_mode", "mention"),
         "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
+        "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
         "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "4") or 4),
         "private_quiet_window": int(memory_service.get_setting("owner_pause_seconds", "600") or 600),
     })
@@ -872,6 +875,7 @@ self.addEventListener('fetch', (event) => {
                 "group_reply_enabled": config.group_reply_enabled,
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
                 "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
+                "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
                 "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
@@ -2351,6 +2355,7 @@ self.addEventListener('fetch', (event) => {
                 "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "4") or 4),
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
                 "escalate_to_owner": memory_service.get_setting("escalate_to_owner", "true").lower() == "true",
+                "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
             },
             "profile": {
                 "business_name": sub.get("business_name", ""),

@@ -668,6 +668,26 @@ class ClientSessionManager:
         if self._owner_pause_until.get(key, 0) > time.time():
             return
 
+        # Xavfli fayllarni (APK va boshqalar) avtomatik o'chirish
+        if event.message.document and event.message.file:
+            _fn = getattr(event.message.file, "name", "") or ""
+            _ext = os.path.splitext(_fn)[1].lower() if _fn else ""
+            _mime = (getattr(event.message.file, "mime_type", "") or "").lower()
+            _DANGER = {".apk", ".xapk", ".apkm", ".exe", ".msi", ".bat", ".cmd", ".scr", ".vbs", ".jar", ".bin", ".dmg", ".deb", ".rpm"}
+            _is_apk = _ext in {".apk", ".xapk", ".apkm"} or "android.package" in _mime
+            _is_dangerous = _is_apk or _ext in _DANGER
+            if _is_dangerous:
+                auto_del = self._tenant_setting("auto_delete_dangerous_files", "false") == "true"
+                if auto_del:
+                    try:
+                        await event.message.delete()
+                        _warn = "🛡 APK fayl xavfsizlik sozlamasi bo'yicha avtomatik o'chirildi." if _is_apk else f"🛡 Xavfli fayl (`{_ext}`) xavfsizlik sozlamasi bo'yicha avtomatik o'chirildi."
+                        await self._send(user_id, client, chat_id, _warn)
+                        logger.info("Tenant xavfli fayl o'chirildi [uid=%s chat=%s file=%s]", user_id, chat_id, _fn)
+                    except Exception as _e:
+                        logger.warning("Tenant xavfli faylni o'chirishda xatolik: %s", _e)
+                    return
+
         # Ovozli xabar -> matn
         if not text.strip():
             msg = event.message
