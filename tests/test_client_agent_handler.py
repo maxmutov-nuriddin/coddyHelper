@@ -149,6 +149,48 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         await self._incoming(make_event(STRANGER, -100600, "@akmal narx?", private=False, mentioned=True))
         self.assertEqual(self.replies_tenants, [OWNER])
 
+    async def test_owner_group_bypasses_mention_gate(self):
+        """
+        Mijozning O'Z (Mini App'da biriktirgan) boshqaruv guruhi mentorning Vazifalar guruhi
+        kabi ishlashi kerak: @mention shart emas — hatto begona odam yozsa ham javob beriladi
+        (chunki bu guruh 100% agentga bag'ishlangan, oddiy mijozlar guruhi emas).
+        """
+        owner_group = -100700
+        memory_service.link_user_group(OWNER, owner_group)
+        await self._incoming(make_event(STRANGER, owner_group, "narx qancha?", private=False, mentioned=False))
+        self.assertEqual(self.replies_tenants, [OWNER])
+
+    async def test_owner_command_works_directly_in_owner_group(self):
+        """
+        Egasi o'z boshqaruv guruhida ham (Saved Messages'dagi kabi) 'ai ...' buyrug'ini bera olishi kerak.
+        Bu testda agent egasining O'Z akkauntida ishlaydi (AGENT_ACCOUNT == OWNER), shuning uchun
+        egasining xabari haqiqiy Telethon'da OUTGOING hodisa sifatida keladi.
+        """
+        owner_group = -100701
+        memory_service.link_user_group(OWNER, owner_group)
+        await self._outgoing(make_event(AGENT_ACCOUNT, owner_group, "ai Alisherga xabar yubor", private=False))
+        self.assertEqual(self.owner_commands, ["Alisherga xabar yubor"])
+        self.assertEqual(self.replies_tenants, [])  # buyruq sifatida bajarildi, oddiy AI javobi emas
+
+    async def test_owner_casual_message_in_owner_group_does_not_pause_ai(self):
+        """
+        Boshqaruv guruhida egasi 'ai' prefiksisiz oddiy gapirsa, bu odatdagi mijozlar guruhidagi
+        kabi AI'ni "jim tur" holatiga o'tkazmasligi kerak (chunki bu guruh mijozlar guruhi emas).
+        """
+        owner_group = -100704
+        memory_service.link_user_group(OWNER, owner_group)
+        await self._outgoing(make_event(AGENT_ACCOUNT, owner_group, "salom, tekshirib ko'ryapman", private=False))
+        await self._incoming(make_event(STRANGER, owner_group, "narx qancha?", private=False, mentioned=False))
+        self.assertEqual(self.replies_tenants, [OWNER])
+
+    async def test_regular_group_unaffected_by_owner_group_linking(self):
+        """Egasi boshqaruv guruhini ulagani boshqa (bog'liq bo'lmagan) guruhlarga ta'sir qilmasligi kerak."""
+        owner_group = -100702
+        other_group = -100703
+        memory_service.link_user_group(OWNER, owner_group)
+        await self._incoming(make_event(STRANGER, other_group, "umumiy gap", private=False, mentioned=False))
+        self.assertEqual(self.replies_tenants, [])
+
     async def test_auto_reply_off_is_respected(self):
         from services.tenant_context import tenant_scope
         with tenant_scope(OWNER):

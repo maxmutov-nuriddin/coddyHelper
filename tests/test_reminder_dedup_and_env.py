@@ -11,6 +11,8 @@
 
 import tests._isolated_env  # noqa: F401
 
+import inspect
+import re
 import unittest
 
 from config import _clean_env_value
@@ -18,6 +20,24 @@ from services.event_dedup import is_duplicate_event, reset as reset_event_dedup
 from services.memory_service import memory_service
 
 CHAT = 800000001
+
+
+class TestNoNestedDuplicateCheckRegression(unittest.TestCase):
+    """
+    Regressiya himoyasi: `handle_vazifalar_chat` faqat `on_mentor_message` va
+    `handle_incoming_message` orqali chaqiriladi, ular esa chaqirishdan OLDIN
+    `is_duplicate_event`ni allaqachon tekshirib bo'lgan bo'ladi. Agar shu funksiya
+    ICHIGA yana bir marta xuddi shu tekshiruv qo'shilsa, kalit chaqiruvchida
+    "ko'rilgan" deb belgilanib bo'lgani uchun bu yerda doim True qaytadi va
+    Vazifalar guruhi HECH QACHON javob bermay qo'yadi (aynan shunday bug bo'lgan edi).
+    """
+
+    def test_handle_vazifalar_chat_does_not_recheck_dedup(self):
+        import handlers.auto_reply as ar
+        src = inspect.getsource(ar)
+        m = re.search(r"async def handle_vazifalar_chat\(.*?\n(?P<body>(?:[ \t]{8}.*\n|\n)+)", src)
+        self.assertIsNotNone(m, "handle_vazifalar_chat topilmadi")
+        self.assertNotIn("is_duplicate_event", m.group("body"))
 
 
 class TestReminderDedup(unittest.TestCase):

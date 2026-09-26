@@ -85,6 +85,20 @@ def _extract_owner_command(text: str) -> str | None:
     return None
 
 
+def _is_same_group(chat_id, group_id) -> bool:
+    """
+    Ikkita guruh ID sini solishtiradi ("-100xxxxxxxxxx" supergroup prefiksidan qat'i nazar).
+    `link_user_group` va Telethon'ning turli joylarda ID ni har xil ko'rinishda
+    (prefiksli/prefiksiz) saqlashi mumkinligiga qarshi himoya.
+    """
+    if not chat_id or not group_id:
+        return False
+    a, b = str(chat_id).strip(), str(group_id).strip()
+    if a == b:
+        return True
+    return a.replace("-100", "-", 1) == b.replace("-100", "-", 1)
+
+
 class ClientSessionManager:
     """
     - start_session(user_id, session_string) -> client yaratib, handlerlarni ro'yxatga oladi
@@ -459,6 +473,25 @@ class ClientSessionManager:
                 await self._send(user_id, client, chat_id, f"🤖 {result}")
             return
 
+        # Egasining O'Z boshqaruv guruhi (Mini App'da biriktirgan): agent bitta akkauntda ishlasa,
+        # egasining bu guruhga yozgan xabari OUTGOING hodisa sifatida keladi — shuning uchun
+        # 'ai ...' buyrug'i bu yerda ham (Saved Messages'dagi kabi) tanilishi kerak.
+        try:
+            from services.memory_service import memory_service
+            sub = memory_service.get_subscription(user_id)
+        except Exception:
+            sub = None
+        if sub and _is_same_group(chat_id, sub.get("group_id")):
+            command = _extract_owner_command(text)
+            if command:
+                self._log(user_id, f"👤 Egasining buyrug'i (boshqaruv guruhidan): {command[:80]}")
+                result = await self.run_owner_command(user_id, command)
+                await self._send(user_id, client, chat_id, f"🤖 {result}")
+                return
+            # Boshqaruv guruhida egasi oddiy gapirsa ham, AI'ni "jim tur" holatiga o'tkazmaymiz —
+            # bu guruh mijozlar guruhi emas, shuning uchun pastdagi pauza mantig'i qo'llanilmaydi.
+            return
+
         # Egasi o'zi chatga yozdi -> AI shu chatda jim turadi (inson ustuvor)
         pause = int(self._tenant_setting("owner_pause_seconds", str(DEFAULT_OWNER_PAUSE_SECONDS)) or DEFAULT_OWNER_PAUSE_SECONDS)
         self._owner_pause_until[key] = time.time() + max(0, pause)
@@ -504,10 +537,23 @@ class ClientSessionManager:
         if memory_service.is_user_ignored(sender_id):
             return
 
+        # Mijozning O'Z (Mini App'da biriktirgan) boshqaruv guruhi — mentorning Vazifalar guruhi
+        # bilan bir xil mantiqda ishlaydi: @mention shart emas, egasi shu yerdan `ai ...` buyrug'ini
+        # ham to'g'ridan-to'g'ri berishi mumkin. Aks holda bu guruh ham oddiy mijozlar guruhi kabi
+        # faqat @mention qilinganda javob berardi va egasi "yozsam javob bermayapti" deb qolardi.
+        is_owner_group = not event.is_private and _is_same_group(chat_id, sub.get("group_id"))
+        if is_owner_group and sender_id == user_id:
+            command = _extract_owner_command(text)
+            if command:
+                self._log(user_id, f"👤 Egasining buyrug'i (boshqaruv guruhidan): {command[:80]}")
+                result = await self.run_owner_command(user_id, command)
+                await self._send(user_id, client, chat_id, f"🤖 {result}", reply_to=event.id)
+                return
+
         if event.is_private:
             if self._tenant_setting("auto_reply_enabled", "true") != "true":
                 return
-        else:
+        elif not is_owner_group:
             group_mode = self._tenant_setting("group_reply_mode", "mention")
             if group_mode == "off":
                 return

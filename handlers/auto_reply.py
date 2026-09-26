@@ -993,11 +993,10 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         """
         chat_id = event.chat_id
 
-        # 🛡 Telethon qayta ulanganda ba'zan bir xil xabarni ikkinchi marta yuborishi mumkin
-        # (masalan Render "uxlab" qayta uyg'onganda) — bunday holda eslatma/javob 2x yaratilmasin.
-        if is_duplicate_event(chat_id, event.message.id):
-            logger.debug("Takroriy (qayta yetkazilgan) xabar e'tiborsiz qoldirildi: chat=%s, msg=%s", chat_id, event.message.id)
-            return
+        # DIQQAT: takroriy xabar tekshiruvi bu yerda EMAS — chaqiruvchilar
+        # (on_mentor_message / handle_incoming_message) buni CHAQIRISHDAN OLDIN allaqachon
+        # tekshiradi. Bu yerda qayta tekshirish har doim "takroriy" deb topib, HAR BIR
+        # xabarni bloklab qo'yardi (Vazifalar guruhi umuman javob bermay qolgan edi).
 
         # ⏹ Stop buyrug'i: har qanday osilib qolgan vazifa yoki qulfni darhol tozalaydi
         raw_txt_check = (event.raw_text or event.message.message or "").strip().lower()
