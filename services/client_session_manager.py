@@ -611,24 +611,44 @@ class ClientSessionManager:
         except Exception as e:
             logger.debug("Qo'ng'iroqni rad etishda xatolik (normal): %s", e)
 
-        # Qo'ng'iroq qiluvchiga avtomatik matn xabari yuborish
+        # Qo'ng'iroq qiluvchiga ovozli (TTS) javob + matn
         custom_msg = self._tenant_setting("call_auto_reply", "")
-        if custom_msg:
-            reply_text = custom_msg
-        else:
+        if not custom_msg:
             from services.memory_service import memory_service as _ms
             owner_name = self._me.get(user_id, {}).get("name", "")
             business = _ms.get_setting("business_name", "") or owner_name or "Biznes"
-            reply_text = (
+            custom_msg = (
+                f"Salom! Men {business} AI yordamchisiman. "
+                f"Hozir qo'ng'iroqqa javob bera olmayman, "
+                f"lekin ovozli xabar yuborisangiz, sizga darhol javob beraman!"
+            )
+
+        try:
+            # Avval TTS ovozli xabar yuborish (Jarvis uslubi)
+            if self._tenant_setting("voice_reply_enabled", "true") == "true":
+                from services.tts_service import generate_voice_message
+                voice_path = await generate_voice_message(custom_msg, is_mentor=False)
+                if voice_path:
+                    try:
+                        await client.send_file(caller_id, str(voice_path), voice_note=True)
+                        logger.info("Qo'ng'iroq: ovozli javob yuborildi [caller=%s, user=%s]", caller_id, user_id)
+                    finally:
+                        voice_path.unlink(missing_ok=True)
+                    return  # Ovozli xabar yuborildi, matn shart emas
+
+            # TTS yo'q yoki yoqilmagan bo'lsa — matn xabar
+            from services.memory_service import memory_service as _ms2
+            owner_name2 = self._me.get(user_id, {}).get("name", "")
+            business2 = _ms2.get_setting("business_name", "") or owner_name2 or "Biznes"
+            text_msg = (
                 f"📞 Salom! Hozir qo'ng'iroqqa javob bera olmayman.\n\n"
                 f"💬 Iltimos, savolingizni **yozib yuboring** — men tezda javob beraman!\n\n"
-                f"🤖 _{business} AI yordamchisi_"
+                f"🤖 _{business2} AI yordamchisi_"
             )
-        try:
-            await client.send_message(caller_id, reply_text, parse_mode="md")
-            logger.info("Qo'ng'iroq rad etildi, %s ga xabar yuborildi [user_id=%s]", caller_id, user_id)
+            await client.send_message(caller_id, text_msg, parse_mode="md")
+            logger.info("Qo'ng'iroq rad etildi, %s ga matn xabar yuborildi [user_id=%s]", caller_id, user_id)
         except Exception as e:
-            logger.warning("Qo'ng'iroq xabarini yuborishda xatolik: %s", e)
+            logger.warning("Qo'ng'iroq javobini yuborishda xatolik: %s", e)
 
     async def _handle_incoming(self, user_id: int, client: TelegramClient, event) -> None:
         from services.memory_service import memory_service

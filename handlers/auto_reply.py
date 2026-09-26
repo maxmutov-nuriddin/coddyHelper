@@ -1581,15 +1581,42 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                 ))
             except Exception as _disc_e:
                 logger.debug("Qo'ng'iroqni rad etishda xatolik: %s", _disc_e)
-            # Avtomatik matn xabari
+
+            # Ovozli (TTS) yoki matn javob yuborish
             custom_msg = memory_service.get_setting("call_auto_reply", "")
+            voice_enabled = memory_service.get_setting("voice_reply_enabled", "true").lower() == "true"
             if not custom_msg:
-                custom_msg = (
+                tts_text = (
+                    "Salom! Men AI yordamchisiman. "
+                    "Hozir qo'ng'iroqqa javob bera olmayman, "
+                    "lekin ovozli xabar yuborisangiz, sizga darhol javob beraman!"
+                )
+                text_fallback = (
                     "📞 Salom! Hozir qo'ng'iroqqa javob bera olmayman.\n\n"
                     "💬 Iltimos, savolingizni **yozib yuboring** — men tezda javob beraman! 🤖"
                 )
-            await client.send_message(caller_id, custom_msg, parse_mode="md")
-            logger.info("Main bot: qo'ng'iroq rad etildi, %s ga xabar yuborildi", caller_id)
+            else:
+                tts_text = custom_msg
+                text_fallback = custom_msg
+
+            if voice_enabled:
+                try:
+                    from services.tts_service import generate_voice_message
+                    voice_path = await generate_voice_message(tts_text, is_mentor=True)
+                    if voice_path:
+                        try:
+                            await client.send_file(caller_id, str(voice_path), voice_note=True)
+                            logger.info("Main bot: qo'ng'iroq ovozli javob %s ga yuborildi", caller_id)
+                        finally:
+                            voice_path.unlink(missing_ok=True)
+                    else:
+                        await client.send_message(caller_id, text_fallback, parse_mode="md")
+                except Exception as _tts_e:
+                    logger.warning("Main bot: TTS xatolik, matn xabar: %s", _tts_e)
+                    await client.send_message(caller_id, text_fallback, parse_mode="md")
+            else:
+                await client.send_message(caller_id, text_fallback, parse_mode="md")
+            logger.info("Main bot: qo'ng'iroq rad etildi, %s ga javob yuborildi", caller_id)
         except ImportError:
             pass
         except Exception as _e:
