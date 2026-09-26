@@ -2440,7 +2440,7 @@ class AIService:
                     "uz": "Doimo O'ZBEK TILIDA javob bering (mijoz qaysi tilda yozmasin).",
                     "ru": "Всегда отвечайте НА РУССКОМ ЯЗЫКЕ (независимо от языка клиента).",
                     "en": "Always reply in ENGLISH (regardless of the customer's language).",
-                    "auto": "Foydalanuvchi qaysi tilda yozsa (o'zbek/rus/ingliz), o'SHA TILDA xushmuomala, aniq va ixcham javob bering.",
+                    "auto": "Foydalanuvchi O'ZBEK, RUS yoki INGLIZ tilida yozganda, AYNAN o'sha tilda muloyim va ixcham javob bering. Boshqa har qanday tilda (kurd, arab, turk, fors va h.k.) matn kelsa ham, O'ZBEK TILIDA javob bering.",
                 }
                 _lang_rule = _lang_rules.get(_reply_lang, _lang_rules["auto"])
                 client_sys += (
@@ -3434,7 +3434,14 @@ class AIService:
         )
 
         whisper_models = ["whisper-large-v3", "whisper-large-v3-turbo"]
-        alien_accents = ("ó", "é", "á", "í", "ú", "ñ", "ç", "ã", "õ", "å", "ø", "ä", "ö", "ü")
+        # Lotin imlo belgilari o'zbek/rus/inglizda ishlatilmaydi
+        alien_accents = ("ó", "é", "á", "í", "ú", "ñ", "ç", "ã", "õ", "å", "ø", "ä", "ö", "ü",
+                         "î", "ê", "û", "â", "ô", "ā", "ō", "ū", "ğ", "ş", "ı")
+        # Kurmanji/Sorani kurd tiliga xos so'zlar
+        kurdish_markers = (
+            "silav", "spas", " çi ", "hewce", "heke ", "tiştekî", "ragihîn",
+            "pirsêk", "xwe ", " bi ", "kerema", "alîkariy", "temamî",
+        )
 
         def _is_suspicious_audio_text(t: str, lang: str) -> bool:
             if not t or len(t.strip()) < 3:
@@ -3444,9 +3451,12 @@ class AIService:
                 return True
             if any(tm in low for tm in turkish_markers):
                 return True
-            if any(c in low for c in alien_accents):
+            if any(km in low for km in kurdish_markers):
                 return True
-            if lang in ("tr", "turkish", "az", "azerbaijani", "tk", "turkmen", "kk", "kazakh", "ky", "kyrgyz", "is", "la", "ku", "sw"):
+            if any(c in t for c in alien_accents):
+                return True
+            if lang in ("tr", "turkish", "az", "azerbaijani", "tk", "turkmen", "kk", "kazakh",
+                        "ky", "kyrgyz", "is", "la", "ku", "kurmanci", "sw", "fa", "ar", "hy"):
                 return True
             return False
 

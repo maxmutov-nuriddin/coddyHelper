@@ -1880,6 +1880,26 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         if not message_text.strip() and not has_photo and not has_voice and not has_doc_file and not is_dangerous:
             return
 
+        # Tenant-linked guruh uchun accept_media filtri
+        _accept_media = "all"
+        if is_group:
+            _t_sub = memory_service.get_subscription_by_group(chat_id)
+            if _t_sub and not _t_sub.get("is_expired"):
+                _t_uid = _t_sub.get("user_id")
+                if _t_uid:
+                    try:
+                        from services.tenant_context import tenant_scope as _ts
+                        with _ts(_t_uid):
+                            _accept_media = memory_service.get_setting("accept_media", "all")
+                    except Exception:
+                        pass
+
+        # Media filtri: voice/photo qabul qilinishini tekshirish
+        if has_voice and _accept_media not in ("all", "text_voice"):
+            return
+        if has_photo and not has_voice and not message_text.strip() and _accept_media not in ("all", "text_photo"):
+            return
+
         # Ovozli xabar bo'lsa darhol yuklab o'girish
         input_text = message_text
         if has_voice:
