@@ -2529,6 +2529,17 @@ self.addEventListener('fetch', (event) => {
         )
         return web.json_response({"ok": True, "subscription": sanitize_subscription(memory_service.get_subscription(uid))})
 
+    async def handle_api_my_onboarding_reset(request: web.Request):
+        """Mijoz onboarding suhbatini qayta boshlaydi (agentni qayta sozlash)."""
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        uid = user_info["user_id"]
+        from services.onboarding_service import set_state, save_data
+        set_state(uid, None)
+        save_data(uid, {})
+        return web.json_response({"ok": True, "message": "Onboarding qayta boshlashga tayyor. /start yozing."})
+
     async def handle_api_my_tg_login(request: web.Request):
         """Telegram akkauntni ulash: step = send_code | code | password | cancel."""
         user_info, err = _client_only(request)
@@ -2670,6 +2681,7 @@ self.addEventListener('fetch', (event) => {
     app.router.add_post("/api/my/agent/settings", handle_api_my_agent_settings)
     app.router.add_post("/api/my/agent/clear_history", handle_api_my_agent_clear_history)
     app.router.add_post("/api/my/profile", handle_api_my_profile)
+    app.router.add_post("/api/my/onboarding/reset", handle_api_my_onboarding_reset)
     app.router.add_post("/api/my/tg-login/{step}", handle_api_my_tg_login)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")

@@ -1591,6 +1591,7 @@
             <button class="btn btn-secondary" onclick="myAgentStop()" style="width: auto; padding: 6px 12px; font-size: 12px; color: #fca5a5;">⏹ To'xtatish</button>
             <button class="btn btn-secondary" onclick="loadMyAgent()" style="width: auto; padding: 6px 12px; font-size: 12px;">🔄 Yangilash</button>
             <button class="btn btn-secondary" onclick="myAgentClearHistory()" style="width: auto; padding: 6px 12px; font-size: 12px; color: #fb923c;" title="Barcha suhbat tarixini o'chirish">🗑 Tarixni tozalash</button>
+            <button class="btn btn-secondary" onclick="myAgentResetOnboarding()" style="width: auto; padding: 6px 12px; font-size: 12px; color: #a78bfa;" title="Agentni yangi biznesga moslashtirish">🪄 Qayta sozlash</button>
           </div>
         </div>
 
@@ -3735,6 +3736,14 @@
       haptic();
       const d = await apiRequest("/api/my/agent/clear_history", "POST", {});
       if (d && d.ok) showToast("✅ Suhbat tarixi tozalandi (" + (d.cleared || 0) + " ta xabar)", "success");
+      else showToast("❌ " + ((d && d.error) || "Xatolik"), "error");
+    }
+
+    async function myAgentResetOnboarding() {
+      haptic();
+      if (!confirm("Agentni qayta sozlash uchun Telegram'da botga /start yozing. Mavjud sozlamalar saqlanadi — yangilari ustiga yoziladi. Davom etasizmi?")) return;
+      const d = await apiRequest("/api/my/onboarding/reset", "POST", {});
+      if (d && d.ok) showToast("✅ Tayyor! Telegram'da @coddyassistanstbot ga /start yozing.", "success");
       else showToast("❌ " + ((d && d.error) || "Xatolik"), "error");
     }
 

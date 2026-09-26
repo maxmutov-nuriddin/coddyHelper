@@ -165,6 +165,24 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         if is_admin(sender_id):
             return await handler(event, data)
 
+        # Obunali foydalanuvchi — onboarding aktiv bo'lsa ushlash
+        if is_authorized_user(sender_id) and event.chat.type == "private" and not is_admin(sender_id):
+            from services.onboarding_service import (
+                current_question_index, process_answer, finalize_onboarding, get_state
+            )
+            state = get_state(sender_id)
+            if state and state not in ("done", None) and not text.startswith("/"):
+                with tenant_scope(sender_id):
+                    reply, is_done = process_answer(sender_id, event.text or "")
+                if is_done:
+                    await event.answer("⏳ Sozlanmoqda, bir soniya...")
+                    result = await finalize_onboarding(sender_id)
+                    kb = get_private_keyboard(sender_id)
+                    await event.answer(result, reply_markup=kb)
+                elif reply:
+                    await event.answer(reply)
+                return
+
         # Obunali foydalanuvchi — barcha amallar FAQAT o'z tenant bazasida
         # (avval eslatmalari mentor bazasiga tushardi, /bekor bilan mentorning eslatmasini o'chira olardi)
         if is_authorized_user(sender_id):
@@ -262,40 +280,22 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
             except Exception as mb_err:
                 logger.warning("Menu buttonni sozlashda ogohlantirish: %s", mb_err)
 
+            # Yangi mijoz — onboarding kerakmi?
+            from services.onboarding_service import is_onboarding_needed, start_onboarding
+            if is_onboarding_needed(user_id):
+                intro = start_onboarding(user_id)
+                await message.answer(intro)
+                return
+
             biz_name = sub.get("business_name") or "Mening Boshqaruvim"
             expires = sub.get("expires_at", "—")
-            group_id = sub.get("group_id") or 0
-
-            if group_id:
-                # Guruhi allaqachon ulangan
-                kb = get_private_keyboard(user_id)
-                await message.answer(
-                    f"👋 **Assalomu alaykum, {biz_name}!**\n\n"
-                    f"✅ Obunangiz **{expires}** gacha faol.\n"
-                    f"📌 Shaxsiy guruhingiz ulangan (ID: `{group_id}`).\n\n"
-                    "🤖 Panelda **Mening Agentim** bo'limidan Telegram akkauntingizni ulab, "
-                    "shaxsiy AI agentingizni ishga tushiring.\n\n"
-                    "Boshqaruv panelini ochish uchun quyidagi tugmani bosing 👇",
-                    reply_markup=kb,
-                )
-            else:
-                # Guruhi hali ulanmagan — ko'rsatma berish
-                kb = get_private_keyboard(user_id)
-                await message.answer(
-                    f"👋 **Assalomu alaykum, {biz_name}!**\n\n"
-                    f"✅ Profilingiz faollashtirildi! Obunangiz **{expires}** gacha.\n\n"
-                    "📋 **Boshlash uchun:**\n"
-                    "1️⃣ Pastdagi tugma orqali panelni oching\n"
-                    "2️⃣ **🤖 Mening Agentim** bo'limida Telegram akkauntingizni ulang (raqam + kod)\n"
-                    "3️⃣ **Bilimlar** bo'limiga biznesingiz qoidalari, narxlar va ma'lumotlarni kiriting\n\n"
-                    "💡 _Ixtiyoriy — boshqaruv guruhi: o'zingiz uchun guruh ochib, ULANGAN akkauntingiz "
-                    "(2-qadamda ulagan raqamingiz) o'sha guruhda turib `ai ulash` deb yozing — shu guruh "
-                    "darhol boshqaruv guruhingiz sifatida biriktiriladi — shundan keyin u yerga oddiy "
-                    "yozgan har bir xabaringizga botni chaqirmasdan ham javob beradi. "
-                    "(Diqqat: buni shaxsiy akkauntingiz bilan qiling — meni, ya'ni botni guruhga qo'shish "
-                    "yetarli emas, chunki javob beradigan aynan sizning ULANGAN akkauntingizdir.)_",
-                    reply_markup=kb,
-                )
+            kb = get_private_keyboard(user_id)
+            await message.answer(
+                f"👋 **Assalomu alaykum, {biz_name}!**\n\n"
+                f"✅ Obunangiz **{expires}** gacha faol.\n\n"
+                "Boshqaruv panelini ochish uchun quyidagi tugmani bosing 👇",
+                reply_markup=kb,
+            )
             return
 
         # ——— 3. RUXSATSIZ FOYDALANUVCHI ———
