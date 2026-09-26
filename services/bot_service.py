@@ -102,6 +102,51 @@ def get_group_keyboard(user_id: int = 0) -> InlineKeyboardMarkup:
     )
 
 
+def _stranger_info_kb() -> InlineKeyboardMarkup:
+    """Notanish foydalanuvchi uchun @mentor_cc bilan bog'lanish tugmasi."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Narx va ulash — @mentor_cc", url="https://t.me/mentor_cc")],
+            [InlineKeyboardButton(text="📋 Tarif va narxlar — /tarif", callback_data="show_tarif")],
+        ]
+    )
+
+
+async def _send_stranger_welcome(target, user_name: str = "") -> None:
+    """Notanish foydalanuvchiga bot haqida to'liq ma'lumot va narxlar yuboradi."""
+    greeting = f"Assalomu alaykum, {user_name}! 👋\n\n" if user_name else "Assalomu alaykum! 👋\n\n"
+    text = (
+        f"{greeting}"
+        "🤖 **Men — CoddyHelper (Shaxsiy AI Yordamchi)**\n\n"
+        "Telegram'da siz nomingizdan ishlaydi: xabarlarga javob beradi, "
+        "qo'ng'iroqlarni qabul qiladi, mijozlaringizga 7/24 xizmat ko'rsatadi — "
+        "siz uxlayotganingizda ham.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⚡ **Pro tarifi** — 99,000 UZS/oy\n"
+        "    • Avto-javob (lichka + guruh)\n"
+        "    • Ovozli xabarga ovozli javob\n"
+        "    • Web Search — internetdan real-time qidirish\n"
+        "    • Qo'ng'iroqlarga avtomatik javob\n"
+        "    • Eslatmalar + Bilimlar bazasi\n"
+        "    ✅ Yillik: 890,000 UZS (2 oy bepul)\n\n"
+        "🚀 **Ultra tarifi** — 179,000 UZS/oy\n"
+        "    • Pro dagi hamma narsa +\n"
+        "    • APK / Xavfli fayl o'chirish (guruh himoyasi)\n"
+        "    • Gemini zaxira modeli (uzluksiz ishlash)\n"
+        "    • Avtonom miya — mustaqil qaror qabul qiladi\n"
+        "    • Agent IQ — AI kuchini to'liq sozlash\n"
+        "    ✅ Yillik: 1,590,000 UZS (2 oy bepul)\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📩 Ulash yoki narx haqida savol bo'lsa — quyidagi tugmani bosing yoki "
+        "to'g'ridan-to'g'ri **@mentor_cc** ga yozing."
+    )
+    kb = _stranger_info_kb()
+    if hasattr(target, "answer"):
+        await target.answer(text, reply_markup=kb)
+    else:
+        await target.bot.send_message(target.chat.id, text, reply_markup=kb)
+
+
 async def setup_bot_handlers(d: Dispatcher) -> None:
     """Bot handlerlarini ro'yxatga oladi va multi-user ruxsat tizimini o'rnatadi."""
 
@@ -126,7 +171,7 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
             with tenant_scope(sender_id):
                 return await handler(event, data)
 
-        # Ruxsatsiz foydalanuvchi
+        # Ruxsatsiz foydalanuvchi — bot haqida ma'lumot va narxlarni ko'rsat
         if event.chat.type == "private":
             try:
                 await event.bot.set_chat_menu_button(
@@ -135,10 +180,8 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
                 )
             except Exception:
                 pass
-            await event.answer(
-                "⛔ Sizga hali ruxsat berilmagan.\n\n"
-                "Obuna olish uchun Super Admin (@mentor_cc) ga murojaat qiling."
-            )
+            user_name = sender.first_name or sender.username or ""
+            await _send_stranger_welcome(event, user_name)
         return
 
     @d.callback_query.outer_middleware
@@ -146,6 +189,10 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
         """Callback-lar uchun multi-user ruxsat tekshiruvi."""
         sender = event.from_user
         sender_id = sender.id if sender else None
+
+        # Tarif ma'lumoti barcha uchun ochiq
+        if getattr(event, "data", None) == "show_tarif":
+            return await handler(event, data)
 
         if not is_authorized_user(sender_id):
             await event.answer(
@@ -259,15 +306,21 @@ async def setup_bot_handlers(d: Dispatcher) -> None:
             )
         except Exception:
             pass
+        user_name = message.from_user.first_name or message.from_user.username or ""
+        await _send_stranger_welcome(message, user_name)
 
-        buy_line = "💳 Onlayn obuna: /buy (Telegram Stars)\n" if SUBSCRIPTION_STARS_PRICE > 0 else ""
-        await message.answer(
-            "⛔ **Kechirasiz, sizda hali faol obuna yo'q.**\n\n"
-            "Shaxsiy AI yordamchi olish uchun Super Admin bilan bog'laning:\n"
-            "👉 @mentor_cc\n"
-            f"{buy_line}\n"
-            "Obuna olganingizdan so'ng, /start ni qaytadan bosing.",
-        )
+    @d.message(Command(commands=["tarif", "narx", "price", "pricing"]))
+    async def cmd_tarif(message: types.Message):
+        """/tarif — Hamma uchun ochiq narxlar sahifasi."""
+        user_name = message.from_user.first_name or message.from_user.username or ""
+        await _send_stranger_welcome(message, user_name)
+
+    @d.callback_query(F.data == "show_tarif")
+    async def cb_show_tarif(callback: types.CallbackQuery):
+        """Tarif tugmasi bosilganda /tarif kabi javob."""
+        user_name = callback.from_user.first_name or callback.from_user.username or ""
+        await callback.answer()
+        await _send_stranger_welcome(callback.message, user_name)
 
     @d.message(F.chat.type.in_(["group", "supergroup"]), Command(commands=["panel", "button", "pin_button", "app", "admin"]))
     async def cmd_group_panel(message: types.Message):

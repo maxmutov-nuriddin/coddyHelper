@@ -2373,6 +2373,7 @@ self.addEventListener('fetch', (event) => {
         if err:
             return err
         from services.client_session_manager import client_session_manager
+        from services.plan_config import get_plan_features
         uid = user_info["user_id"]
         sub = memory_service.get_subscription(uid) or {}
         return web.json_response({
@@ -2405,7 +2406,7 @@ self.addEventListener('fetch', (event) => {
                 "full_name": sub.get("full_name", ""),
             },
             "plan": sub.get("plan", "pro"),
-            "plan_features": __import__("services.plan_config", fromlist=["get_plan_features"]).get_plan_features(sub.get("plan", "pro")),
+            "plan_features": get_plan_features(sub.get("plan") or "pro"),
         })
 
     async def handle_api_my_agent_start(request: web.Request):
