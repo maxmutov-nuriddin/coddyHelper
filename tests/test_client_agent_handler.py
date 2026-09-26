@@ -83,6 +83,13 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         self._orig_gen = ai_mod.ai_service.generate_reply
         ai_mod.ai_service.generate_reply = fake_generate_reply
 
+        # Onboarding yakunida ishlatiladigan xom Groq pool'ni bo'shatib qo'yamiz — shu bilan
+        # _finish_onboarding tarmoqqa chiqmasdan, tozalanmagan xom matnni saqlaydi (deterministik test).
+        self._orig_frontline = ai_mod.ai_service._frontline_clients
+        self._orig_groq = ai_mod.ai_service._groq_clients
+        ai_mod.ai_service._frontline_clients = []
+        ai_mod.ai_service._groq_clients = []
+
         async def fake_run_owner_command(user_id, command):
             self.owner_commands.append(command)
             return "bajarildi"
@@ -98,6 +105,8 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         from services import ai_service as ai_mod
         ai_mod.ai_service.generate_reply = self._orig_gen
+        ai_mod.ai_service._frontline_clients = self._orig_frontline
+        ai_mod.ai_service._groq_clients = self._orig_groq
 
     async def _incoming(self, event):
         from services.tenant_context import tenant_scope
@@ -214,16 +223,43 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         """
         Bot orqali avtomatik bog'lash o'rniga, egasi o'zi agent akkaunti a'zo bo'lgan istalgan
         guruhda `ai ulash` deb yozib, o'sha guruhni xavfsiz va aniq ravishda biriktira oladi
-        (bitta akkauntli sozlamada — xabar OUTGOING hodisa sifatida keladi).
+        (bitta akkauntli sozlamada — xabar OUTGOING hodisa sifatida keladi). Ulangandan so'ng
+        tanishuv savolnomasi (1-savol) avtomatik boshlanadi.
         """
         new_group = -100800
         await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "ai ulash", private=False))
         sub = memory_service.get_subscription(OWNER)
         self.assertEqual(sub["group_id"], new_group)
-        self.assertTrue(self.client.sent and "boshqaruv guruhingiz" in self.client.sent[-1][1])
-        # Endi shu guruh @mention'siz ham javob berishi kerak
+        sent_texts = [t for _, t in self.client.sent]
+        self.assertTrue(any("boshqaruv guruhingiz" in t for t in sent_texts))
+        self.assertTrue(any("1️⃣" in t for t in sent_texts))  # tanishuv savolnomasining 1-savoli
+
+        # Tanishuv hali tugamagan bo'lsa ham, BEGONA odam yozgan xabar oddiy AI javobi olishi kerak
+        # (onboarding javobi sifatida qabul qilinmaydi — faqat egasining javoblari shunday hisoblanadi)
         await self._incoming(make_event(STRANGER, new_group, "narx qancha?", private=False, mentioned=False))
         self.assertEqual(self.replies_tenants, [OWNER])
+
+    async def test_onboarding_questionnaire_completes_and_saves_business_info(self):
+        """Ulangandan keyingi barcha savollarga ketma-ket javob berilsa, biznes ma'lumotlari saqlanadi."""
+        from services import client_session_manager as csm_mod
+        new_group = -100810
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "ai ulash", private=False))
+        for _, question in csm_mod.ONBOARDING_QUESTIONS:
+            await self._outgoing(make_event(AGENT_ACCOUNT, new_group, f"javob: {question[:10]}", private=False))
+        sub = memory_service.get_subscription(OWNER)
+        self.assertIn("javob:", sub["system_prompt"])  # fake AI mock ishlatilmagani uchun xom matn qoladi
+        # Savolnoma tugagach, holat tozalanib, oddiy suhbat rejimiga qaytishi kerak
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "yana bir gap", private=False))
+        self.assertEqual(self.owner_commands[-1], "yana bir gap")
+
+    async def test_relinking_same_group_says_already_linked_and_skips_onboarding(self):
+        """`ai ulash` bir marta qilinsa yetarli — qayta qilinsa, qayta ulanmaydi va savolnoma qayta boshlanmaydi."""
+        new_group = -100820
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "ai ulash", private=False))
+        sent_before = len(self.client.sent)
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "ai ulash", private=False))
+        self.assertEqual(len(self.client.sent), sent_before + 1)
+        self.assertIn("allaqachon", self.client.sent[-1][1])
 
     async def test_random_group_membership_does_not_auto_link(self):
         """Agent a'zo bo'lgan tasodifiy guruhlar, egasi buyruq bermaguncha, ULANMASLIGI kerak."""

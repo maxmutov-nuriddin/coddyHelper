@@ -104,6 +104,22 @@ def _is_link_group_command(owner_command: str | None) -> bool:
     return c in _LINK_GROUP_PHRASES
 
 
+# Guruh birinchi marta ulanganda agent so'raydigan tanishuv savollari (ketma-ket, bittadan).
+# Har biri (kalit, savol matni) — javoblar shu kalitlar bilan saqlanadi va oxirida
+# AI orqali bitta tartibli "biznes qo'llanmasi"ga (system_prompt) aylantiriladi.
+ONBOARDING_QUESTIONS: tuple[tuple[str, str], ...] = (
+    ("business_name", "1️⃣ Birinchi savol: biznesingizning nomi nima?"),
+    ("profession", "2️⃣ Qaysi sohada faoliyat yuritasiz? (masalan: mebel savdosi, go'zallik saloni, IT xizmatlari)"),
+    ("products", "3️⃣ Qanday mahsulot yoki xizmatlar taqdim etasiz? Asosiylarini va narxlarini yozing."),
+    ("hours_location", "4️⃣ Ish vaqtingiz va manzilingiz (yoki yetkazib berish hududi) qanday?"),
+    ("faq", "5️⃣ Mijozlar sizdan ko'pincha nimalarni so'rashadi? 2-3 ta misol yozing (masalan: yetkazib berish bepulmi, kafolat bormi)."),
+    ("tone", "6️⃣ Mijozlar bilan qanday ohangda gaplashishimni xohlaysiz — rasmiy, samimiy yoki qisqa-lo'nda?"),
+    ("extra", "7️⃣ (Ixtiyoriy, oxirgi savol) Yana muhim qoida yoki ma'lumot bo'lsa yozing (chegirma, kafolat, to'lov usuli va h.k.). Bo'lmasa \"yo'q\" deb yozing."),
+)
+_ONBOARDING_SKIP_WORDS = {"yo'q", "yoq", "yoʻq", "skip", "-", "yo'q.", "yoq."}
+_ONBOARDING_SETTING_KEY = "onboarding_state"
+
+
 def _is_same_group(chat_id, group_id) -> bool:
     """
     Ikkita guruh ID sini solishtiradi ("-100xxxxxxxxxx" supergroup prefiksidan qat'i nazar).
@@ -507,6 +523,11 @@ class ClientSessionManager:
         # (agent) a'zo bo'lgan boshqa tasodifiy guruhlar hech qachon o'zi ulanib qolmaydi.
         command_for_link = _extract_owner_command(text)
         if sub and _is_link_group_command(command_for_link):
+            if _is_same_group(chat_id, sub.get("group_id")):
+                # 1 marta ulash yetarli: qayta "ulash" deyilsa, qayta ulamaymiz va
+                # tanishuv savolnomasini boshidan boshlamaymiz — shunchaki xabar beramiz.
+                await self._send(user_id, client, chat_id, "ℹ️ Bu guruh allaqachon sizning **boshqaruv guruhingiz** sifatida ulangan.")
+                return
             memory_service.link_user_group(user_id, chat_id)
             self._log(user_id, f"📌 Boshqaruv guruhi biriktirildi: {chat_id}")
             await self._send(
@@ -515,9 +536,17 @@ class ClientSessionManager:
                 "Endi shu yerga oddiy yozgan har bir xabaringizga to'g'ridan-to'g'ri javob beraman "
                 "(botni chaqirish yoki maxsus so'z aytish shart emas) va topshiriqlarni bajaraman.",
             )
+            await self._start_onboarding(user_id, client, chat_id)
             return
 
         if sub and _is_same_group(chat_id, sub.get("group_id")):
+            # Guruh birinchi ulanganda boshlangan tanishuv savolnomasi hali tugamagan bo'lsa,
+            # bu xabar navbatdagi javob sifatida qabul qilinadi (oddiy AI suhbatiga aylanmaydi).
+            onboarding_state = self._get_onboarding_state()
+            if onboarding_state and _is_same_group(chat_id, onboarding_state.get("chat_id")):
+                await self._handle_onboarding_answer(user_id, client, chat_id, text, onboarding_state)
+                return
+
             # Boshqaruv guruhi = mentorning Vazifalar guruhi bilan bir xil tajriba: egasi
             # "ai " prefiksisiz, oddiy tabiiy tilda yozsa ham (masalan "Salom", "Alisherga
             # xabar yubor") to'liq AI Co-Pilot javob berishi kerak — prefiks talab qilinmaydi.
@@ -578,6 +607,11 @@ class ClientSessionManager:
         if not event.is_private and sender_id == user_id:
             link_command = _extract_owner_command(text)
             if _is_link_group_command(link_command):
+                if _is_same_group(chat_id, sub.get("group_id")):
+                    # 1 marta ulash yetarli: qayta "ulash" deyilsa, qayta ulamaymiz va
+                    # tanishuv savolnomasini boshidan boshlamaymiz — shunchaki xabar beramiz.
+                    await self._send(user_id, client, chat_id, "ℹ️ Bu guruh allaqachon sizning **boshqaruv guruhingiz** sifatida ulangan.", reply_to=event.id)
+                    return
                 memory_service.link_user_group(user_id, chat_id)
                 self._log(user_id, f"📌 Boshqaruv guruhi biriktirildi: {chat_id}")
                 await self._send(
@@ -587,6 +621,7 @@ class ClientSessionManager:
                     "(botni chaqirish yoki maxsus so'z aytish shart emas) va topshiriqlarni bajaraman.",
                     reply_to=event.id,
                 )
+                await self._start_onboarding(user_id, client, chat_id)
                 return
 
         # Mijozning O'Z (Mini App'da biriktirgan) boshqaruv guruhi — mentorning Vazifalar guruhi
@@ -595,6 +630,13 @@ class ClientSessionManager:
         # faqat @mention qilinganda javob berardi va egasi "yozsam javob bermayapti" deb qolardi.
         is_owner_group = not event.is_private and _is_same_group(chat_id, sub.get("group_id"))
         if is_owner_group and sender_id == user_id:
+            # Guruh birinchi ulanganda boshlangan tanishuv savolnomasi hali tugamagan bo'lsa,
+            # bu xabar navbatdagi javob sifatida qabul qilinadi.
+            onboarding_state = self._get_onboarding_state()
+            if onboarding_state and _is_same_group(chat_id, onboarding_state.get("chat_id")):
+                await self._handle_onboarding_answer(user_id, client, chat_id, text, onboarding_state, reply_to=event.id)
+                return
+
             # Boshqaruv guruhi = Vazifalar guruhi tajribasi: "ai " prefiksisiz oddiy
             # xabar ham to'liq AI Co-Pilot javobini olishi kerak.
             command = _extract_owner_command(text) or text
@@ -781,6 +823,139 @@ class ClientSessionManager:
                 self._agent_sending.pop(key, None)
             else:
                 self._agent_sending[key] = left
+
+    # ──────────────────────────────────────────────────────
+    # Boshqaruv guruhi birinchi ulanganda: tanishuv savolnomasi
+    # ──────────────────────────────────────────────────────
+    def _get_onboarding_state(self) -> dict | None:
+        """Joriy tenant kontekstidagi tugallanmagan tanishuv holatini o'qiydi."""
+        from services.memory_service import memory_service
+        raw = memory_service.get_setting(_ONBOARDING_SETTING_KEY, "")
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def _clear_onboarding_state(self) -> None:
+        from services.memory_service import memory_service
+        memory_service.set_setting(_ONBOARDING_SETTING_KEY, "")
+
+    async def _start_onboarding(self, user_id: int, client: TelegramClient, chat_id: int) -> None:
+        """Guruh birinchi marta ulanganda tanishuv savolnomasini boshlaydi (1-savol)."""
+        from services.memory_service import memory_service
+        state = {"chat_id": chat_id, "step": 0, "answers": {}}
+        memory_service.set_setting(_ONBOARDING_SETTING_KEY, json.dumps(state, ensure_ascii=False))
+        _, first_q = ONBOARDING_QUESTIONS[0]
+        await self._send(
+            user_id, client, chat_id,
+            "🧠 Sizni va biznesingizni tezroq bilib olishim uchun bir nechta qisqa savol beraman "
+            f"(har birini alohida xabar qilib yuboring — jami {len(ONBOARDING_QUESTIONS)} ta savol):\n\n{first_q}",
+        )
+
+    async def _handle_onboarding_answer(
+        self, user_id: int, client: TelegramClient, chat_id: int, text: str,
+        state: dict, reply_to: int | None = None,
+    ) -> None:
+        """Tanishuv savolnomasidagi navbatdagi javobni qabul qiladi va keyingi savolga o'tadi."""
+        from services.memory_service import memory_service
+        step = int(state.get("step", 0))
+        if step >= len(ONBOARDING_QUESTIONS):
+            self._clear_onboarding_state()
+            return
+
+        key, _ = ONBOARDING_QUESTIONS[step]
+        answer = (text or "").strip()
+        is_last_optional = key == "extra"
+        if not answer or (not is_last_optional and answer.lower().strip("., !") in _ONBOARDING_SKIP_WORDS):
+            await self._send(
+                user_id, client, chat_id,
+                "🙏 Iltimos, shu savolga qisqacha bo'lsa ham javob bering — bu mijozlaringizga to'g'ri yordam berishim uchun kerak.",
+                reply_to=reply_to,
+            )
+            return
+
+        answers = state.setdefault("answers", {})
+        if not (is_last_optional and answer.lower().strip("., !") in _ONBOARDING_SKIP_WORDS):
+            answers[key] = answer
+        step += 1
+        state["step"] = step
+
+        if step < len(ONBOARDING_QUESTIONS):
+            memory_service.set_setting(_ONBOARDING_SETTING_KEY, json.dumps(state, ensure_ascii=False))
+            _, next_q = ONBOARDING_QUESTIONS[step]
+            await self._send(user_id, client, chat_id, next_q, reply_to=reply_to)
+            return
+
+        self._clear_onboarding_state()
+        await self._send(user_id, client, chat_id, "⏳ Rahmat! Ma'lumotlarni tahlil qilib, xotiramga saqlayapman...", reply_to=reply_to)
+        await self._finish_onboarding(user_id, client, chat_id, answers)
+
+    async def _finish_onboarding(self, user_id: int, client: TelegramClient, chat_id: int, answers: dict) -> None:
+        """To'plangan javoblarni AI orqali tartibli 'biznes qo'llanmasi'ga aylantirib saqlaydi."""
+        from services.memory_service import memory_service
+
+        biz_name = (answers.get("business_name") or "").strip() or "Mening Boshqaruvim"
+        profession = (answers.get("profession") or "").strip()
+        labels = {
+            "business_name": "Biznes nomi", "profession": "Sohasi", "products": "Mahsulot/xizmatlar va narxlar",
+            "hours_location": "Ish vaqti va manzil", "faq": "Mijozlar ko'p so'raydigan savollar",
+            "tone": "Xohlagan muloqot ohangi", "extra": "Qo'shimcha qoidalar",
+        }
+        raw_blob = "\n".join(f"- {labels.get(k, k)}: {v}" for k, v in answers.items() if v)
+
+        system_prompt_text = raw_blob
+        try:
+            from services.ai_service import ai_service
+            pool = ai_service._frontline_clients if ai_service._frontline_clients else ai_service._groq_clients
+            if pool:
+                res = await pool[0].chat.completions.create(
+                    model=config.groq_model or "openai/gpt-oss-120b",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Siz tadbirkorning xom javoblarini AI yordamchi uchun aniq, tartibli "
+                                "'BIZNES QOIDALARI VA MA'LUMOTLARI' qo'llanmasiga aylantirasiz. Imlo/uslub "
+                                "xatolarini to'g'irlang, takrorlarni olib tashlang, punktma-punkt tartibga soling. "
+                                "Hech qanday yangi ma'lumot to'qib chiqarmang — faqat berilganini tozalab, tartibga soling. "
+                                "Tadbirkor qaysi tilda yozgan bo'lsa, xuddi o'sha tilda javob bering."
+                            ),
+                        },
+                        {"role": "user", "content": raw_blob},
+                    ],
+                    temperature=0.2,
+                    max_tokens=700,
+                )
+                cleaned = (res.choices[0].message.content or "").strip()
+                if cleaned:
+                    system_prompt_text = cleaned
+        except Exception as e:
+            logger.warning("Onboarding xulosasini AI bilan tozalashda ogohlantirish [user_id=%s]: %s", user_id, e)
+
+        memory_service.upsert_subscription(
+            user_id=user_id, business_name=biz_name, profession=profession,
+            system_prompt=system_prompt_text, days=0, is_edit=True,
+        )
+
+        tone = (answers.get("tone") or "").lower()
+        persona = "friendly"
+        if any(w in tone for w in ("rasmiy", "professional", "formal")):
+            persona = "assistant"
+        elif any(w in tone for w in ("mutaxassis", "ekspert", "texnik")):
+            persona = "tech_lead"
+        memory_service.set_setting(f"ai_persona_{user_id}", persona)
+
+        self._log(user_id, "🎓 Tanishuv savolnomasi yakunlandi, biznes ma'lumotlari saqlandi")
+        await self._send(
+            user_id, client, chat_id,
+            "✅ **Tayyor!** Endi biznesingiz haqida bilaman va mijozlaringizga shu asosda javob beraman.\n\n"
+            f"📋 **O'rgangan ma'lumotlarim:**\n{system_prompt_text[:900]}\n\n"
+            "Istalgan payt Mini App'dagi **Bilimlar** bo'limi yoki shu guruhga oddiy yozib "
+            "(masalan: \"yangi qoida: ...\") bu ma'lumotlarni to'ldirishingiz mumkin.",
+        )
 
     # ──────────────────────────────────────────────────────
     # Egasining buyruqlari (ReAct agent — Telegramni to'liq boshqarish)
