@@ -3086,6 +3086,23 @@
       </div>
 
       <div class="form-group">
+        <label class="form-label">Tarif Rejasi *</label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
+          <label id="plan-pro-label" onclick="selectClientPlan('pro')" style="display: flex; flex-direction: column; gap: 4px; background: rgba(36,129,204,0.12); border: 2px solid #2481cc; border-radius: 10px; padding: 10px 12px; cursor: pointer;">
+            <span style="font-weight: 700; font-size: 13px;">⚡ Pro</span>
+            <span style="font-size: 11px; color: #93c5fd;">99,000 UZS/oy</span>
+            <span style="font-size: 10px; color: var(--hint-color);">890,000 UZS/yil</span>
+          </label>
+          <label id="plan-ultra-label" onclick="selectClientPlan('ultra')" style="display: flex; flex-direction: column; gap: 4px; background: rgba(168,85,247,0.06); border: 2px solid rgba(168,85,247,0.3); border-radius: 10px; padding: 10px 12px; cursor: pointer;">
+            <span style="font-weight: 700; font-size: 13px;">🚀 Ultra</span>
+            <span style="font-size: 11px; color: #c084fc;">179,000 UZS/oy</span>
+            <span style="font-size: 10px; color: var(--hint-color);">1,590,000 UZS/yil</span>
+          </label>
+        </div>
+        <input type="hidden" id="modal-client-plan" value="pro" />
+      </div>
+
+      <div class="form-group">
         <label class="form-label" id="modal-client-days-label">Obuna Muddati (Kunlarda) *</label>
         <input type="number" id="modal-client-days" class="form-input" value="30" min="0" max="3650" />
         <span style="font-size: 11px; color: var(--hint-color); margin-top: 2px; display: block;" id="modal-client-days-hint">Yangi mijoz uchun kunlar soni</span>
@@ -3464,6 +3481,42 @@
       if (el) el.innerHTML = text ? `<span style="color:${isError ? "#fca5a5" : "#86efac"};">${escapeHtml(text)}</span>` : "";
     }
 
+    function applyPlanLocks(plan, features) {
+      const ultraOnly = ["my-agent-apk-delete", "my-agent-smart-reactions",
+                         "my-agent-silent-mode", "my-agent-quiet-window", "my-agent-debounce"];
+      const ultraOnlyKeys = {
+        "my-agent-apk-delete": "auto_delete_dangerous_files",
+        "my-agent-smart-reactions": "smart_reactions",
+        "my-agent-silent-mode": "silent_mode",
+      };
+      ultraOnly.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const row = el.closest("label") || el.closest("div");
+        if (!row) return;
+        const featureKey = ultraOnlyKeys[id];
+        const allowed = featureKey ? (features && features[featureKey]) : (plan === "ultra");
+        if (!allowed) {
+          row.style.opacity = "0.45";
+          row.style.pointerEvents = "none";
+          row.title = "🚀 Ultra tarifida mavjud";
+          if (!row.querySelector(".ultra-badge")) {
+            const badge = document.createElement("span");
+            badge.className = "ultra-badge";
+            badge.textContent = "Ultra";
+            badge.style.cssText = "background:rgba(168,85,247,0.3);border:1px solid rgba(168,85,247,0.5);color:#c084fc;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:6px;";
+            row.appendChild(badge);
+          }
+        } else {
+          row.style.opacity = "";
+          row.style.pointerEvents = "";
+          row.title = "";
+          const badge = row.querySelector(".ultra-badge");
+          if (badge) badge.remove();
+        }
+      });
+    }
+
     function renderMyAgent(d) {
       const st = d.agent || {};
       const running = Boolean(st.running);
@@ -3516,6 +3569,8 @@
       if (db && set.debounce_seconds !== undefined) db.value = String(set.debounce_seconds);
       const sm = document.getElementById("my-agent-silent-mode");
       if (sm) sm.checked = set.silent_mode === true;
+
+      applyPlanLocks(d.plan || "pro", d.plan_features || {});
 
       const prof = d.profile || {};
       const setVal = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v || ""; };
@@ -3795,7 +3850,8 @@
           const sub = user.subscription || {};
           const prof = user.profession || sub.profession || "Shaxsiy AI Yordamchi";
           const exp = sub.expires_at ? sub.expires_at.split(" ")[0] : "Faol";
-          headerSub.innerText = `ID: ${user.user_id || user.id || "—"} • ${prof} • Obuna: ${exp} gacha`;
+          const planLabel = (sub.plan === "ultra") ? "🚀 Ultra" : "⚡ Pro";
+          headerSub.innerText = `ID: ${user.user_id || user.id || "—"} • ${planLabel} • ${exp} gacha`;
         }
       }
 
@@ -6374,6 +6430,9 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         const professionText = c.profession ? escapeHtml(c.profession) : "Tadbirkor / Mijoz";
         const businessTitle = c.business_name ? escapeHtml(c.business_name) : "Mijoz Paneli";
         const expDate = c.expires_at ? c.expires_at.split(" ")[0] : "Cheksiz";
+        const planBadge = c.plan === "ultra"
+          ? `<span style="background: linear-gradient(135deg, rgba(168,85,247,0.3), rgba(192,132,252,0.2)); border: 1px solid rgba(168,85,247,0.5); color: #c084fc; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px;">🚀 Ultra</span>`
+          : `<span style="background: rgba(36,129,204,0.15); border: 1px solid rgba(36,129,204,0.4); color: #60a5fa; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px;">⚡ Pro</span>`;
 
         return `
           <div class="card" style="margin-bottom: 12px; border-left: 3px solid ${isActive ? 'var(--success)' : 'var(--danger)'};">
@@ -6384,7 +6443,7 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
                   👤 ${escapeHtml(c.full_name || 'Noma\'lum')} (${usernameText}) • <code>ID: ${c.user_id}</code>
                 </div>
               </div>
-              <div>${statusBadge}</div>
+              <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">${statusBadge}${planBadge}</div>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: var(--radius-sm); margin: 8px 0;">
@@ -6564,6 +6623,7 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
           document.getElementById("modal-client-profession").value = c.profession || "";
           document.getElementById("modal-client-days").value = 0;
           document.getElementById("modal-client-prompt").value = c.system_prompt || "";
+          selectClientPlan(c.plan || "pro");
           // Session qismi (HSS kod xavfsizlik uchun serverdan qaytarilmaydi — faqat yangisini kiritish mumkin)
           const sessInput = document.getElementById("modal-client-session");
           sessInput.value = "";
@@ -6591,8 +6651,28 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
       document.getElementById("modal-client-days").value = 30;
       document.getElementById("modal-client-prompt").value = "";
       document.getElementById("modal-client-session").value = "";
+      selectClientPlan("pro");
       if (sessionControls) sessionControls.style.display = "none";
       if (sessionStatus) sessionStatus.style.display = "none";
+    }
+
+    function selectClientPlan(plan) {
+      const proLabel = document.getElementById("plan-pro-label");
+      const ultraLabel = document.getElementById("plan-ultra-label");
+      const input = document.getElementById("modal-client-plan");
+      if (!proLabel || !ultraLabel || !input) return;
+      if (plan === "ultra") {
+        ultraLabel.style.border = "2px solid #a855f7";
+        ultraLabel.style.background = "rgba(168,85,247,0.18)";
+        proLabel.style.border = "2px solid rgba(36,129,204,0.3)";
+        proLabel.style.background = "rgba(36,129,204,0.06)";
+      } else {
+        proLabel.style.border = "2px solid #2481cc";
+        proLabel.style.background = "rgba(36,129,204,0.12)";
+        ultraLabel.style.border = "2px solid rgba(168,85,247,0.3)";
+        ultraLabel.style.background = "rgba(168,85,247,0.06)";
+      }
+      input.value = plan;
     }
 
     function closeClientModal() {
@@ -6682,7 +6762,8 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         profession: document.getElementById("modal-client-profession").value.trim(),
         days: parseInt(daysVal) || 0,
         system_prompt: document.getElementById("modal-client-prompt").value.trim(),
-        is_edit: isEdit
+        is_edit: isEdit,
+        plan: document.getElementById("modal-client-plan")?.value || "pro",
       };
 
       const res = await apiRequest("/api/subscriptions", "POST", payload);

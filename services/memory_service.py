@@ -506,6 +506,7 @@ class SQLiteMemoryService:
                 for col_def in [
                     "ALTER TABLE user_subscriptions ADD COLUMN session_string TEXT DEFAULT ''",
                     "ALTER TABLE user_subscriptions ADD COLUMN session_active INTEGER DEFAULT 0",
+                    "ALTER TABLE user_subscriptions ADD COLUMN plan TEXT DEFAULT 'pro'",
                 ]:
                     try:
                         conn.execute(col_def)
@@ -4060,6 +4061,7 @@ class SQLiteMemoryService:
                 "active": 1,
                 "expires_at": "2099-12-31 23:59:59",
                 "role": "super_admin",
+                "plan": "ultra",
                 "is_expired": False,
             }
         try:
@@ -4069,7 +4071,8 @@ class SQLiteMemoryService:
                     """
                     SELECT user_id, username, full_name, phone, business_name,
                            profession, system_prompt, group_id, active, expires_at, role, created_at,
-                           session_string, session_active
+                           session_string, session_active,
+                           COALESCE(plan, 'pro') as plan
                     FROM user_subscriptions WHERE user_id = ?
                     """,
                     (user_id,)
@@ -4141,6 +4144,7 @@ class SQLiteMemoryService:
                     "is_expired": is_expired,
                     "session_string": decrypt_secret(row[12] or ""),
                     "session_active": int(row[13] or 0),
+                    "plan": row[14] or "pro",
                 }
         except Exception as e:
             logger.error("Obunani o'qishda xatolik [%s]: %s", user_id, e)
@@ -4170,6 +4174,7 @@ class SQLiteMemoryService:
         system_prompt: str = "",
         role: str = "client",
         is_edit: bool = False,
+        plan: str = "",
     ) -> dict:
         """Yangi obuna ochadi yoki mavjud mijoz ma'lumotlarini yangilaydi."""
         from datetime import timedelta
@@ -4207,12 +4212,15 @@ class SQLiteMemoryService:
 
         try:
             with self._get_connection() as conn:
+                _plan = plan.strip().lower() if plan else ""
+                if _plan not in ("pro", "ultra"):
+                    _plan = existing.get("plan", "pro") if existing else "pro"
                 conn.execute(
                     """
                     INSERT INTO user_subscriptions (
                         user_id, username, full_name, business_name, profession,
-                        system_prompt, active, expires_at, role, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
+                        system_prompt, active, expires_at, role, plan, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(user_id) DO UPDATE SET
                         username = CASE WHEN excluded.username != '' THEN excluded.username ELSE user_subscriptions.username END,
                         full_name = CASE WHEN excluded.full_name != '' THEN excluded.full_name ELSE user_subscriptions.full_name END,
@@ -4222,6 +4230,7 @@ class SQLiteMemoryService:
                         active = 1,
                         expires_at = excluded.expires_at,
                         role = excluded.role,
+                        plan = excluded.plan,
                         updated_at = CURRENT_TIMESTAMP
                     """,
                     (
@@ -4233,6 +4242,7 @@ class SQLiteMemoryService:
                         system_prompt or "",
                         expires_at,
                         role,
+                        _plan,
                     )
                 )
                 conn.commit()
@@ -4390,7 +4400,8 @@ class SQLiteMemoryService:
                     """
                     SELECT user_id, username, full_name, business_name, profession,
                            system_prompt, group_id, active, expires_at, role, created_at,
-                           session_string, session_active
+                           session_string, session_active,
+                           COALESCE(plan, 'pro') as plan
                     FROM user_subscriptions ORDER BY created_at DESC
                     """
                 )
@@ -4409,6 +4420,7 @@ class SQLiteMemoryService:
                         "created_at": str(r[10]) if r[10] else "",
                         "session_string": decrypt_secret(r[11] or ""),
                         "session_active": int(r[12] or 0),
+                        "plan": r[13] or "pro",
                     })
         except Exception as e:
             logger.error("Barcha obunachilarni olishda xatolik: %s", e)

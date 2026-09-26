@@ -2228,6 +2228,9 @@ self.addEventListener('fetch', (event) => {
             profession = str(data.get("profession", "")).strip()
             system_prompt = str(data.get("system_prompt", "")).strip()
             is_edit = bool(data.get("is_edit", False))
+            plan = str(data.get("plan", "pro")).strip().lower()
+            if plan not in ("pro", "ultra"):
+                plan = "pro"
 
             sub = memory_service.upsert_subscription(
                 user_id=user_id,
@@ -2238,6 +2241,7 @@ self.addEventListener('fetch', (event) => {
                 profession=profession,
                 system_prompt=system_prompt,
                 is_edit=is_edit,
+                plan=plan,
             )
             # Obuna uzaytirilganda/faollashtirilganda: saqlangan HSS bo'lsa agentni qayta ishga tushiramiz
             try:
@@ -2400,6 +2404,8 @@ self.addEventListener('fetch', (event) => {
                 "system_prompt": sub.get("system_prompt", ""),
                 "full_name": sub.get("full_name", ""),
             },
+            "plan": sub.get("plan", "pro"),
+            "plan_features": __import__("services.plan_config", fromlist=["get_plan_features"]).get_plan_features(sub.get("plan", "pro")),
         })
 
     async def handle_api_my_agent_start(request: web.Request):
@@ -2448,11 +2454,18 @@ self.addEventListener('fetch', (event) => {
             data = await request.json()
         except Exception:
             data = {}
+        from services.plan_config import is_feature_allowed
+        uid = user_info["user_id"]
+        sub = memory_service.get_subscription(uid) or {}
+        user_plan = sub.get("plan", "pro")
+
         if "auto_reply_enabled" in data:
             memory_service.set_setting("auto_reply_enabled", "true" if data["auto_reply_enabled"] else "false")
         for bool_key in ("voice_reply_enabled", "escalate_to_owner", "web_search_enabled",
                          "auto_delete_dangerous_files", "smart_reactions", "silent_mode"):
             if bool_key in data:
+                if not is_feature_allowed(user_plan, bool_key) and data[bool_key]:
+                    continue  # plan ruxsat bermasa yoqib bo'lmaydi
                 memory_service.set_setting(bool_key, "true" if data[bool_key] else "false")
         if "group_reply_mode" in data:
             val = str(data["group_reply_mode"]).strip().lower()
