@@ -2400,6 +2400,16 @@ class AIService:
                             f"Agar foydalanuvchi ushbu doiradan tashqari begona narsalarni so'rasa, "
                             f"xushmuomala tarzda bu mavzu kompaniyangiz xizmat doirasiga kirmasligini bildiring.\n\n"
                         )
+                    elif custom_prompt:
+                        # Aniq mavzular ro'yxati kiritilmagan (masalan tanishuv savolnomasi hali
+                        # o'tkazilmagan/mavzu chiqarib bo'lmagan), lekin biznes qoidalari mavjud —
+                        # baribir yuqoridagi qoidalar doirasidan chiqmaslikni majburiy qilamiz.
+                        client_sys += (
+                            "# XIZMAT KO'RSATISH CHEGARALARI:\n"
+                            "Faqat yuqoridagi biznes yo'riqnomasi va sohangizga bevosita aloqador savollarga javob bering. "
+                            "Bunga umuman aloqasi yo'q so'rovlar (masalan siyosat, boshqa sohadagi savollar, "
+                            "shaxsiy suhbat) kelsa, xushmuomala tarzda bu mavzu xizmat doirangizga kirmasligini bildiring.\n\n"
+                        )
 
                     client_facts = memory_service.get_all_learned_facts(limit=15, user_id=client_uid)
                     if client_facts:

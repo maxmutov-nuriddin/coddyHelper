@@ -67,6 +67,9 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         from services.event_dedup import reset as reset_event_dedup
         reset_event_dedup()  # global holat testlar orasida sizib chiqmasligi uchun
         memory_service.upsert_subscription(user_id=OWNER, days=30, business_name="Test Mebel", full_name="Akmal")
+        # upsert_subscription group_id'ga tegmaydi — oldingi testda ulangan guruh shu yerga
+        # "sizib o'tmasligi" uchun har bir test boshida aniq tozalab qo'yamiz.
+        memory_service.link_user_group(OWNER, 0)
         self.mgr = ClientSessionManager()
         self.client = FakeClient()
         self.mgr._clients[OWNER] = self.client
@@ -252,6 +255,38 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "yana bir gap", private=False))
         self.assertEqual(self.owner_commands[-1], "yana bir gap")
 
+    async def test_onboarding_derives_topics_and_sets_scope_boundary(self):
+        """
+        Savolnomadagi 'mahsulot/xizmatlar' javobidan mavzular ro'yxati chiqarilib, mijozning
+        shaxsiy `curriculum_topics`iga saqlanishi, va shu asosda AI system promptida chegara
+        (boundary) qoidasi paydo bo'lishi kerak — begona so'rovlarni rad etishi uchun.
+        """
+        from services import client_session_manager as csm_mod
+        from services.memory_service import memory_service as ms
+        from services.tenant_context import tenant_scope
+
+        new_group = -100840
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "ai ulash", private=False))
+        for key, question in csm_mod.ONBOARDING_QUESTIONS:
+            if key == "products":
+                answer = "Divan, kreslo va stol-stul ishlab chiqaramiz, narxlari 500 ming so'mdan boshlanadi"
+            elif key == "profession":
+                answer = "Mebel savdosi"
+            else:
+                answer = f"javob: {question[:10]}"
+            await self._outgoing(make_event(AGENT_ACCOUNT, new_group, answer, private=False))
+
+        with tenant_scope(OWNER):
+            topics = ms.get_curriculum_topics()
+        self.assertTrue(topics, "mavzular ro'yxati bo'sh bo'lmasligi kerak")
+        self.assertTrue(any("mebel" in t.lower() for t in topics) or any("divan" in t.lower() for t in topics))
+
+        # AI system prompti shu mavzular asosida chegara qoidasini o'z ichiga olishi kerak
+        from services.ai_service import ai_service
+        with tenant_scope(OWNER):
+            prompt = ai_service._build_system_prompt(False, effective_prompt="salom", chat_id=STRANGER, user_id=STRANGER)
+        self.assertIn("CHEGARALARI", prompt)
+
     async def test_relinking_same_group_says_already_linked_and_skips_onboarding(self):
         """`ai ulash` bir marta qilinsa yetarli — qayta qilinsa, qayta ulanmaydi va savolnoma qayta boshlanmaydi."""
         new_group = -100820
@@ -313,6 +348,37 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0][0], OWNER)
         self.assertIn("Ertaga yetkazib", sent[0][1])
+
+    async def test_unsure_answer_escalates_into_linked_group_not_only_dm(self):
+        """
+        Agar mijozning boshqaruv guruhi ulangan bo'lsa, "aniqlab xabar beraman" javobi
+        FAQAT shaxsiy DM ga emas, balki O'SHA GURUHGA ham (asosiy kanal sifatida) yozilishi kerak.
+        """
+        from services import ai_service as ai_mod
+        import services.notify as notify_mod
+
+        owner_group = -100830
+        memory_service.link_user_group(OWNER, owner_group)
+        dm_sent = []
+
+        async def unsure_reply(**kwargs):
+            return "Buni aniqlashtirib, sizga xabar beraman."
+
+        async def fake_notify(user_id, text):
+            dm_sent.append((user_id, text))
+            return True
+
+        ai_mod.ai_service.generate_reply = unsure_reply
+        orig = notify_mod.notify_user
+        notify_mod.notify_user = fake_notify
+        try:
+            await self._incoming(make_event(STRANGER, STRANGER, "Ertaga yetkazib berasizmi?"))
+        finally:
+            notify_mod.notify_user = orig
+
+        group_msgs = [t for cid, t in self.client.sent if cid == owner_group]
+        self.assertTrue(group_msgs and "Mijoz savoliga aniq javob kerak" in group_msgs[-1])
+        self.assertEqual(dm_sent, [])  # guruh ulangani uchun zaxira DM shart emas
 
 
 if __name__ == "__main__":

@@ -758,7 +758,7 @@ class ClientSessionManager:
 
         # AI aniq javob bera olmadi -> egasiga xabar (u o'zi aralashishi uchun)
         if UNSURE_ANSWER_RE.search(answer_text) and self._tenant_setting("escalate_to_owner", "true") == "true":
-            await self._escalate_to_owner(user_id, event, sender_id, combined)
+            await self._escalate_to_owner(user_id, client, event, sender_id, combined)
 
     async def _send_voice(self, user_id: int, client: TelegramClient, chat_id: int, text: str) -> None:
         try:
@@ -784,7 +784,7 @@ class ClientSessionManager:
         except Exception as e:
             logger.debug("Mijoz agenti ovozli javob yubora olmadi [%s]: %s", user_id, e)
 
-    async def _escalate_to_owner(self, user_id: int, event, sender_id: int, question: str) -> None:
+    async def _escalate_to_owner(self, user_id: int, client: TelegramClient, event, sender_id: int, question: str) -> None:
         key = (user_id, event.chat_id)
         now = time.time()
         if now - self._last_escalation.get(key, 0) < ESCALATION_COOLDOWN_SECONDS:
@@ -797,17 +797,44 @@ class ClientSessionManager:
         except Exception:
             name, username = str(sender_id), ""
         link = f"https://t.me/{username}" if username else f"tg://user?id={sender_id}"
+
         from html import escape
-        from services.notify import notify_user
-        await notify_user(
-            user_id,
-            "🙋 <b>Mijoz savoliga aniq javob kerak</b>\n\n"
-            f"👤 <a href=\"{link}\">{escape(name)}</a>\n"
-            f"💬 {escape(question[:600])}\n\n"
-            "AI unga aniqlab javob berishini aytdi. Chatga o'zingiz yozsangiz, AI shu suhbatda jim turadi.\n"
-            "💡 Javobni <b>Bilimlar</b> bo'limiga qo'shsangiz, keyingi safar AI o'zi javob beradi.",
+        plain_msg = (
+            f"🙋 Mijoz savoliga aniq javob kerak\n\n"
+            f"👤 {name}" + (f" (@{username})" if username else "") + "\n"
+            f"💬 {question[:600]}\n\n"
+            "AI unga aniqlab javob berishini aytdi. Shu yerga yozsangiz (yoki mijozga to'g'ridan-to'g'ri "
+            "javob bersangiz), AI o'sha suhbatda jim turadi. Javobni bilimlar bazasiga qo'shsangiz, "
+            "keyingi safar AI o'zi javob beradi."
         )
-        self._log(user_id, f"🙋 Egasiga yuborildi: {question[:60]}")
+
+        # 1. Eng muhimi: mijozning O'Z boshqaruv guruhiga (agar ulangan bo'lsa) — aynan shu yerda
+        #    kutib turishadi, "Vazifalar guruhi"dagi eskalatsiya bilan bir xil tajriba.
+        posted_to_group = False
+        try:
+            from services.memory_service import memory_service
+            sub = memory_service.get_subscription(user_id)
+            group_id = sub.get("group_id") if sub else None
+            if group_id and client:
+                await self._send(user_id, client, group_id, plain_msg)
+                posted_to_group = True
+        except Exception as e:
+            logger.warning("Eskalatsiyani boshqaruv guruhiga yuborishda ogohlantirish [user_id=%s]: %s", user_id, e)
+
+        # 2. Zaxira/qo'shimcha: bot orqali shaxsiy xabar (guruh ulanmagan bo'lsa ham yetib boradi).
+        if not posted_to_group:
+            from services.notify import notify_user
+            await notify_user(
+                user_id,
+                "🙋 <b>Mijoz savoliga aniq javob kerak</b>\n\n"
+                f"👤 <a href=\"{link}\">{escape(name)}</a>\n"
+                f"💬 {escape(question[:600])}\n\n"
+                "AI unga aniqlab javob berishini aytdi. Chatga o'zingiz yozsangiz, AI shu suhbatda jim turadi.\n"
+                "💡 Javobni <b>Bilimlar</b> bo'limiga qo'shsangiz, keyingi safar AI o'zi javob beradi.\n\n"
+                "ℹ️ Buni <b>boshqaruv guruhingizga</b> ham yuborishim uchun, guruhda bir marta "
+                "<code>ai ulash</code> deb yozib uni biriktiring.",
+            )
+        self._log(user_id, f"🙋 Egasiga yuborildi ({'guruh' if posted_to_group else 'shaxsiy'}): {question[:60]}")
 
     async def _send(self, user_id: int, client: TelegramClient, chat_id: int, text: str, reply_to: int | None = None) -> None:
         key = (user_id, chat_id)
@@ -907,6 +934,7 @@ class ClientSessionManager:
         raw_blob = "\n".join(f"- {labels.get(k, k)}: {v}" for k, v in answers.items() if v)
 
         system_prompt_text = raw_blob
+        topics: list[str] = []
         try:
             from services.ai_service import ai_service
             pool = ai_service._frontline_clients if ai_service._frontline_clients else ai_service._groq_clients
@@ -921,7 +949,11 @@ class ClientSessionManager:
                                 "'BIZNES QOIDALARI VA MA'LUMOTLARI' qo'llanmasiga aylantirasiz. Imlo/uslub "
                                 "xatolarini to'g'irlang, takrorlarni olib tashlang, punktma-punkt tartibga soling. "
                                 "Hech qanday yangi ma'lumot to'qib chiqarmang — faqat berilganini tozalab, tartibga soling. "
-                                "Tadbirkor qaysi tilda yozgan bo'lsa, xuddi o'sha tilda javob bering."
+                                "Tadbirkor qaysi tilda yozgan bo'lsa, xuddi o'sha tilda javob bering.\n\n"
+                                "Javobingiz ANIQ shu formatda bo'lsin (ikkala qism ham majburiy):\n"
+                                "BIZNES QO'LLANMASI:\n<tozalangan, tartibli qo'llanma matni>\n\n"
+                                "MAVZULAR: <faqat shu kompaniya taqdim etadigan asosiy mahsulot/xizmat turlari, "
+                                "vergul bilan ajratilgan 3-8 ta qisqa so'z/ibora — narx yoki gap emas, faqat nomlar>"
                             ),
                         },
                         {"role": "user", "content": raw_blob},
@@ -931,14 +963,42 @@ class ClientSessionManager:
                 )
                 cleaned = (res.choices[0].message.content or "").strip()
                 if cleaned:
-                    system_prompt_text = cleaned
+                    m = re.search(r"MAVZULAR:\s*(.+)$", cleaned, re.IGNORECASE | re.DOTALL)
+                    if m:
+                        topics = [t.strip(" .") for t in m.group(1).split(",") if t.strip(" .")][:8]
+                        cleaned = cleaned[:m.start()].strip()
+                    cleaned = re.sub(r"^BIZNES QO'LLANMASI:\s*", "", cleaned, flags=re.IGNORECASE).strip()
+                    if cleaned:
+                        system_prompt_text = cleaned
         except Exception as e:
             logger.warning("Onboarding xulosasini AI bilan tozalashda ogohlantirish [user_id=%s]: %s", user_id, e)
+
+        if not topics:
+            # AI mavzularni ajrata olmadi (yoki AI mavjud emas) — mahsulot javobidan taxminiy chiqarib olamiz.
+            raw_products = (answers.get("products") or "").strip()
+            topics = [
+                t.strip(" .")
+                for t in re.split(r"[,;/\n]|(?:\bva\b)", raw_products)
+                if 2 <= len(t.strip(" .")) <= 30 and not re.search(r"\d{3,}", t)
+            ][:8]
+        if profession:
+            topics.insert(0, profession)
+        # Takrorlarni saqlagan holda tozalash (registrga sezgir emas)
+        seen_lower: set[str] = set()
+        clean_topics = []
+        for t in topics:
+            low = t.lower()
+            if low and low not in seen_lower:
+                seen_lower.add(low)
+                clean_topics.append(t)
+        topics = clean_topics[:8]
 
         memory_service.upsert_subscription(
             user_id=user_id, business_name=biz_name, profession=profession,
             system_prompt=system_prompt_text, days=0, is_edit=True,
         )
+        if topics:
+            memory_service.set_curriculum_topics(topics, user_id=user_id)
 
         tone = (answers.get("tone") or "").lower()
         persona = "friendly"
@@ -948,11 +1008,14 @@ class ClientSessionManager:
             persona = "tech_lead"
         memory_service.set_setting(f"ai_persona_{user_id}", persona)
 
+        topics_line = f"\n\n🎯 **Xizmat doiram** (shundan tashqarisiga chiqmayman): {', '.join(topics)}" if topics else ""
         self._log(user_id, "🎓 Tanishuv savolnomasi yakunlandi, biznes ma'lumotlari saqlandi")
         await self._send(
             user_id, client, chat_id,
             "✅ **Tayyor!** Endi biznesingiz haqida bilaman va mijozlaringizga shu asosda javob beraman.\n\n"
-            f"📋 **O'rgangan ma'lumotlarim:**\n{system_prompt_text[:900]}\n\n"
+            f"📋 **O'rgangan ma'lumotlarim:**\n{system_prompt_text[:900]}"
+            f"{topics_line}\n\n"
+            "Mijozlar shu doiradan tashqari narsa so'rasa, xushmuomala tarzda rad etaman.\n"
             "Istalgan payt Mini App'dagi **Bilimlar** bo'limi yoki shu guruhga oddiy yozib "
             "(masalan: \"yangi qoida: ...\") bu ma'lumotlarni to'ldirishingiz mumkin.",
         )
