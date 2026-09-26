@@ -2009,6 +2009,24 @@
 
         <div class="toggle-row">
           <div class="toggle-info">
+            <h3>📞 Qo'ng'iroqlarga Avtomatik Javob</h3>
+            <p>Kimdir qo'ng'iroq qilsa, rad etib ovozli/matn xabar yuboriladi</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="switch-auto-answer-calls" onchange="toggleFeature('auto_answer_calls', this.checked); toggleSupportCallBox(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div id="support-call-reply-box" style="display: none; background: rgba(0,0,0,0.15); border-radius: 8px; padding: 10px; margin-top: -6px; margin-bottom: 4px;">
+          <textarea id="support-call-reply-text" class="form-input" rows="2" placeholder="Ixtiyoriy: o'z xabaringizni yozing. Bo'sh qolsa standart matn." style="font-size: 12px; resize: vertical; min-height: 54px; width: 100%; box-sizing: border-box;"></textarea>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+            <div style="font-size: 10.5px; color: var(--hint-color);">💡 Qo'ng'iroq kelsa rad etiladi + shu matn yoki ovozli xabar yuboriladi</div>
+            <button onclick="saveSupportCallReply()" style="background: rgba(34,197,94,0.2); border: 1px solid rgba(34,197,94,0.4); color: #22c55e; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer;">💾 Saqlash</button>
+          </div>
+        </div>
+
+        <div class="toggle-row">
+          <div class="toggle-info">
             <h3>💡 Aqlli Reaksiyalar (👍, ❤️, 🔥)</h3>
             <p>"Rahmat", "Tushundim" kabi xabarlarga matnsiz emodzi bosish</p>
           </div>
@@ -3592,6 +3610,19 @@
       if (box) box.style.display = show ? "block" : "none";
     }
 
+    function toggleSupportCallBox(show) {
+      const box = document.getElementById("support-call-reply-box");
+      if (box) box.style.display = show ? "block" : "none";
+    }
+
+    async function saveSupportCallReply() {
+      haptic();
+      const txt = (document.getElementById("support-call-reply-text")?.value || "").trim();
+      const res = await apiRequest("/api/toggle", "POST", { feature: "call_auto_reply", value: txt });
+      if (res && res.ok) showToast("✅ Qo'ng'iroq matni saqlandi!", "success");
+      else showToast("❌ Saqlanmadi!", "error");
+    }
+
     async function myAgentClearHistory() {
       haptic();
       const d = await apiRequest("/api/my/agent/clear_history", "POST", {});
@@ -3864,6 +3895,14 @@
 
       const addSwitch = document.getElementById("switch-auto-delete-dangerous");
       if (addSwitch) addSwitch.checked = data.auto_delete_dangerous_files === true;
+
+      const acSupportSwitch = document.getElementById("switch-auto-answer-calls");
+      if (acSupportSwitch) {
+        acSupportSwitch.checked = data.auto_answer_calls === true;
+        toggleSupportCallBox(data.auto_answer_calls === true);
+      }
+      const supportCallReplyTxt = document.getElementById("support-call-reply-text");
+      if (supportCallReplyTxt) supportCallReplyTxt.value = data.call_auto_reply || "";
 
       const srSwitch = document.getElementById("switch-smart-reactions");
       if (srSwitch) srSwitch.checked = data.smart_reactions_enabled !== false;
@@ -5605,7 +5644,8 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         "vazifalar_status": "switch-vazifalar-status",
         "gemini_backup": "switch-gemini-backup",
         "silent_mode": "switch-silent-mode",
-        "auto_delete_dangerous_files": "switch-auto-delete-dangerous"
+        "auto_delete_dangerous_files": "switch-auto-delete-dangerous",
+        "auto_answer_calls": "switch-auto-answer-calls"
       };
       return document.getElementById(map[feature]);
     }

@@ -848,6 +848,16 @@ self.addEventListener('fetch', (event) => {
         elif feature == "silent_mode":
             memory_service.set_setting("silent_mode_enabled", "true" if enabled else "false")
             logger.info("Admin Panel orqali silent_mode_enabled o'zgartirildi: %s", enabled)
+        elif feature == "auto_delete_dangerous_files":
+            memory_service.set_setting("auto_delete_dangerous_files", "true" if enabled else "false")
+            logger.info("Admin Panel orqali auto_delete_dangerous_files o'zgartirildi: %s", enabled)
+        elif feature == "auto_answer_calls":
+            memory_service.set_setting("auto_answer_calls", "true" if enabled else "false")
+            logger.info("Admin Panel orqali auto_answer_calls o'zgartirildi: %s", enabled)
+        elif feature == "call_auto_reply":
+            val = str(data.get("value", "")).strip()[:300]
+            memory_service.set_setting("call_auto_reply", val)
+            return web.json_response({"ok": True, "call_auto_reply": val})
         elif feature == "debounce_seconds":
             try:
                 val = int(data.get("value", 5))
