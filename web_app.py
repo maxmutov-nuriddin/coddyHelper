@@ -48,7 +48,7 @@ SUPER_ADMIN_ONLY_PATHS = {
     "/api/backup", "/api/backup/send_bot", "/api/upload_db", "/api/restart", "/api/broadcast",
     "/api/gemini/settings", "/api/ai_metrics", "/api/mentor-lexicon", "/api/mentor-lexicon/delete",
     "/api/self-mistakes", "/api/agent/settings", "/api/agent/insights/approve", "/api/agent/insights/delete",
-    "/api/students", "/api/students/delete", "/api/system/lease",
+    "/api/students", "/api/students/delete", "/api/system/lease", "/api/super/keys",
 }
 SUPER_ADMIN_ONLY_PREFIXES = (
     "/api/mac/", "/api/autonomous-brain/", "/api/user-photo/", "/api/user-avatar/", "/api/user-photos-info/",
@@ -705,6 +705,7 @@ self.addEventListener('fetch', (event) => {
                 "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
                 "gemini_scope": memory_service.get_setting("gemini_scope", "all"),
                 "gemini_trigger_after": memory_service.get_setting("gemini_trigger_after", "after_reserve"),
+                "gemini_model": memory_service.get_setting("gemini_model_override", config.gemini_model),
                 "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",
                 "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "5")),
                 "ai_persona": memory_service.get_setting(ai_persona_key, default_persona),
@@ -876,6 +877,7 @@ self.addEventListener('fetch', (event) => {
                 "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
                 "gemini_scope": memory_service.get_setting("gemini_scope", "all"),
                 "gemini_trigger_after": memory_service.get_setting("gemini_trigger_after", "after_reserve"),
+                "gemini_model": memory_service.get_setting("gemini_model_override", config.gemini_model),
                 "silent_mode_enabled": memory_service.get_setting("silent_mode_enabled", "false").lower() == "true",
             }
         )
@@ -909,11 +911,120 @@ self.addEventListener('fetch', (event) => {
                 if val in allowed_triggers:
                     memory_service.set_setting("gemini_trigger_after", val)
                     logger.info("Gemini settings API orqali trigger_after: %s", val)
+            if "model" in data:
+                val = str(data["model"]).strip()
+                allowed_models = {
+                    "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"
+                }
+                if val in allowed_models:
+                    memory_service.set_setting("gemini_model_override", val)
+                    logger.info("Gemini settings API orqali model: %s", val)
         return web.json_response({
             "ok": True,
             "enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
             "scope": memory_service.get_setting("gemini_scope", "all"),
             "trigger_after": memory_service.get_setting("gemini_trigger_after", "after_reserve"),
+            "gemini_model": memory_service.get_setting("gemini_model_override", config.gemini_model),
+        })
+
+    # -----------------------------------------------------------
+    # 5a. Super Admin — API Kalitlari boshqaruvi
+    # -----------------------------------------------------------
+
+    def _mask_key(key: str, show: int = 6) -> str:
+        """Kalit qiymatini maskalar: 'AIzaSyA...' → 'AIzaSy••••••••1234'"""
+        if not key or len(key) < show * 2:
+            return "•" * min(len(key or ""), 16)
+        return key[:show] + "•" * (len(key) - show - 4) + key[-4:]
+
+    async def handle_api_super_keys(request: web.Request):
+        if not is_authenticated(request):
+            return web.json_response({"ok": False, "error": "Ruxsat berilmagan!"}, status=403)
+        user_info = get_current_user(request)
+        if not user_info["is_super_admin"]:
+            return json_forbidden_role()
+
+        if request.method == "POST":
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+
+            provider = data.get("provider", "")
+
+            if provider == "gemini":
+                new_key = str(data.get("gemini_key", "")).strip()
+                new_model = str(data.get("gemini_model", "")).strip()
+                if new_key and len(new_key) > 20 and "•" not in new_key:
+                    memory_service.set_setting("gemini_api_key_override", new_key)
+                    logger.info("Super Admin: Gemini API key DB ga saqlandi (env dan ajratildi)")
+                if new_model in {"gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"}:
+                    memory_service.set_setting("gemini_model_override", new_model)
+                    logger.info("Super Admin: Gemini model yangilandi: %s", new_model)
+                # Gemini client ni qayta ulash (endi _effective_gemini_key() DB dan o'qiydi)
+                try:
+                    from services.ai_service import ai_service as _ai
+                    _ai._gemini_client = None
+                    _ai._setup_clients()
+                except Exception as e:
+                    logger.warning("Gemini reinit xatoligi: %s", e)
+
+            elif provider == "groq":
+                new_keys = [k.strip() for k in data.get("groq_keys", []) if k.strip() and len(k.strip()) > 20 and "•" not in k]
+                new_model = str(data.get("groq_model", "")).strip()
+                new_vision = str(data.get("groq_vision_model", "")).strip()
+                if new_keys:
+                    memory_service.set_setting("groq_keys_override", "\n".join(new_keys))
+                    logger.info("Super Admin: Groq API keys DB ga saqlandi (%d ta)", len(new_keys))
+                if new_model:
+                    memory_service.set_setting("groq_model_override", new_model)
+                    config.groq_model = new_model
+                if new_vision:
+                    memory_service.set_setting("groq_vision_model_override", new_vision)
+                    config.groq_vision_model = new_vision
+                # Groq clients ni qayta ulash (endi _effective_groq_keys() DB dan o'qiydi)
+                try:
+                    from services.ai_service import ai_service as _ai
+                    _ai._setup_clients()
+                except Exception as e:
+                    logger.warning("Groq reinit xatoligi: %s", e)
+
+            return web.json_response({"ok": True})
+
+        # GET — masked ko'rinish
+        try:
+            from services.ai_service import ai_service as _ai
+            metrics = _ai.get_metrics()
+            total_req = metrics.get("total_requests", 0)
+            active_model = metrics.get("active_model", config.groq_model)
+        except Exception:
+            total_req = 0
+            active_model = config.groq_model
+
+        # DB override → env fallback (effektiv kalitlarni ko'rsatish)
+        from services.ai_service import _effective_gemini_key, _effective_groq_keys
+        eff_gemini = _effective_gemini_key()
+        eff_groq_keys = _effective_groq_keys()
+        tg_token = config.bot_token if hasattr(config, "bot_token") else ""
+
+        # Qaysi manba ishlatilayotgani
+        gemini_source = "DB (override)" if memory_service.get_setting("gemini_api_key_override") else "env"
+        groq_source = "DB (override)" if memory_service.get_setting("groq_keys_override") else "env"
+
+        return web.json_response({
+            "ok": True,
+            "gemini_key_masked": _mask_key(eff_gemini),
+            "gemini_key_ok": bool(eff_gemini),
+            "gemini_key_source": gemini_source,
+            "gemini_model": memory_service.get_setting("gemini_model_override", config.gemini_model),
+            "groq_keys_masked": [_mask_key(k) for k in eff_groq_keys],
+            "groq_keys_count": len(eff_groq_keys),
+            "groq_key_source": groq_source,
+            "groq_model": memory_service.get_setting("groq_model_override", config.groq_model),
+            "groq_vision_model": memory_service.get_setting("groq_vision_model_override", config.groq_vision_model),
+            "tg_token_masked": _mask_key(tg_token, 8) if tg_token else "••••••••",
+            "active_model": active_model,
+            "total_requests": total_req,
         })
 
     # -----------------------------------------------------------
@@ -2460,6 +2571,8 @@ self.addEventListener('fetch', (event) => {
     app.router.add_get("/api/self-mistakes", handle_api_get_self_mistakes)
     app.router.add_get("/api/gemini/settings", handle_api_gemini_settings)
     app.router.add_post("/api/gemini/settings", handle_api_gemini_settings)
+    app.router.add_get("/api/super/keys", handle_api_super_keys)
+    app.router.add_post("/api/super/keys", handle_api_super_keys)
     app.router.add_get("/api/subscriptions", handle_api_get_subscriptions)
     app.router.add_post("/api/update-group-id", handle_api_update_my_group_id)
     app.router.add_post("/api/subscriptions", handle_api_upsert_subscription)

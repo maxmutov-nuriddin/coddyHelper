@@ -1166,6 +1166,146 @@
     .rem-cal-num { font-size: 13px; font-weight: 700; color: #e2e8f0; }
     .rem-cal-day.today .rem-cal-num { color: #2ea6ff; }
     .rem-cal-dot { width: 5px; height: 5px; border-radius: 50%; background: #f59e0b; }
+
+    /* =============================================
+       DESKTOP LAYOUT (900px+) — sidebar navigation
+       Mobile layout completely unchanged
+    ============================================= */
+    @media (min-width: 900px) {
+      /* Grid: sidebar | (header + content) */
+      #app-shell {
+        display: grid;
+        grid-template-columns: 230px 1fr;
+        grid-template-rows: auto 1fr;
+        grid-template-areas:
+          "sidebar header"
+          "sidebar content";
+      }
+
+      /* Sidebar nav */
+      .bottom-nav {
+        grid-area: sidebar;
+        position: relative;
+        bottom: auto;
+        left: auto;
+        right: auto;
+        width: 230px;
+        height: auto;
+        border-top: none;
+        border-right: 1px solid var(--border-color);
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: stretch;
+        padding: 20px 10px 20px 10px;
+        gap: 2px;
+        box-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        overflow-y: auto;
+      }
+      .bottom-nav::before {
+        content: "🤖 coddyHelper";
+        display: block;
+        font-size: 13px;
+        font-weight: 800;
+        color: var(--accent);
+        padding: 0 6px 14px 6px;
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 10px;
+        letter-spacing: -0.3px;
+      }
+
+      .header { grid-area: header; }
+      main.container {
+        grid-area: content;
+        padding: 20px 28px;
+        max-width: none;
+      }
+
+      /* Nav items: horizontal rows */
+      .nav-item {
+        flex-direction: row;
+        justify-content: flex-start;
+        gap: 11px;
+        padding: 9px 12px;
+        border-radius: 10px;
+        text-align: left;
+        flex: 0 0 auto;
+        width: 100%;
+        min-width: 0;
+      }
+      .nav-item:hover:not(.active) {
+        background: rgba(255,255,255,0.05);
+      }
+      .nav-item.active {
+        background: rgba(46,166,255,0.12);
+        border: 1px solid rgba(46,166,255,0.22);
+        color: var(--accent);
+      }
+      .nav-item span:last-child {
+        font-size: 13px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .nav-icon {
+        font-size: 18px;
+        width: 22px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+    }
+
+    /* Wide desktop (1200px+): two-column card grids */
+    @media (min-width: 1200px) {
+      main.container { padding: 24px 36px; }
+      .desktop-2col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      .desktop-2col > .card { margin-bottom: 0; }
+      .desktop-3col {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 14px;
+        align-items: start;
+      }
+      .desktop-3col > .card { margin-bottom: 0; }
+    }
+
+    /* API key input masking styles */
+    .key-field-wrap {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .key-field-wrap input {
+      flex: 1;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: var(--text-color);
+      font-size: 12px;
+      font-family: 'Courier New', monospace;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .key-field-wrap input:focus { border-color: var(--accent); }
+    .key-field-wrap .key-reveal-btn {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid var(--border-color);
+      border-radius: 7px;
+      color: var(--hint-color);
+      cursor: pointer;
+      padding: 7px 9px;
+      font-size: 14px;
+      line-height: 1;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .key-field-wrap .key-reveal-btn:hover { background: rgba(255,255,255,0.12); }
   </style>
 </head>
 <body>
@@ -1897,6 +2037,38 @@
                 <option value="vision_only_trigger">📸 Faqat Rasm & Fayllar uchun (Matnda Gemini ishlamaydi)</option>
               </select>
             </div>
+
+            <!-- Control 3: Model tanlash -->
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 11px; font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 5px;">
+                <span>🤖</span> Gemini modeli:
+              </label>
+              <select id="select-gemini-model" onchange="updateGeminiControl('model', this.value); calcGeminiLimit()" style="background: rgba(0,0,0,0.4); color: #fff; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 6px 8px; font-size: 11.5px; outline: none; cursor: pointer;">
+                <option value="gemini-2.5-flash-lite">⚡ 2.5 Flash Lite — Eng arzon ($0.10/$0.40 / 1M)</option>
+                <option value="gemini-2.5-flash">🔥 2.5 Flash — Balansli ($0.30/$2.50 / 1M)</option>
+                <option value="gemini-2.5-pro">💎 2.5 Pro — Kuchli ($1.25/$10.00 / 1M)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Budget kalkulyator -->
+          <div style="padding-top: 8px; border-top: 1px dashed rgba(245, 158, 11, 0.25);">
+            <label style="font-size: 11px; font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 5px; margin-bottom: 6px;">
+              <span>💰</span> API kalkulyator — necha dollarga nechta zapros yetadi:
+            </label>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.35); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 6px 10px;">
+                <span style="color: #fbbf24; font-size: 13px; font-weight: 700;">$</span>
+                <input id="gemini-budget-input" type="number" min="1" max="1000" step="1" value="5"
+                  oninput="calcGeminiLimit()"
+                  style="background: transparent; border: none; outline: none; color: #fff; font-size: 14px; font-weight: 700; width: 60px; text-align: center;" />
+              </div>
+              <span style="color: #94a3b8; font-size: 12px;">→</span>
+              <div id="gemini-limit-result" style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; padding: 6px 12px; font-size: 12px; color: #86efac; font-weight: 600; min-width: 180px; text-align: center;">
+                Hisoblash...
+              </div>
+            </div>
+            <div id="gemini-limit-detail" style="margin-top: 5px; font-size: 10.5px; color: #64748b;"></div>
           </div>
         </div>
 
@@ -2610,6 +2782,107 @@
       </div>
     </div> <!-- /tab-dossiers -->
 
+    <!-- ==================== SAHIFA: API KALITLAR (FAQAT SUPER ADMIN) ==================== -->
+    <div class="tab-pane" id="tab-apikeys">
+      <div class="section-header-badge" style="background: rgba(234,179,8,0.12); color: #eab308; border-color: rgba(234,179,8,0.3);">🔑 API Kalitlar & Tizim Konfiguratsiyasi</div>
+
+      <!-- Gemini -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🟡 Google Gemini API</span>
+          <span id="gemini-key-status" style="font-size: 11px; padding: 3px 8px; border-radius: 20px; background: rgba(34,197,94,0.12); color: #22c55e; border: 1px solid rgba(34,197,94,0.25);">Yuklanyapti...</span>
+        </div>
+        <div style="margin-bottom: 10px;">
+          <label style="font-size: 11px; color: var(--hint-color); font-weight: 600; display: block; margin-bottom: 5px;">GEMINI_API_KEY</label>
+          <div class="key-field-wrap">
+            <input type="password" id="gemini-key-input" placeholder="AIza..." autocomplete="off" />
+            <button class="key-reveal-btn" onclick="toggleKeyVisibility('gemini-key-input', this)" title="Ko'rsatish/yashirish">👁</button>
+          </div>
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label style="font-size: 11px; color: var(--hint-color); font-weight: 600; display: block; margin-bottom: 5px;">GEMINI_MODEL (joriy: <span id="gemini-model-current">—</span>)</label>
+          <select id="gemini-model-select-keys" style="background: rgba(0,0,0,0.4); color: #fff; border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 10px; font-size: 12px; outline: none; width: 100%;">
+            <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Arzon)</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash (Balansli)</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro (Kuchli)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" style="width: 100%;" onclick="saveApiKeys('gemini')">💾 Gemini sozlamalarini saqlash</button>
+      </div>
+
+      <!-- Groq -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🟣 Groq API Kalitlari</span>
+          <span id="groq-key-status" style="font-size: 11px; padding: 3px 8px; border-radius: 20px; background: rgba(34,197,94,0.12); color: #22c55e; border: 1px solid rgba(34,197,94,0.25);">Yuklanyapti...</span>
+        </div>
+        <p style="font-size: 11px; color: var(--hint-color); margin-bottom: 12px;">Har bir kalit yangi qatorda yozing. Ko'p kalit = ko'proq parallel so'rov.</p>
+        <div style="margin-bottom: 10px;">
+          <label style="font-size: 11px; color: var(--hint-color); font-weight: 600; display: block; margin-bottom: 5px;">GROQ_API_KEYS (qatorlarga ajratilgan)</label>
+          <div style="position: relative;">
+            <textarea id="groq-keys-input" rows="5" placeholder="gsk_xxxxx&#10;gsk_yyyyy&#10;gsk_zzzzz"
+              style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 10px; color: var(--text-color); font-size: 12px; font-family: monospace; outline: none; resize: vertical; box-sizing: border-box;"></textarea>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+          <div>
+            <label style="font-size: 11px; color: var(--hint-color); font-weight: 600; display: block; margin-bottom: 5px;">Asosiy model</label>
+            <input type="text" id="groq-model-input" placeholder="openai/gpt-oss-120b"
+              style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 10px; color: var(--text-color); font-size: 12px; font-family: monospace; outline: none; box-sizing: border-box;" />
+          </div>
+          <div>
+            <label style="font-size: 11px; color: var(--hint-color); font-weight: 600; display: block; margin-bottom: 5px;">Vision modeli</label>
+            <input type="text" id="groq-vision-input" placeholder="qwen/qwen3.8-27b"
+              style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 10px; color: var(--text-color); font-size: 12px; font-family: monospace; outline: none; box-sizing: border-box;" />
+          </div>
+        </div>
+        <button class="btn btn-primary" style="width: 100%;" onclick="saveApiKeys('groq')">💾 Groq sozlamalarini saqlash</button>
+      </div>
+
+      <!-- Telegram -->
+      <div class="card" style="border-color: rgba(59,130,246,0.3);">
+        <div class="card-header">
+          <span class="card-title">🔵 Telegram Bot</span>
+        </div>
+        <div style="margin-bottom: 10px;">
+          <label style="font-size: 11px; color: var(--hint-color); font-weight: 600; display: block; margin-bottom: 5px;">BOT_TOKEN (faqat ko'rish)</label>
+          <div class="key-field-wrap">
+            <input type="password" id="tg-token-display" readonly
+              style="opacity: 0.7; cursor: default;"
+              placeholder="Yuklanmoqda..." />
+            <button class="key-reveal-btn" onclick="toggleKeyVisibility('tg-token-display', this)" title="Ko'rsatish">👁</button>
+          </div>
+        </div>
+        <p style="font-size: 11px; color: var(--hint-color);">⚠️ Telegram token xavfsizlik sabab faqat ko'rish uchun. O'zgartirish uchun .env faylni tahrirlang va botni qayta ishga tushiring.</p>
+      </div>
+
+      <!-- Hozirgi holat statistika -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📊 Hozirgi konfiguratsiya holati</span>
+          <button class="btn" style="padding: 4px 10px; font-size: 11px;" onclick="loadApiKeysPage()">🔄 Yangilash</button>
+        </div>
+        <div id="keys-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
+          <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; text-align: center;">
+            <div style="font-size: 11px; color: var(--hint-color);">Groq kalitlar</div>
+            <div id="stat-groq-keys" style="font-size: 22px; font-weight: 700; color: #a78bfa;">—</div>
+          </div>
+          <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; text-align: center;">
+            <div style="font-size: 11px; color: var(--hint-color);">Gemini holati</div>
+            <div id="stat-gemini-ok" style="font-size: 22px; font-weight: 700; color: #fbbf24;">—</div>
+          </div>
+          <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; text-align: center;">
+            <div style="font-size: 11px; color: var(--hint-color);">Faol model</div>
+            <div id="stat-active-model" style="font-size: 13px; font-weight: 700; color: #34d399; word-break: break-all;">—</div>
+          </div>
+          <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; text-align: center;">
+            <div style="font-size: 11px; color: var(--hint-color);">Jami so'rovlar</div>
+            <div id="stat-total-req" style="font-size: 22px; font-weight: 700; color: #60a5fa;">—</div>
+          </div>
+        </div>
+      </div>
+    </div> <!-- /tab-apikeys -->
+
   </main>
 
   <!-- STUDENT MODAL -->
@@ -2798,6 +3071,10 @@
       <span class="nav-icon">🤖</span>
       <span>Agent IQ</span>
     </button>
+    <button class="nav-item" id="nav-apikeys" onclick="switchTab('apikeys', this)" style="display: none;">
+      <span class="nav-icon">🔑</span>
+      <span>API Kalitlar</span>
+    </button>
   </nav>
   </div> <!-- /app-shell -->
 
@@ -2929,6 +3206,8 @@
         loadAgentStats();
       } else if (tabId === "dossiers") {
         loadUserDossiers();
+      } else if (tabId === "apikeys") {
+        loadApiKeysPage();
       }
     }
 
@@ -3373,6 +3652,9 @@
       const navStudents = document.getElementById("nav-students");
       if (navStudents) navStudents.style.display = isSuper ? "flex" : "none";
 
+      const navApikeys = document.getElementById("nav-apikeys");
+      if (navApikeys) navApikeys.style.display = isSuper ? "flex" : "none";
+
       const clientsBox = document.getElementById("metric-clients-box");
       if (clientsBox) clientsBox.style.display = isSuper ? "block" : "none";
 
@@ -3503,6 +3785,10 @@
 
       const gTrigSel = document.getElementById("select-gemini-trigger");
       if (gTrigSel && data.gemini_trigger_after) gTrigSel.value = data.gemini_trigger_after;
+
+      const gModelSel = document.getElementById("select-gemini-model");
+      if (gModelSel && data.gemini_model) gModelSel.value = data.gemini_model;
+      calcGeminiLimit();
 
       const smSwitch = document.getElementById("switch-silent-mode");
       if (smSwitch) smSwitch.checked = data.silent_mode_enabled === true;
@@ -5282,6 +5568,143 @@ ${escapeHtml(d.dossier_text || 'Xulosa mavjud emas')}
         showToast("Xatolik: " + e.message, true);
       }
     }
+
+    const GEMINI_PRICING = {
+      "gemini-2.5-flash-lite": { inputPer1M: 0.10, outputPer1M: 0.40, label: "2.5 Flash Lite" },
+      "gemini-2.5-flash":      { inputPer1M: 0.30, outputPer1M: 2.50, label: "2.5 Flash" },
+      "gemini-2.5-pro":        { inputPer1M: 1.25, outputPer1M: 10.00, label: "2.5 Pro" },
+    };
+    // Bir so'rov uchun taxminiy tokenlar: 800 input + 400 output
+    const AVG_INPUT_TOKENS = 800;
+    const AVG_OUTPUT_TOKENS = 400;
+
+    function calcGeminiLimit() {
+      const modelSel = document.getElementById("select-gemini-model");
+      const budgetInput = document.getElementById("gemini-budget-input");
+      const resultEl = document.getElementById("gemini-limit-result");
+      const detailEl = document.getElementById("gemini-limit-detail");
+      if (!modelSel || !budgetInput || !resultEl) return;
+
+      const model = modelSel.value;
+      const budget = parseFloat(budgetInput.value) || 0;
+      const pricing = GEMINI_PRICING[model];
+      if (!pricing || budget <= 0) {
+        resultEl.textContent = "—";
+        if (detailEl) detailEl.textContent = "";
+        return;
+      }
+
+      const costPerReq = (AVG_INPUT_TOKENS / 1_000_000) * pricing.inputPer1M
+                       + (AVG_OUTPUT_TOKENS / 1_000_000) * pricing.outputPer1M;
+      const requests = Math.floor(budget / costPerReq);
+      const fmtReq = requests.toLocaleString("uz-UZ");
+
+      resultEl.textContent = `≈ ${fmtReq} ta zapros`;
+      if (detailEl) {
+        detailEl.textContent =
+          `${pricing.label}: $${pricing.inputPer1M}/$${pricing.outputPer1M} per 1M token | `
+          + `Har so'rov ~${(costPerReq * 1000).toFixed(4)}¢ (${AVG_INPUT_TOKENS} in + ${AVG_OUTPUT_TOKENS} out token)`;
+      }
+    }
+
+    // ─── API KEYS PAGE ───────────────────────────────────────────
+    function toggleKeyVisibility(inputId, btn) {
+      const inp = document.getElementById(inputId);
+      if (!inp) return;
+      if (inp.type === "password") { inp.type = "text"; btn.textContent = "🙈"; }
+      else { inp.type = "password"; btn.textContent = "👁"; }
+    }
+
+    async function loadApiKeysPage() {
+      try {
+        const data = await apiRequest("/api/super/keys", "GET");
+        if (!data || !data.ok) return;
+
+        // Gemini
+        const gki = document.getElementById("gemini-key-input");
+        if (gki) gki.value = data.gemini_key_masked || "";
+        const gmc = document.getElementById("gemini-model-current");
+        if (gmc) gmc.textContent = data.gemini_model || "—";
+        const gmks = document.getElementById("gemini-model-select-keys");
+        if (gmks && data.gemini_model) gmks.value = data.gemini_model;
+        const gks = document.getElementById("gemini-key-status");
+        if (gks) {
+          const src = data.gemini_key_source === "DB (override)" ? "🗄 DB" : "📄 env";
+          gks.textContent = data.gemini_key_ok ? `✅ Ulangan (${src})` : "❌ Kalit yo'q";
+          gks.style.color = data.gemini_key_ok ? "#22c55e" : "#ef4444";
+          gks.style.borderColor = data.gemini_key_ok ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)";
+          gks.style.background = data.gemini_key_ok ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)";
+        }
+
+        // Groq
+        const gki2 = document.getElementById("groq-keys-input");
+        if (gki2) gki2.value = (data.groq_keys_masked || []).join("\n");
+        const gmi = document.getElementById("groq-model-input");
+        if (gmi) gmi.value = data.groq_model || "";
+        const gvi = document.getElementById("groq-vision-input");
+        if (gvi) gvi.value = data.groq_vision_model || "";
+        const gks2 = document.getElementById("groq-key-status");
+        if (gks2) {
+          const cnt = data.groq_keys_count || 0;
+          const src2 = data.groq_key_source === "DB (override)" ? "🗄 DB" : "📄 env";
+          gks2.textContent = cnt > 0 ? `✅ ${cnt} ta kalit (${src2})` : "❌ Kalit yo'q";
+          gks2.style.color = cnt > 0 ? "#22c55e" : "#ef4444";
+          gks2.style.borderColor = cnt > 0 ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)";
+          gks2.style.background = cnt > 0 ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)";
+        }
+
+        // Telegram
+        const tgd = document.getElementById("tg-token-display");
+        if (tgd) tgd.value = data.tg_token_masked || "";
+
+        // Stats
+        const sgk = document.getElementById("stat-groq-keys");
+        if (sgk) sgk.textContent = data.groq_keys_count || 0;
+        const sgo = document.getElementById("stat-gemini-ok");
+        if (sgo) sgo.textContent = data.gemini_key_ok ? "✅" : "❌";
+        const sam = document.getElementById("stat-active-model");
+        if (sam) sam.textContent = data.active_model || "—";
+        const str = document.getElementById("stat-total-req");
+        if (str) str.textContent = (data.total_requests || 0).toLocaleString();
+
+      } catch (e) {
+        console.error("loadApiKeysPage error:", e);
+      }
+    }
+
+    async function saveApiKeys(provider) {
+      haptic();
+      let payload = { provider };
+
+      if (provider === "gemini") {
+        const keyVal = (document.getElementById("gemini-key-input")?.value || "").trim();
+        const modelVal = (document.getElementById("gemini-model-select-keys")?.value || "").trim();
+        if (keyVal && !keyVal.includes("•") && !keyVal.includes("*")) payload.gemini_key = keyVal;
+        if (modelVal) payload.gemini_model = modelVal;
+      } else if (provider === "groq") {
+        const rawKeys = (document.getElementById("groq-keys-input")?.value || "").trim();
+        const modelVal = (document.getElementById("groq-model-input")?.value || "").trim();
+        const visionVal = (document.getElementById("groq-vision-input")?.value || "").trim();
+        const keys = rawKeys.split("\n").map(k => k.trim()).filter(k => k && !k.includes("•") && !k.includes("*"));
+        if (keys.length > 0) payload.groq_keys = keys;
+        if (modelVal) payload.groq_model = modelVal;
+        if (visionVal) payload.groq_vision_model = visionVal;
+      }
+
+      showToast("💾 Saqlanmoqda...");
+      try {
+        const res = await apiRequest("/api/super/keys", "POST", payload);
+        if (res && res.ok) {
+          showToast("✅ Saqlandi! AI qayta ulandi.");
+          await loadApiKeysPage();
+        } else {
+          showToast("❌ Xatolik: " + (res?.error || "Noma'lum"), true);
+        }
+      } catch (e) {
+        showToast("❌ " + e.message, true);
+      }
+    }
+    // ─────────────────────────────────────────────────────────────
 
     // Barcha funksiyalarni bitta bosishda yoqish (Optimal Rejim)
     async function enableAllFeatures() {

@@ -859,6 +859,23 @@ def _create_default_cascade() -> dict[str, dict[str, Any]]:
     }
 
 
+def _effective_gemini_key() -> str:
+    """memory_service override → .env fallback"""
+    override = memory_service.get_setting("gemini_api_key_override", None)
+    if override and len(override) > 20 and "•" not in override:
+        return override
+    return config.gemini_api_key
+
+def _effective_groq_keys() -> list[str]:
+    """memory_service override → .env fallback"""
+    override = memory_service.get_setting("groq_keys_override", None)
+    if override:
+        keys = [k.strip() for k in override.split("\n") if k.strip() and len(k.strip()) > 20 and "•" not in k]
+        if keys:
+            return keys
+    return config.groq_api_keys or ([config.groq_api_key] if config.groq_api_key else [])
+
+
 class AIService:
     detect_student_feedback_reaction = staticmethod(detect_student_feedback_reaction)
 
@@ -1550,7 +1567,7 @@ class AIService:
     def _setup_clients(self) -> None:
         """Mavjud provayderlarni aniqlaydi va kalitlar zaxirasini sozlaydi."""
         # 1. Groq kalitlarini ulash (Multi-key pool)
-        keys = config.groq_api_keys or ([config.groq_api_key] if config.groq_api_key else [])
+        keys = _effective_groq_keys()
         self._groq_clients = []
         self._groq_keys = [k for k in keys if k]
         self._client_to_idx = {}
@@ -1581,10 +1598,11 @@ class AIService:
                 logger.error("Groq mijozlarini yaratishda xatolik: %s", e)
 
         # 2. Google Gemini zaxira mijozini sozlash
-        if config.gemini_api_key:
+        _gemini_key = _effective_gemini_key()
+        if _gemini_key:
             try:
                 from google import genai
-                self._gemini_client = genai.Client(api_key=config.gemini_api_key)
+                self._gemini_client = genai.Client(api_key=_gemini_key)
                 logger.info("Google Gemini ulandi.")
             except Exception:
                 pass
@@ -2555,12 +2573,13 @@ class AIService:
             chat_id=chat_id,
             user_id=user_id,
         )
+        _model_override = memory_service.get_setting("gemini_model_override", None)
         gemini_candidates = [
+            _model_override or config.gemini_model,
             config.gemini_model,
-            "gemini-3.8-flash",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
             "gemini-flash-latest",
-            "gemini-3.1-flash-lite",
-            "gemini-flash-lite-latest",
         ]
         unique_candidates = []
         for m in gemini_candidates:
