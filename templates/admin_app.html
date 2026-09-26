@@ -1529,6 +1529,14 @@
                 <option value="text_only">📝 Faqat matn</option>
               </select>
             </div>
+            <label style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px; grid-column: 1/-1; cursor: pointer;">
+              <span>📞 Qo'ng'iroqlarga avtomatik javob</span>
+              <span class="switch"><input type="checkbox" id="my-agent-auto-calls" onchange="myAgentSaveSettings(); toggleCallReplyBox(this.checked)"><span class="slider"></span></span>
+            </label>
+            <div id="my-agent-call-reply-box" style="display: none; grid-column: 1/-1;">
+              <textarea id="my-agent-call-reply" class="form-input" rows="3" placeholder="Ixtiyoriy: o'z xabaringizni yozing. Bo'sh qoldirsangiz, standart matn yuboriladi." onchange="myAgentSaveSettings()" style="font-size: 12px; resize: vertical; min-height: 60px;"></textarea>
+              <div style="font-size: 10.5px; color: var(--hint-color); margin-top: 4px;">💡 Qo'ng'iroq kelsa — rad etiladi va shu matn yozib yuboriladi</div>
+            </div>
           </div>
           <div style="margin-top: 10px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px;">
             <div style="font-size: 12.5px; font-weight: 700; color: #34d399; margin-bottom: 6px;">⚡ Agentga buyruq (Telegramingizni boshqaradi)</div>
@@ -3437,6 +3445,10 @@
       if (rl && set.reply_language) rl.value = set.reply_language;
       const am = document.getElementById("my-agent-accept-media");
       if (am && set.accept_media) am.value = set.accept_media;
+      const ac = document.getElementById("my-agent-auto-calls");
+      if (ac) { ac.checked = set.auto_answer_calls === true; toggleCallReplyBox(ac.checked); }
+      const cr = document.getElementById("my-agent-call-reply");
+      if (cr) cr.value = set.call_auto_reply || "";
 
       const prof = d.profile || {};
       const setVal = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v || ""; };
@@ -3565,10 +3577,17 @@
         owner_pause_seconds: parseInt(document.getElementById("my-agent-owner-pause").value || "600"),
         reply_language: document.getElementById("my-agent-reply-lang")?.value || "auto",
         accept_media: document.getElementById("my-agent-accept-media")?.value || "all",
+        auto_answer_calls: document.getElementById("my-agent-auto-calls")?.checked || false,
+        call_auto_reply: document.getElementById("my-agent-call-reply")?.value?.trim() || "",
       };
       const d = await apiRequest("/api/my/agent/settings", "POST", body);
       if (d && d.ok) { showToast("✅ Saqlandi", "success"); renderMyAgent(d); }
       else showToast("❌ Saqlanmadi: " + ((d && d.error) || "server xatosi"), "error");
+    }
+
+    function toggleCallReplyBox(show) {
+      const box = document.getElementById("my-agent-call-reply-box");
+      if (box) box.style.display = show ? "block" : "none";
     }
 
     async function myAgentClearHistory() {

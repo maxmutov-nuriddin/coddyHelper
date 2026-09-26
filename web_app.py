@@ -363,6 +363,8 @@ def _handle_client_toggle(user_info: dict, feature: str, enabled: bool, data: di
         val = str(data.get("value", "all")).strip().lower()
         memory_service.set_setting("accept_media", val if val in ("all", "text_photo", "text_voice", "text_only") else "all")
         return web.json_response({"ok": True, "accept_media": val})
+    elif feature == "auto_answer_calls":
+        memory_service.set_setting("auto_answer_calls", "true" if enabled else "false")
     elif feature == "debounce_seconds":
         try:
             val = max(0, min(30, int(data.get("value", 4))))
@@ -714,6 +716,8 @@ self.addEventListener('fetch', (event) => {
                 "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
                 "reply_language": memory_service.get_setting(f"reply_language_{current_u['user_id']}", "auto"),
                 "accept_media": memory_service.get_setting("accept_media", "all"),
+                "auto_answer_calls": memory_service.get_setting("auto_answer_calls", "false").lower() == "true",
+                "call_auto_reply": memory_service.get_setting("call_auto_reply", ""),
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
                 "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
@@ -889,6 +893,8 @@ self.addEventListener('fetch', (event) => {
                 "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
                 "reply_language": memory_service.get_setting(f"reply_language_{uid}", "auto"),
                 "accept_media": memory_service.get_setting("accept_media", "all"),
+                "auto_answer_calls": memory_service.get_setting("auto_answer_calls", "false").lower() == "true",
+                "call_auto_reply": memory_service.get_setting("call_auto_reply", ""),
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
                 "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
@@ -2451,6 +2457,10 @@ self.addEventListener('fetch', (event) => {
         if "accept_media" in data:
             val = str(data["accept_media"]).strip().lower()
             memory_service.set_setting("accept_media", val if val in ("all", "text_photo", "text_voice", "text_only") else "all")
+        if "auto_answer_calls" in data:
+            memory_service.set_setting("auto_answer_calls", "true" if data["auto_answer_calls"] else "false")
+        if "call_auto_reply" in data:
+            memory_service.set_setting("call_auto_reply", str(data["call_auto_reply"]).strip()[:300])
         return await handle_api_my_agent(request)
 
     async def handle_api_my_agent_clear_history(request: web.Request):

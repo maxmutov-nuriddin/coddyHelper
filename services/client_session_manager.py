@@ -488,6 +488,22 @@ class ClientSessionManager:
                 except Exception as e:
                     logger.error("Mijoz outgoing handler xatolik [user_id=%s]: %s", user_id, e, exc_info=True)
 
+        @client.on(events.Raw())
+        async def _on_raw_update(update):
+            try:
+                from telethon.tl.types import UpdatePhoneCall, PhoneCallRequested
+                if not isinstance(update, UpdatePhoneCall):
+                    return
+                call = getattr(update, "phone_call", None)
+                if not isinstance(call, PhoneCallRequested):
+                    return
+                with tenant_scope(user_id):
+                    await self._handle_incoming_call(user_id, client, call)
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.warning("Qo'ng'iroq handlerda xatolik [user_id=%s]: %s", user_id, e)
+
     def _tenant_setting(self, key: str, default: str) -> str:
         from services.memory_service import memory_service
         return (memory_service.get_setting(key, default) or default).strip().lower()
@@ -572,6 +588,47 @@ class ClientSessionManager:
         if pending and not pending.done():
             pending.cancel()
         self._buffers.pop(key, None)
+
+    async def _handle_incoming_call(self, user_id: int, client: TelegramClient, call) -> None:
+        """Kiruvchi Telegram qo'ng'iroqlarini avtomatik boshqarish."""
+        if self._tenant_setting("auto_answer_calls", "false") != "true":
+            return
+
+        caller_id = getattr(call, "admin_id", None)
+        if not caller_id:
+            return
+
+        # Qo'ng'iroqni rad etish (band rejim)
+        try:
+            from telethon.tl.types import InputPhoneCall, PhoneCallDiscardReasonBusy
+            from telethon.tl.functions.phone import DiscardCallRequest
+            await client(DiscardCallRequest(
+                peer=InputPhoneCall(id=call.id, access_hash=call.access_hash),
+                duration=0,
+                reason=PhoneCallDiscardReasonBusy(),
+                connection_id=0,
+            ))
+        except Exception as e:
+            logger.debug("Qo'ng'iroqni rad etishda xatolik (normal): %s", e)
+
+        # Qo'ng'iroq qiluvchiga avtomatik matn xabari yuborish
+        custom_msg = self._tenant_setting("call_auto_reply", "")
+        if custom_msg:
+            reply_text = custom_msg
+        else:
+            from services.memory_service import memory_service as _ms
+            owner_name = self._me.get(user_id, {}).get("name", "")
+            business = _ms.get_setting("business_name", "") or owner_name or "Biznes"
+            reply_text = (
+                f"📞 Salom! Hozir qo'ng'iroqqa javob bera olmayman.\n\n"
+                f"💬 Iltimos, savolingizni **yozib yuboring** — men tezda javob beraman!\n\n"
+                f"🤖 _{business} AI yordamchisi_"
+            )
+        try:
+            await client.send_message(caller_id, reply_text, parse_mode="md")
+            logger.info("Qo'ng'iroq rad etildi, %s ga xabar yuborildi [user_id=%s]", caller_id, user_id)
+        except Exception as e:
+            logger.warning("Qo'ng'iroq xabarini yuborishda xatolik: %s", e)
 
     async def _handle_incoming(self, user_id: int, client: TelegramClient, event) -> None:
         from services.memory_service import memory_service
