@@ -27,7 +27,8 @@ RENEW_INTERVAL_SECONDS = 30
 class InstanceLease:
     def __init__(self):
         self.holder_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
-        self.mode = (os.getenv("CLIENT_SESSIONS_MODE", "auto") or "auto").strip().lower()
+        from config import _clean_env_value
+        self.mode = (_clean_env_value(os.getenv("CLIENT_SESSIONS_MODE", "auto")) or "auto").strip().lower()
         self.is_holder = False
         self._task: asyncio.Task | None = None
         self._on_acquired = None

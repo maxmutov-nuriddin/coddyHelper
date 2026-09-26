@@ -24,13 +24,15 @@ from aiogram.types import (
     LabeledPrice,
 )
 import os
-from config import config, is_escalation_chat
+from config import config, is_escalation_chat, _clean_env_value
 from web_app import generate_admin_token
 from services.tenant_context import tenant_scope
 
 # Telegram Stars orqali obuna sotib olish (0 = o'chiq). Narx biznes qarori — env orqali yoqiladi.
-SUBSCRIPTION_STARS_PRICE = int(os.getenv("SUBSCRIPTION_STARS_PRICE", "0") or 0)
-SUBSCRIPTION_DAYS = int(os.getenv("SUBSCRIPTION_DAYS", "30") or 30)
+# _clean_env_value: Render paneliga ".env" uslubida ("KEY=\"500\"") tirnoq bilan joylashtirilsa,
+# int() to'g'ridan-to'g'ri chaqirilganda butun dastur ishga tushmasdan qulab tushardi.
+SUBSCRIPTION_STARS_PRICE = int(_clean_env_value(os.getenv("SUBSCRIPTION_STARS_PRICE", "0")) or 0)
+SUBSCRIPTION_DAYS = int(_clean_env_value(os.getenv("SUBSCRIPTION_DAYS", "30")) or 30)
 
 logger = logging.getLogger("coddyHelper.bot_service")
 

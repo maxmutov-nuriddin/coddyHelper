@@ -31,7 +31,8 @@ def _get_fernet():
         _fernet = False
         return _fernet
 
-    raw_key = os.getenv("SESSION_ENCRYPTION_KEY", "").strip()
+    from config import _clean_env_value
+    raw_key = _clean_env_value(os.getenv("SESSION_ENCRYPTION_KEY", ""))
     if not raw_key:
         from config import config
         seed = f"coddyhelper-session-v1|{config.api_hash}|{config.bot_token}|{config.api_id}"

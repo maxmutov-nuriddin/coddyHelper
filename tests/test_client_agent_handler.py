@@ -10,6 +10,8 @@ import tests._isolated_env  # noqa: F401
 
 import asyncio
 import itertools
+import json
+import time
 import unittest
 from types import SimpleNamespace
 
@@ -295,6 +297,40 @@ class TestClientAgentHandler(unittest.IsolatedAsyncioTestCase):
         await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "ai ulash", private=False))
         self.assertEqual(len(self.client.sent), sent_before + 1)
         self.assertIn("allaqachon", self.client.sent[-1][1])
+
+    async def test_onboarding_can_be_cancelled_explicitly(self):
+        """Egasi savolnoma davomida 'bekor qil' desa, holat tozalanib, oddiy suhbatga qaytishi kerak."""
+        new_group = -100850
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "ai ulash", private=False))
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "Mebel Do'koni", private=False))
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "bekor qil", private=False))
+        self.assertIn("bekor qildim", self.client.sent[-1][1])
+        # Savolnoma tugagach (bekor qilingach), oddiy xabar endi to'g'ridan-to'g'ri co-pilot buyrug'i bo'ladi
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "yana bir gap", private=False))
+        self.assertEqual(self.owner_commands[-1], "yana bir gap")
+
+    async def test_abandoned_onboarding_expires_and_does_not_hang_forever(self):
+        """
+        Egasi savolnomani boshlab, keyin javob bermay tashlab qo'ysa (masalan mijoz bilan
+        gaplashib ketsa), holat abadiy "osilib qolmasligi" kerak — muddat o'tgach avtomatik
+        bekor bo'lib, keyingi xabar oddiy co-pilot buyrug'i sifatida ishlanishi kerak.
+        """
+        from services import client_session_manager as csm_mod
+        from services.memory_service import memory_service
+        from services.tenant_context import tenant_scope
+        new_group = -100851
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "ai ulash", private=False))
+        # Holatni "eskirgan" qilib qo'yamiz (30 daqiqadan ancha oldin boshlangandek)
+        with tenant_scope(OWNER):
+            state = self.mgr._get_onboarding_state()
+            self.assertIsNotNone(state)
+            state["last_at"] = time.time() - (csm_mod._ONBOARDING_TIMEOUT_SECONDS + 60)
+            memory_service.set_setting(csm_mod._ONBOARDING_SETTING_KEY, json.dumps(state, ensure_ascii=False))
+
+        await self._outgoing(make_event(AGENT_ACCOUNT, new_group, "Alisherga xabar yubor", private=False))
+        with tenant_scope(OWNER):
+            self.assertIsNone(self.mgr._get_onboarding_state())
+        self.assertEqual(self.owner_commands[-1], "Alisherga xabar yubor")
 
     async def test_random_group_membership_does_not_auto_link(self):
         """Agent a'zo bo'lgan tasodifiy guruhlar, egasi buyruq bermaguncha, ULANMASLIGI kerak."""

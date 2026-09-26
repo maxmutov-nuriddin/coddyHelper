@@ -17,7 +17,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from aiohttp import web
-from config import config
+from config import config, _clean_env_value
 from services.memory_service import memory_service
 from services.ai_service import ai_service
 from services.autonomous_brain_service import autonomous_brain_service
@@ -40,7 +40,7 @@ ACTIVE_ADMIN_TOKENS: dict[str, dict] = {}
 TOKEN_LIFETIME = 86400 * 30  # 30 kun
 # XAVFSIZLIK: avval bu yerda qattiq yozilgan (hamma biladigan) master token bor edi — endi faqat
 # muhit o'zgaruvchisidan olinadi. O'rnatilmagan bo'lsa master token umuman ishlamaydi.
-MASTER_ADMIN_TOKEN = os.getenv("MASTER_ADMIN_TOKEN", "").strip()
+MASTER_ADMIN_TOKEN = _clean_env_value(os.getenv("MASTER_ADMIN_TOKEN", ""))
 TELEGRAM_INIT_DATA_MAX_AGE = 86400 * 7
 
 # Faqat Super Admin (@mentor_cc) uchun endpointlar — mijoz tokeni bilan 403 (role_forbidden)

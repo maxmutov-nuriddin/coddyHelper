@@ -57,7 +57,8 @@ OWNER_COMMAND_PREFIXES = ("ai ", ".ai ", "/ai ", "agent ", ".agent ")
 DEFAULT_DEBOUNCE_SECONDS = 4
 DEFAULT_OWNER_PAUSE_SECONDS = 600
 # Render free (512 MB) uchun himoya: har bir Telethon client ~20-40 MB. Kerak bo'lsa env orqali oshiring.
-MAX_CLIENT_SESSIONS = int(os.getenv("MAX_CLIENT_SESSIONS", "12") or 12)
+from config import _clean_env_value  # noqa: E402  (tashqi tirnoqlarni tozalash — pastga qarang)
+MAX_CLIENT_SESSIONS = int(_clean_env_value(os.getenv("MAX_CLIENT_SESSIONS", "12")) or 12)
 ESCALATION_COOLDOWN_SECONDS = 600
 
 # AI aniq javob bera olmaganini bildiruvchi iboralar -> egasiga xabar beriladi
@@ -117,7 +118,14 @@ ONBOARDING_QUESTIONS: tuple[tuple[str, str], ...] = (
     ("extra", "7️⃣ (Ixtiyoriy, oxirgi savol) Yana muhim qoida yoki ma'lumot bo'lsa yozing (chegirma, kafolat, to'lov usuli va h.k.). Bo'lmasa \"yo'q\" deb yozing."),
 )
 _ONBOARDING_SKIP_WORDS = {"yo'q", "yoq", "yoʻq", "skip", "-", "yo'q.", "yoq."}
+_ONBOARDING_CANCEL_WORDS = {
+    "bekor", "bekor qil", "bekor qiling", "to'xtat", "toxtat", "to'xtating",
+    "keyinroq", "hozir emas", "hozir vaqtim yo'q", "stop", "cancel", "keyin qilaman",
+}
 _ONBOARDING_SETTING_KEY = "onboarding_state"
+# Egasi savolnomani tashlab qo'yib, oddiy ishiga (mijoz bilan gaplashishga) o'tib ketishi mumkin —
+# bunday holda holat ABADIY "osilib qolmasligi" uchun ma'lum vaqtdan keyin avtomatik bekor qilinadi.
+_ONBOARDING_TIMEOUT_SECONDS = 1800  # 30 daqiqa
 
 
 def _is_same_group(chat_id, group_id) -> bool:
@@ -855,16 +863,28 @@ class ClientSessionManager:
     # Boshqaruv guruhi birinchi ulanganda: tanishuv savolnomasi
     # ──────────────────────────────────────────────────────
     def _get_onboarding_state(self) -> dict | None:
-        """Joriy tenant kontekstidagi tugallanmagan tanishuv holatini o'qiydi."""
+        """
+        Joriy tenant kontekstidagi tugallanmagan tanishuv holatini o'qiydi.
+        Egasi savolnomani tashlab qo'yib, oddiy ishiga o'tib ketgan bo'lsa (masalan mijoz bilan
+        gaplashib yuborgan), holat ABADIY "osilib qolmasligi" uchun _ONBOARDING_TIMEOUT_SECONDS
+        dan keyin avtomatik bekor qilinadi — aks holda uning HAR BIR keyingi xabari cheksiz
+        ravishda savolnoma javobi deb noto'g'ri talqin qilinaverardi.
+        """
         from services.memory_service import memory_service
         raw = memory_service.get_setting(_ONBOARDING_SETTING_KEY, "")
         if not raw:
             return None
         try:
             data = json.loads(raw)
-            return data if isinstance(data, dict) else None
+            if not isinstance(data, dict):
+                return None
         except Exception:
             return None
+        last_at = data.get("last_at") or data.get("started_at") or 0
+        if time.time() - float(last_at or 0) > _ONBOARDING_TIMEOUT_SECONDS:
+            self._clear_onboarding_state()
+            return None
+        return data
 
     def _clear_onboarding_state(self) -> None:
         from services.memory_service import memory_service
@@ -873,13 +893,14 @@ class ClientSessionManager:
     async def _start_onboarding(self, user_id: int, client: TelegramClient, chat_id: int) -> None:
         """Guruh birinchi marta ulanganda tanishuv savolnomasini boshlaydi (1-savol)."""
         from services.memory_service import memory_service
-        state = {"chat_id": chat_id, "step": 0, "answers": {}}
+        state = {"chat_id": chat_id, "step": 0, "answers": {}, "last_at": time.time()}
         memory_service.set_setting(_ONBOARDING_SETTING_KEY, json.dumps(state, ensure_ascii=False))
         _, first_q = ONBOARDING_QUESTIONS[0]
         await self._send(
             user_id, client, chat_id,
             "🧠 Sizni va biznesingizni tezroq bilib olishim uchun bir nechta qisqa savol beraman "
-            f"(har birini alohida xabar qilib yuboring — jami {len(ONBOARDING_QUESTIONS)} ta savol):\n\n{first_q}",
+            f"(har birini alohida xabar qilib yuboring — jami {len(ONBOARDING_QUESTIONS)} ta savol).\n"
+            "Istalgan payt \"bekor qil\" deb yozib to'xtatishingiz mumkin.\n\n" + first_q,
         )
 
     async def _handle_onboarding_answer(
@@ -895,20 +916,34 @@ class ClientSessionManager:
 
         key, _ = ONBOARDING_QUESTIONS[step]
         answer = (text or "").strip()
-        is_last_optional = key == "extra"
-        if not answer or (not is_last_optional and answer.lower().strip("., !") in _ONBOARDING_SKIP_WORDS):
+        answer_clean = answer.lower().strip("., !")
+
+        # Egasi savolnomani bekor qilmoqchi bo'lsa — darhol to'xtatamiz va oddiy suhbatga qaytaramiz.
+        if answer_clean in _ONBOARDING_CANCEL_WORDS:
+            self._clear_onboarding_state()
             await self._send(
                 user_id, client, chat_id,
-                "🙏 Iltimos, shu savolga qisqacha bo'lsa ham javob bering — bu mijozlaringizga to'g'ri yordam berishim uchun kerak.",
+                "Xo'p, savolnomani bekor qildim. Istasangiz keyinroq shu yerga \"ai ulash\" deb yozib qaytadan boshlashingiz mumkin.",
+                reply_to=reply_to,
+            )
+            return
+
+        is_last_optional = key == "extra"
+        if not answer or (not is_last_optional and answer_clean in _ONBOARDING_SKIP_WORDS):
+            await self._send(
+                user_id, client, chat_id,
+                "🙏 Iltimos, shu savolga qisqacha bo'lsa ham javob bering (yoki \"bekor qil\" deb yozing) — "
+                "bu mijozlaringizga to'g'ri yordam berishim uchun kerak.",
                 reply_to=reply_to,
             )
             return
 
         answers = state.setdefault("answers", {})
-        if not (is_last_optional and answer.lower().strip("., !") in _ONBOARDING_SKIP_WORDS):
+        if not (is_last_optional and answer_clean in _ONBOARDING_SKIP_WORDS):
             answers[key] = answer
         step += 1
         state["step"] = step
+        state["last_at"] = time.time()
 
         if step < len(ONBOARDING_QUESTIONS):
             memory_service.set_setting(_ONBOARDING_SETTING_KEY, json.dumps(state, ensure_ascii=False))
