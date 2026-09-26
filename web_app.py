@@ -770,6 +770,7 @@ self.addEventListener('fetch', (event) => {
         user_info = get_current_user(request)
         if not user_info["is_super_admin"]:
             return _handle_client_toggle(user_info, feature, enabled, data)
+        uid = user_info["user_id"]
 
         if feature == "all_optimal":
             config.auto_reply_enabled = True
