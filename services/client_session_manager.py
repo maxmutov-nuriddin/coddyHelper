@@ -461,7 +461,7 @@ class ClientSessionManager:
 
         # 🛡 Telethon qayta ulanganda ba'zan bir xil xabarni ikkinchi marta yuborishi mumkin —
         # bunday holda egasining buyrug'i (masalan xabar yuborish) ikki marta bajarilib qolmasin.
-        if is_duplicate_event(chat_id, event.id, scope=user_id):
+        if is_duplicate_event("client.handle_outgoing", chat_id, event.id, scope=user_id):
             return
 
         text = (event.raw_text or "").strip()
@@ -503,7 +503,7 @@ class ClientSessionManager:
     async def _handle_incoming(self, user_id: int, client: TelegramClient, event) -> None:
         from services.memory_service import memory_service
 
-        if is_duplicate_event(event.chat_id, event.id, scope=user_id):
+        if is_duplicate_event("client.handle_incoming", event.chat_id, event.id, scope=user_id):
             return
 
         sub = memory_service.get_subscription(user_id)

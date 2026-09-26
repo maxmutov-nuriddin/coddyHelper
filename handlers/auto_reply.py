@@ -1519,7 +1519,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         chat_id = event.chat_id
         # handle_vazifalar_chat o'zi ham tekshiradi, lekin bu yerda ham tekshirish orqali
         # quyidagi PENDING_TASKS bekor qilish logikasi ham takror ishlamaydi.
-        if is_duplicate_event(chat_id, event.message.id):
+        if is_duplicate_event("auto_reply.on_mentor_message", chat_id, event.message.id):
             return
 
         my_user_id = await get_my_id()
@@ -1558,7 +1558,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
             return
 
         chat_id = event.chat_id
-        if is_duplicate_event(chat_id, event.message.id):
+        if is_duplicate_event("auto_reply.handle_incoming_message", chat_id, event.message.id):
             logger.debug("Takroriy (qayta yetkazilgan) kiruvchi xabar e'tiborsiz qoldirildi: chat=%s, msg=%s", chat_id, event.message.id)
             return
         sender_id = event.sender_id or chat_id

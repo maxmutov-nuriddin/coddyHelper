@@ -62,18 +62,31 @@ class TestEventDedup(unittest.TestCase):
         reset_event_dedup()
 
     def test_same_message_id_treated_as_duplicate(self):
-        self.assertFalse(is_duplicate_event(chat_id=123, msg_id=555))
-        self.assertTrue(is_duplicate_event(chat_id=123, msg_id=555))
+        self.assertFalse(is_duplicate_event("h1", chat_id=123, msg_id=555))
+        self.assertTrue(is_duplicate_event("h1", chat_id=123, msg_id=555))
 
     def test_different_scopes_are_independent(self):
-        self.assertFalse(is_duplicate_event(chat_id=123, msg_id=555, scope=1001))
+        self.assertFalse(is_duplicate_event("h1", chat_id=123, msg_id=555, scope=1001))
         # Boshqa mijoz (owner) uchun bir xil (chat_id, msg_id) mustaqil hisoblanishi kerak
-        self.assertFalse(is_duplicate_event(chat_id=123, msg_id=555, scope=1002))
-        self.assertTrue(is_duplicate_event(chat_id=123, msg_id=555, scope=1001))
+        self.assertFalse(is_duplicate_event("h1", chat_id=123, msg_id=555, scope=1002))
+        self.assertTrue(is_duplicate_event("h1", chat_id=123, msg_id=555, scope=1001))
 
     def test_zero_msg_id_never_blocks(self):
-        self.assertFalse(is_duplicate_event(chat_id=123, msg_id=0))
-        self.assertFalse(is_duplicate_event(chat_id=123, msg_id=0))
+        self.assertFalse(is_duplicate_event("h1", chat_id=123, msg_id=0))
+        self.assertFalse(is_duplicate_event("h1", chat_id=123, msg_id=0))
+
+    def test_different_handlers_are_independent(self):
+        """
+        Ilgari topilgan bug: ikkita mustaqil handler (masalan commands.py va auto_reply.py dagi)
+        bir xil xabarni ko'rib chiqishi kerak bo'lganda, biri ikkinchisining tekshiruvini
+        "iste'mol qilib qo'ymasligi" kerak (Telethon bitta hodisaga mos BARCHA handlerlarni
+        chaqiradi, faqat bittasini emas).
+        """
+        self.assertFalse(is_duplicate_event("handler_a", chat_id=123, msg_id=555))
+        # handler_a bu xabarni "ko'rgan" bo'lsa ham, handler_b uni MUSTAQIL ko'rishi kerak
+        self.assertFalse(is_duplicate_event("handler_b", chat_id=123, msg_id=555))
+        self.assertTrue(is_duplicate_event("handler_a", chat_id=123, msg_id=555))
+        self.assertTrue(is_duplicate_event("handler_b", chat_id=123, msg_id=555))
 
 
 class TestConfigQuoteStripping(unittest.TestCase):
