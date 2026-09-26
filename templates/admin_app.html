@@ -1539,6 +1539,41 @@
               <textarea id="my-agent-call-reply" class="form-input" rows="3" placeholder="Ixtiyoriy: o'z xabaringizni yozing. Bo'sh qoldirsangiz, standart matn yuboriladi." onchange="myAgentSaveSettings()" style="font-size: 12px; resize: vertical; min-height: 60px;"></textarea>
               <div style="font-size: 10.5px; color: var(--hint-color); margin-top: 4px;">💡 Qo'ng'iroq kelsa — rad etiladi va shu matn yozib yuboriladi</div>
             </div>
+            <!-- Kengaytirilgan sozlamalar -->
+            <label style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px; grid-column: 1/-1; cursor: pointer;">
+              <span>🌐 Web Search (Internet Qidirish)</span>
+              <span class="switch"><input type="checkbox" id="my-agent-web-search" onchange="myAgentSaveSettings()"><span class="slider"></span></span>
+            </label>
+            <label style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px; grid-column: 1/-1; cursor: pointer;">
+              <span>🛡 APK va Xavfli Fayllarni O'chirish</span>
+              <span class="switch"><input type="checkbox" id="my-agent-apk-delete" onchange="myAgentSaveSettings()"><span class="slider"></span></span>
+            </label>
+            <label style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px; grid-column: 1/-1; cursor: pointer;">
+              <span>💡 Aqlli Reaksiyalar (👍❤️🔥)</span>
+              <span class="switch"><input type="checkbox" id="my-agent-smart-reactions" onchange="myAgentSaveSettings()"><span class="slider"></span></span>
+            </label>
+            <div style="background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px;">
+              <div style="color: var(--hint-color); margin-bottom: 4px;">⏱ AI Kutish Vaqti</div>
+              <select id="my-agent-quiet-window" class="form-input" onchange="myAgentSaveSettings()" style="padding: 6px; font-size: 12px;">
+                <option value="0">⚡ Darhol (5s)</option>
+                <option value="60">⏱ 1 daqiqa</option>
+                <option value="180">⏱ 3 daqiqa</option>
+                <option value="300">⏱ 5 daqiqa</option>
+                <option value="600">⏱ 10 daqiqa</option>
+              </select>
+            </div>
+            <div style="background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px;">
+              <div style="color: var(--hint-color); margin-bottom: 4px;">⏳ Debounce (xabarni kutish)</div>
+              <select id="my-agent-debounce" class="form-input" onchange="myAgentSaveSettings()" style="padding: 6px; font-size: 12px;">
+                <option value="3">⚡ 3 soniya</option>
+                <option value="5">⏱ 5 soniya</option>
+                <option value="7">⏱ 7 soniya</option>
+              </select>
+            </div>
+            <label style="display: flex; justify-content: space-between; align-items: center; background: rgba(239,83,80,0.08); padding: 8px 10px; border-radius: 8px; grid-column: 1/-1; cursor: pointer; border: 1px dashed rgba(239,83,80,0.3);">
+              <span>🔕 Jimlik Rejimi (AI to'liq o'chirilsin)</span>
+              <span class="switch"><input type="checkbox" id="my-agent-silent-mode" onchange="myAgentSaveSettings()"><span class="slider"></span></span>
+            </label>
           </div>
           <div style="margin-top: 10px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px;">
             <div style="font-size: 12.5px; font-weight: 700; color: #34d399; margin-bottom: 6px;">⚡ Agentga buyruq (Telegramingizni boshqaradi)</div>
@@ -3469,6 +3504,18 @@
       if (ac) { ac.checked = set.auto_answer_calls === true; toggleCallReplyBox(ac.checked); }
       const cr = document.getElementById("my-agent-call-reply");
       if (cr) cr.value = set.call_auto_reply || "";
+      const ws = document.getElementById("my-agent-web-search");
+      if (ws) ws.checked = set.web_search_enabled !== false;
+      const apk = document.getElementById("my-agent-apk-delete");
+      if (apk) apk.checked = set.auto_delete_dangerous_files === true;
+      const sr = document.getElementById("my-agent-smart-reactions");
+      if (sr) sr.checked = set.smart_reactions === true;
+      const qw = document.getElementById("my-agent-quiet-window");
+      if (qw && set.private_quiet_window !== undefined) qw.value = String(set.private_quiet_window);
+      const db = document.getElementById("my-agent-debounce");
+      if (db && set.debounce_seconds !== undefined) db.value = String(set.debounce_seconds);
+      const sm = document.getElementById("my-agent-silent-mode");
+      if (sm) sm.checked = set.silent_mode === true;
 
       const prof = d.profile || {};
       const setVal = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v || ""; };
@@ -3599,6 +3646,12 @@
         accept_media: document.getElementById("my-agent-accept-media")?.value || "all",
         auto_answer_calls: document.getElementById("my-agent-auto-calls")?.checked || false,
         call_auto_reply: document.getElementById("my-agent-call-reply")?.value?.trim() || "",
+        web_search_enabled: document.getElementById("my-agent-web-search")?.checked || false,
+        auto_delete_dangerous_files: document.getElementById("my-agent-apk-delete")?.checked || false,
+        smart_reactions: document.getElementById("my-agent-smart-reactions")?.checked || false,
+        private_quiet_window: parseInt(document.getElementById("my-agent-quiet-window")?.value || "180"),
+        debounce_seconds: parseInt(document.getElementById("my-agent-debounce")?.value || "5"),
+        silent_mode: document.getElementById("my-agent-silent-mode")?.checked || false,
       };
       const d = await apiRequest("/api/my/agent/settings", "POST", body);
       if (d && d.ok) { showToast("✅ Saqlandi", "success"); renderMyAgent(d); }

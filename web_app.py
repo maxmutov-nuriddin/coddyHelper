@@ -2382,9 +2382,13 @@ self.addEventListener('fetch', (event) => {
                 "group_reply_mode": memory_service.get_setting("group_reply_mode", "mention"),
                 "owner_pause_seconds": int(memory_service.get_setting("owner_pause_seconds", "600") or 600),
                 "debounce_seconds": int(memory_service.get_setting("debounce_seconds", "4") or 4),
+                "private_quiet_window": int(memory_service.get_setting("private_quiet_window", "180") or 180),
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
                 "escalate_to_owner": memory_service.get_setting("escalate_to_owner", "true").lower() == "true",
+                "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
                 "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
+                "smart_reactions": memory_service.get_setting("smart_reactions", "false").lower() == "true",
+                "silent_mode": memory_service.get_setting("silent_mode", "false").lower() == "true",
                 "reply_language": memory_service.get_setting(f"reply_language_{uid}", "auto"),
                 "accept_media": memory_service.get_setting("accept_media", "all"),
                 "auto_answer_calls": memory_service.get_setting("auto_answer_calls", "false").lower() == "true",
@@ -2446,7 +2450,8 @@ self.addEventListener('fetch', (event) => {
             data = {}
         if "auto_reply_enabled" in data:
             memory_service.set_setting("auto_reply_enabled", "true" if data["auto_reply_enabled"] else "false")
-        for bool_key in ("voice_reply_enabled", "escalate_to_owner"):
+        for bool_key in ("voice_reply_enabled", "escalate_to_owner", "web_search_enabled",
+                         "auto_delete_dangerous_files", "smart_reactions", "silent_mode"):
             if bool_key in data:
                 memory_service.set_setting(bool_key, "true" if data[bool_key] else "false")
         if "group_reply_mode" in data:
@@ -2460,6 +2465,11 @@ self.addEventListener('fetch', (event) => {
         if "debounce_seconds" in data:
             try:
                 memory_service.set_setting("debounce_seconds", str(max(0, min(30, int(data["debounce_seconds"])))))
+            except (TypeError, ValueError):
+                pass
+        if "private_quiet_window" in data:
+            try:
+                memory_service.set_setting("private_quiet_window", str(max(0, min(3600, int(data["private_quiet_window"])))))
             except (TypeError, ValueError):
                 pass
         if "reply_language" in data:
