@@ -1241,6 +1241,29 @@ class MongoMemoryService:
             logger.error("MongoDB delete_user_subscription xatolik: %s", e)
             return False
 
+    def mark_subscription_deleted(self, user_id: int) -> None:
+        """O'chirilgan obunachi ID sini restore paytida qaytib kelmaslik uchun belgilaydi."""
+        if not self.is_core_connected() or not user_id:
+            return
+        try:
+            import datetime
+            self._db["system_core.deleted_subscriptions"].update_one(
+                {"user_id": user_id},
+                {"$set": {"user_id": user_id, "deleted_at": datetime.datetime.utcnow()}},
+                upsert=True,
+            )
+        except Exception as e:
+            logger.debug("mark_subscription_deleted ogohlantirish: %s", e)
+
+    def get_deleted_subscription_ids(self) -> set:
+        """O'chirilgan obunachi ID larini ro'yxat qiladi (restore filtri uchun)."""
+        if not self.is_core_connected():
+            return set()
+        try:
+            return {doc["user_id"] for doc in self._db["system_core.deleted_subscriptions"].find({}, {"user_id": 1})}
+        except Exception:
+            return set()
+
     def get_user_subscription(self, user_id: int) -> dict | None:
         """Foydalanuvchi obunasini MongoDB dan oladi."""
         if not self.is_core_connected() or not user_id:
@@ -1764,9 +1787,10 @@ class MongoMemoryService:
 
             # 15. user_subscriptions (Multi-User Obuna Tizimi)
             try:
+                _deleted_ids = self.get_deleted_subscription_ids()
                 for doc in self._db["system_core.user_subscriptions"].find():
                     uid = doc.get("user_id")
-                    if uid:
+                    if uid and uid not in _deleted_ids:
                         cursor.execute(
                             """
                             INSERT INTO user_subscriptions (

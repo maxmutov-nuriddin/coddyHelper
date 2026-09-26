@@ -4372,6 +4372,8 @@ class SQLiteMemoryService:
                 conn.commit()
             if mongo_memory_service.is_connected():
                 mongo_memory_service.delete_user_subscription(user_id)
+                # Restore paytida qaytib kelmaslik uchun "o'chirilganlar" ro'yxatiga qo'shish
+                mongo_memory_service.mark_subscription_deleted(user_id)
             return True
         except Exception as e:
             logger.error("Obunani o'chirishda xatolik: %s", e)
