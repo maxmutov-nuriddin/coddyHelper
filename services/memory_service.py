@@ -3158,6 +3158,122 @@ class SQLiteMemoryService:
                 "emergency_wakeup_enabled": True,
             }
 
+    def get_analytics(self, days: int = 30) -> dict:
+        """
+        Analytics uchun agregat ma'lumotlar:
+        - Kunlik xabarlar (user role, so'nggi N kun)
+        - Soatlik taqsimot (peak hours, so'nggi 30 kun)
+        - Unikal kontaktlar (students)
+        - Top aktiv kontaktlar
+        """
+        try:
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+
+                # 1. So'nggi N kun uchun kunlik user xabarlar soni
+                cur.execute(
+                    """
+                    SELECT DATE(created_at) as day, COUNT(*) as cnt
+                    FROM messages
+                    WHERE role = 'user'
+                      AND created_at >= DATE('now', ? || ' days')
+                    GROUP BY day
+                    ORDER BY day ASC
+                    """,
+                    (f"-{days}",),
+                )
+                daily_rows = cur.fetchall()
+
+                # Barcha kunlarni to'ldirish (0 bo'lgan kunlar ham ko'rinsin)
+                from datetime import date, timedelta
+                today = date.today()
+                daily_map = {r[0]: r[1] for r in daily_rows}
+                daily_labels = []
+                daily_values = []
+                for i in range(days - 1, -1, -1):
+                    d = (today - timedelta(days=i)).isoformat()
+                    daily_labels.append(d[5:])  # MM-DD
+                    daily_values.append(daily_map.get(d, 0))
+
+                # 2. So'nggi 30 kun soatlik taqsimot
+                cur.execute(
+                    """
+                    SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour, COUNT(*) as cnt
+                    FROM messages
+                    WHERE role = 'user'
+                      AND created_at >= DATE('now', '-30 days')
+                    GROUP BY hour
+                    ORDER BY hour ASC
+                    """
+                )
+                hour_rows = cur.fetchall()
+                hour_map = {r[0]: r[1] for r in hour_rows}
+                hourly_labels = [f"{h:02d}:00" for h in range(24)]
+                hourly_values = [hour_map.get(h, 0) for h in range(24)]
+                peak_hour = max(range(24), key=lambda h: hour_map.get(h, 0)) if hour_map else 0
+
+                # 3. Jami va so'nggi 7 kun xabarlar
+                cur.execute("SELECT COUNT(*) FROM messages WHERE role = 'user'")
+                total_user_msgs = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT COUNT(*) FROM messages WHERE role = 'user' AND created_at >= DATE('now', '-7 days')"
+                )
+                week_msgs = cur.fetchone()[0]
+
+                # 4. Unikal kontaktlar
+                cur.execute("SELECT COUNT(*) FROM students")
+                total_contacts = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT COUNT(*) FROM students WHERE last_active >= DATE('now', '-7 days')"
+                )
+                active_week = cur.fetchone()[0]
+
+                # 5. Top-5 aktiv kontaktlar
+                cur.execute(
+                    """
+                    SELECT full_name, username, questions_count, last_active
+                    FROM students
+                    ORDER BY questions_count DESC
+                    LIMIT 5
+                    """
+                )
+                top_contacts = [
+                    {
+                        "name": r[0] or r[1] or "Noma'lum",
+                        "username": r[1] or "",
+                        "messages": r[2] or 0,
+                        "last_active": str(r[3] or ""),
+                    }
+                    for r in cur.fetchall()
+                ]
+
+                # 6. AI javob xabarlari (model role)
+                cur.execute(
+                    "SELECT COUNT(*) FROM messages WHERE role = 'model' AND created_at >= DATE('now', '-30 days')"
+                )
+                ai_replies_month = cur.fetchone()[0]
+
+            return {
+                "daily": {"labels": daily_labels, "values": daily_values},
+                "hourly": {"labels": hourly_labels, "values": hourly_values, "peak_hour": peak_hour},
+                "summary": {
+                    "total_messages": total_user_msgs,
+                    "week_messages": week_msgs,
+                    "total_contacts": total_contacts,
+                    "active_week": active_week,
+                    "ai_replies_month": ai_replies_month,
+                },
+                "top_contacts": top_contacts,
+            }
+        except Exception as e:
+            logger.error("Analytics hisoblashda xatolik: %s", e)
+            return {
+                "daily": {"labels": [], "values": []},
+                "hourly": {"labels": [], "values": [], "peak_hour": 0},
+                "summary": {"total_messages": 0, "week_messages": 0, "total_contacts": 0, "active_week": 0, "ai_replies_month": 0},
+                "top_contacts": [],
+            }
+
     # -----------------------------------------------------------
     # Baza xavfsizligi, tiklash va birlashtirish (Database Merge)
     # -----------------------------------------------------------

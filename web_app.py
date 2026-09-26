@@ -2529,6 +2529,18 @@ self.addEventListener('fetch', (event) => {
         )
         return web.json_response({"ok": True, "subscription": sanitize_subscription(memory_service.get_subscription(uid))})
 
+    async def handle_api_my_analytics(request: web.Request):
+        """Mijozning agent analytics ma'lumotlari — chartlar uchun."""
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        days = int(request.query.get("days", "30"))
+        days = max(7, min(90, days))
+        uid = user_info["user_id"]
+        with __import__("services.tenant_context", fromlist=["tenant_scope"]).tenant_scope(uid):
+            data = memory_service.get_analytics(days=days)
+        return web.json_response({"ok": True, **data})
+
     async def handle_api_my_onboarding_reset(request: web.Request):
         """Mijoz onboarding suhbatini qayta boshlaydi (agentni qayta sozlash)."""
         user_info, err = _client_only(request)
@@ -2683,6 +2695,7 @@ self.addEventListener('fetch', (event) => {
     app.router.add_post("/api/my/profile", handle_api_my_profile)
     app.router.add_post("/api/my/onboarding/reset", handle_api_my_onboarding_reset)
     app.router.add_post("/api/my/tg-login/{step}", handle_api_my_tg_login)
+    app.router.add_get("/api/my/analytics", handle_api_my_analytics)
 
     logger.info("Telegram Mini App Admin Panel routerlari muvaffaqiyatli o'rnatildi (/app, /api/*).")
 

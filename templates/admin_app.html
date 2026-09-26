@@ -2104,6 +2104,55 @@
           </div>
         </div>
 
+        <!-- ANALYTICS WIDGET (mijoz uchun) -->
+        <div id="dashboard-widget-analytics" style="background: rgba(16,185,129,0.04); border: 1px solid rgba(16,185,129,0.25); border-radius: 10px; padding: 12px 14px; margin-top: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="font-size: 13px; font-weight: 700; color: #34d399; display: flex; align-items: center; gap: 6px;">
+              📊 Agent Faoliyati
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button onclick="loadAnalytics(7)"  id="analytics-btn-7"  style="font-size: 10px; padding: 3px 8px; border-radius: 12px; border: 1px solid rgba(52,211,153,0.4); background: rgba(52,211,153,0.1); color: #6ee7b7; cursor: pointer;">7k</button>
+              <button onclick="loadAnalytics(30)" id="analytics-btn-30" style="font-size: 10px; padding: 3px 8px; border-radius: 12px; border: 1px solid rgba(52,211,153,0.6); background: rgba(52,211,153,0.2); color: #34d399; font-weight:700; cursor: pointer;">30k</button>
+              <button onclick="loadAnalytics(90)" id="analytics-btn-90" style="font-size: 10px; padding: 3px 8px; border-radius: 12px; border: 1px solid rgba(52,211,153,0.4); background: rgba(52,211,153,0.1); color: #6ee7b7; cursor: pointer;">90k</button>
+            </div>
+          </div>
+          <!-- Summary metrics -->
+          <div id="analytics-summary" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px;">
+            <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 8px; text-align: center;">
+              <div style="font-size: 18px; font-weight: 800; color: #34d399;" id="an-week-msgs">—</div>
+              <div style="font-size: 10px; color: var(--hint-color);">So'nggi 7 kun</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 8px; text-align: center;">
+              <div style="font-size: 18px; font-weight: 800; color: #60a5fa;" id="an-total-contacts">—</div>
+              <div style="font-size: 10px; color: var(--hint-color);">Kontaktlar</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 8px; text-align: center;">
+              <div style="font-size: 18px; font-weight: 800; color: #f59e0b;" id="an-peak-hour">—</div>
+              <div style="font-size: 10px; color: var(--hint-color);">Peak soat</div>
+            </div>
+          </div>
+          <!-- Daily bar chart -->
+          <div style="margin-bottom: 8px;">
+            <div style="font-size: 11px; color: var(--hint-color); margin-bottom: 5px;">Kunlik xabarlar</div>
+            <div id="analytics-daily-chart" style="display: flex; align-items: flex-end; gap: 2px; height: 60px; overflow: hidden;"></div>
+            <div id="analytics-daily-labels" style="display: flex; justify-content: space-between; margin-top: 3px; overflow: hidden;"></div>
+          </div>
+          <!-- Hourly distribution -->
+          <div>
+            <div style="font-size: 11px; color: var(--hint-color); margin-bottom: 5px;">Soatlik faollik (peak vaqt)</div>
+            <div id="analytics-hourly-chart" style="display: flex; align-items: flex-end; gap: 1px; height: 40px;"></div>
+            <div style="display: flex; justify-content: space-between; margin-top: 2px;">
+              <span style="font-size: 9px; color: var(--hint-color);">00:00</span>
+              <span style="font-size: 9px; color: var(--hint-color);">06:00</span>
+              <span style="font-size: 9px; color: var(--hint-color);">12:00</span>
+              <span style="font-size: 9px; color: var(--hint-color);">18:00</span>
+              <span style="font-size: 9px; color: var(--hint-color);">23:00</span>
+            </div>
+          </div>
+          <!-- Top contacts -->
+          <div id="analytics-top-contacts" style="margin-top: 10px;"></div>
+        </div>
+
         <!-- GEMINI CONTROL HUB -->
         <div id="dashboard-widget-gemini" style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.28); border-radius: 10px; padding: 12px 14px; margin-top: 4px; display: flex; flex-direction: column; gap: 10px;">
           <!-- Top Row: Title + Status + Main Switch -->
@@ -3470,6 +3519,90 @@
       renderMyAgent(d);
     }
 
+    let _analyticsDays = 30;
+    async function loadAnalytics(days) {
+      _analyticsDays = days || _analyticsDays;
+      // Active button highlight
+      [7, 30, 90].forEach(d => {
+        const btn = document.getElementById("analytics-btn-" + d);
+        if (!btn) return;
+        const active = d === _analyticsDays;
+        btn.style.fontWeight = active ? "700" : "400";
+        btn.style.background = active ? "rgba(52,211,153,0.2)" : "rgba(52,211,153,0.07)";
+        btn.style.borderColor = active ? "rgba(52,211,153,0.6)" : "rgba(52,211,153,0.3)";
+        btn.style.color = active ? "#34d399" : "#6ee7b7";
+      });
+      const d = await apiRequest("/api/my/analytics?days=" + _analyticsDays);
+      if (!d || !d.ok) return;
+      renderAnalytics(d);
+    }
+
+    function renderAnalytics(d) {
+      const s = d.summary || {};
+      const setEl = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+      setEl("an-week-msgs", s.week_messages ?? "—");
+      setEl("an-total-contacts", s.total_contacts ?? "—");
+      setEl("an-peak-hour", d.hourly?.peak_hour !== undefined ? (d.hourly.peak_hour + ":00") : "—");
+
+      // Daily bar chart
+      const daily = d.daily || {};
+      const vals = daily.values || [];
+      const labels = daily.labels || [];
+      const maxVal = Math.max(...vals, 1);
+      const chartEl = document.getElementById("analytics-daily-chart");
+      const labelsEl = document.getElementById("analytics-daily-labels");
+      if (chartEl) {
+        // Show last 14 or all bars, responsive
+        const show = vals.length > 30 ? vals.slice(-30) : vals;
+        const showLabels = labels.length > 30 ? labels.slice(-30) : labels;
+        chartEl.innerHTML = show.map((v, i) => {
+          const h = Math.max(4, Math.round((v / maxVal) * 56));
+          const isToday = i === show.length - 1;
+          const color = isToday ? "#34d399" : (v === 0 ? "rgba(255,255,255,0.06)" : "rgba(52,211,153,0.45)");
+          return `<div title="${showLabels[i] || ''}: ${v} xabar" style="flex:1; height:${h}px; background:${color}; border-radius:2px 2px 0 0; min-width:4px; cursor:default;"></div>`;
+        }).join("");
+        if (labelsEl) {
+          const step = Math.ceil(show.length / 5);
+          labelsEl.innerHTML = showLabels.map((l, i) =>
+            (i % step === 0 || i === show.length - 1)
+              ? `<span style="font-size:8.5px; color:var(--hint-color);">${l}</span>`
+              : `<span></span>`
+          ).join("");
+        }
+      }
+
+      // Hourly chart
+      const hourly = d.hourly || {};
+      const hVals = hourly.values || [];
+      const hMax = Math.max(...hVals, 1);
+      const peakH = hourly.peak_hour ?? -1;
+      const hourlyEl = document.getElementById("analytics-hourly-chart");
+      if (hourlyEl) {
+        hourlyEl.innerHTML = hVals.map((v, h) => {
+          const barH = Math.max(2, Math.round((v / hMax) * 36));
+          const isPeak = h === peakH;
+          const color = isPeak ? "#f59e0b" : (v === 0 ? "rgba(255,255,255,0.05)" : "rgba(99,179,237,0.45)");
+          return `<div title="${h}:00 — ${v} xabar" style="flex:1; height:${barH}px; background:${color}; border-radius:1px; cursor:default;"></div>`;
+        }).join("");
+      }
+
+      // Top contacts
+      const tops = d.top_contacts || [];
+      const tcEl = document.getElementById("analytics-top-contacts");
+      if (tcEl && tops.length) {
+        tcEl.innerHTML = `<div style="font-size:11px; color:var(--hint-color); margin-bottom:4px;">🏆 Eng faol kontaktlar</div>` +
+          tops.slice(0, 5).map((c, i) => {
+            const medal = ["🥇","🥈","🥉","4️⃣","5️⃣"][i] || "";
+            return `<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:11.5px;">
+              <span>${medal} ${escapeHtml(c.name)}</span>
+              <span style="color:#34d399; font-weight:700;">${c.messages} xabar</span>
+            </div>`;
+          }).join("");
+      } else if (tcEl) {
+        tcEl.innerHTML = "";
+      }
+    }
+
     function myAgentShowStep(step) {
       ["phone", "code", "password"].forEach(s => {
         const el = document.getElementById("my-agent-step-" + s);
@@ -3909,7 +4042,9 @@
       if (myAgentCard) myAgentCard.style.display = isSuper ? "none" : "block";
       const aiMonitorCard = document.getElementById("ai-monitor-card");
       if (aiMonitorCard) aiMonitorCard.style.display = isSuper ? "" : "none";
-      if (!isSuper) loadMyAgent();
+      if (!isSuper) { loadMyAgent(); loadAnalytics(30); }
+      const analyticsWidget = document.getElementById("dashboard-widget-analytics");
+      if (analyticsWidget) analyticsWidget.style.display = isSuper ? "none" : "block";
 
       // Rol aniqlandi va vizual qo'llandi — endi kontentni ko'rsatamiz (chaqnash tugadi)
       hideBootOverlay();
