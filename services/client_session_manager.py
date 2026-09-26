@@ -688,6 +688,9 @@ class ClientSessionManager:
                         logger.warning("Tenant xavfli faylni o'chirishda xatolik: %s", _e)
                     return
 
+        # Media qabul qilish filtri: all/text_voice/text_photo/text_only
+        _media_mode = self._tenant_setting("accept_media", "all")
+
         # Ovozli xabar -> matn
         if not text.strip():
             msg = event.message
@@ -696,19 +699,22 @@ class ClientSessionManager:
                 or (msg.document and msg.file and (getattr(msg.file, "mime_type", "") or "").startswith("audio/"))
             )
             if has_voice:
-                try:
-                    from services.ai_service import ai_service
-                    audio_bytes = await msg.download_media(bytes)
-                    if audio_bytes:
-                        transcribed = await ai_service.transcribe_audio(audio_bytes)
-                        if transcribed:
-                            text = f"[Ovozli xabar]: {transcribed.strip()}"
-                            self._voice_chats.add((user_id, chat_id))
-                except Exception as v_err:
-                    logger.debug("Mijoz ovozli xabarini STT qilishda xatolik: %s", v_err)
+                if _media_mode in ("all", "text_voice"):
+                    try:
+                        from services.ai_service import ai_service
+                        audio_bytes = await msg.download_media(bytes)
+                        if audio_bytes:
+                            transcribed = await ai_service.transcribe_audio(audio_bytes)
+                            if transcribed:
+                                text = f"[Ovozli xabar]: {transcribed.strip()}"
+                                self._voice_chats.add((user_id, chat_id))
+                    except Exception as v_err:
+                        logger.debug("Mijoz ovozli xabarini STT qilishda xatolik: %s", v_err)
+                else:
+                    return  # text_voice emas rejimda ovozli xabar qabul qilinmaydi
 
         image_bytes = None
-        if event.message.photo:
+        if event.message.photo and _media_mode in ("all", "photo_only"):
             try:
                 image_bytes = await event.message.download_media(bytes)
                 if image_bytes and len(image_bytes) > 6 * 1024 * 1024:
@@ -1093,6 +1099,19 @@ class ClientSessionManager:
         client = self.get_client(user_id)
         if not client:
             return "Agent hozir ulanmagan. Avval Mini App orqali Telegram akkauntingizni ulang."
+
+        # Tarix tozalash buyrug'ini ReAct agentga yubormasdan darhol bajarish
+        _CLEAR_PHRASES = (
+            "tarixni tozala", "xotirani tozala", "tarixni o'chir", "suhbat tarixini tozala",
+            "clear history", "clear chat", "reset history", "tarix tozala", "xotira tozala",
+        )
+        _cmd_l = command.lower().strip()
+        if any(_cmd_l == ph or _cmd_l.endswith(ph) for ph in _CLEAR_PHRASES):
+            with tenant_scope(user_id):
+                from services.memory_service import memory_service as _ms
+                _ms.clear(user_id)
+            return "🧹 Suhbat tarixi tozalandi. Endi agent mijozlar bilan yangi sahifadan boshlaydi."
+
         with tenant_scope(user_id):
             from services.agent_runner import run_autonomous_agent_loop, TENANT_REACT_PROMPT, TENANT_ALLOWED_TOOLS
             from services.memory_service import memory_service

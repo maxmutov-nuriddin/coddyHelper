@@ -355,6 +355,14 @@ def _handle_client_toggle(user_info: dict, feature: str, enabled: bool, data: di
         memory_service.set_setting("web_search_enabled", "true" if enabled else "false")
     elif feature == "auto_delete_dangerous_files":
         memory_service.set_setting("auto_delete_dangerous_files", "true" if enabled else "false")
+    elif feature == "reply_language":
+        val = str(data.get("value", "auto")).strip().lower()
+        memory_service.set_setting(f"reply_language_{uid}", val if val in ("auto", "uz", "ru", "en") else "auto")
+        return web.json_response({"ok": True, "reply_language": val})
+    elif feature == "accept_media":
+        val = str(data.get("value", "all")).strip().lower()
+        memory_service.set_setting("accept_media", val if val in ("all", "text_photo", "text_voice", "text_only") else "all")
+        return web.json_response({"ok": True, "accept_media": val})
     elif feature == "debounce_seconds":
         try:
             val = max(0, min(30, int(data.get("value", 4))))
@@ -703,6 +711,9 @@ self.addEventListener('fetch', (event) => {
                 "group_reply_enabled": (memory_service.get_setting("group_reply_mode", "mention") != "off") if is_client else config.group_reply_enabled,
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
                 "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
+                "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
+                "reply_language": memory_service.get_setting(f"reply_language_{current_u['user_id']}", "auto"),
+                "accept_media": memory_service.get_setting("accept_media", "all"),
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
                 "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
@@ -876,6 +887,8 @@ self.addEventListener('fetch', (event) => {
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
                 "web_search_enabled": memory_service.get_setting("web_search_enabled", "true").lower() == "true",
                 "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
+                "reply_language": memory_service.get_setting(f"reply_language_{uid}", "auto"),
+                "accept_media": memory_service.get_setting("accept_media", "all"),
                 "smart_reactions_enabled": memory_service.get_setting("smart_reactions_enabled", "true").lower() == "true",
                 "vazifalar_status_enabled": memory_service.get_setting("vazifalar_status_enabled", "true").lower() == "true",
                 "gemini_backup_enabled": memory_service.get_setting("gemini_backup_enabled", "true").lower() == "true",
@@ -2356,6 +2369,8 @@ self.addEventListener('fetch', (event) => {
                 "voice_reply_enabled": memory_service.get_setting("voice_reply_enabled", "true").lower() == "true",
                 "escalate_to_owner": memory_service.get_setting("escalate_to_owner", "true").lower() == "true",
                 "auto_delete_dangerous_files": memory_service.get_setting("auto_delete_dangerous_files", "false").lower() == "true",
+                "reply_language": memory_service.get_setting(f"reply_language_{uid}", "auto"),
+                "accept_media": memory_service.get_setting("accept_media", "all"),
             },
             "profile": {
                 "business_name": sub.get("business_name", ""),
@@ -2429,7 +2444,21 @@ self.addEventListener('fetch', (event) => {
                 memory_service.set_setting("debounce_seconds", str(max(0, min(30, int(data["debounce_seconds"])))))
             except (TypeError, ValueError):
                 pass
+        if "reply_language" in data:
+            uid = user_info["user_id"]
+            val = str(data["reply_language"]).strip().lower()
+            memory_service.set_setting(f"reply_language_{uid}", val if val in ("auto", "uz", "ru", "en") else "auto")
+        if "accept_media" in data:
+            val = str(data["accept_media"]).strip().lower()
+            memory_service.set_setting("accept_media", val if val in ("all", "photo_only", "voice_only", "text_only") else "all")
         return await handle_api_my_agent(request)
+
+    async def handle_api_my_agent_clear_history(request: web.Request):
+        user_info, err = _client_only(request)
+        if err:
+            return err
+        count = memory_service.clear_all_messages()
+        return web.json_response({"ok": True, "cleared": count})
 
     async def handle_api_my_profile(request: web.Request):
         """Mijoz o'z biznes profili va AI yo'riqnomasini o'zi tahrirlaydi (muddat/rol o'zgarmaydi)."""
@@ -2593,6 +2622,7 @@ self.addEventListener('fetch', (event) => {
     app.router.add_post("/api/my/agent/stop", handle_api_my_agent_stop)
     app.router.add_post("/api/my/agent/session", handle_api_my_agent_session)
     app.router.add_post("/api/my/agent/settings", handle_api_my_agent_settings)
+    app.router.add_post("/api/my/agent/clear_history", handle_api_my_agent_clear_history)
     app.router.add_post("/api/my/profile", handle_api_my_profile)
     app.router.add_post("/api/my/tg-login/{step}", handle_api_my_tg_login)
 

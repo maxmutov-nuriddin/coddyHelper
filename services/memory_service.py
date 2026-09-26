@@ -937,6 +937,19 @@ class SQLiteMemoryService:
             logger.error("Xotirani tozalashda xatolik: %s", e)
             return False
 
+    def clear_all_messages(self) -> int:
+        """Barcha suhbat tarixini tozalaydi (tenant bazasi uchun)."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM messages")
+                conn.commit()
+                cleared = cursor.rowcount
+            return cleared
+        except Exception as e:
+            logger.error("Barcha xotirani tozalashda xatolik: %s", e)
+            return 0
+
     def total_active_chats(self) -> int:
         """Xotiradagi jami faol o'quvchilar/chatlar soni."""
         try:

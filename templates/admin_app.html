@@ -390,21 +390,27 @@
       text-align: center;
       box-sizing: border-box;
       min-width: 0;
-      word-break: break-word;
+      overflow: hidden;
     }
 
     .metric-value {
-      font-size: 22px;
+      font-size: clamp(13px, 5vw, 22px);
       font-weight: 800;
       color: var(--accent);
       margin-bottom: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
     }
 
     .metric-label {
-      font-size: 11px;
+      font-size: clamp(8.5px, 2.5vw, 11px);
       color: var(--hint-color);
       text-transform: uppercase;
       font-weight: 600;
+      word-break: break-word;
+      line-height: 1.2;
     }
 
     /* BUTTONS */
@@ -881,6 +887,18 @@
       line-height: 1.1;
     }
 
+    /* Ko'p tab ko'rinadigan (super admin) hollarda labellarni yashir */
+    body.super-nav .nav-item span:last-child {
+      display: none;
+    }
+    body.super-nav .nav-item {
+      gap: 0;
+      padding: 5px 0;
+    }
+    body.super-nav .nav-icon {
+      font-size: 19px;
+    }
+
     /* COMPREHENSIVE RESPONSIVE MEDIA QUERIES */
     @media (max-width: 480px) {
       .container {
@@ -910,7 +928,7 @@
         padding: 8px 4px;
       }
       .metric-value {
-        font-size: 18px;
+        font-size: 16px;
       }
       .metric-label {
         font-size: 9.5px;
@@ -1486,6 +1504,24 @@
                 <option value="86400">1 kun</option>
               </select>
             </div>
+            <div style="background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px;">
+              <div style="color: var(--hint-color); margin-bottom: 4px;">🌐 Javob tili</div>
+              <select id="my-agent-reply-lang" class="form-input" onchange="myAgentSaveSettings()" style="padding: 6px; font-size: 12px;">
+                <option value="auto">🌐 Mijoz tiliga moslashish</option>
+                <option value="uz">🇺🇿 Doim O'zbek</option>
+                <option value="ru">🇷🇺 Doim Rus</option>
+                <option value="en">🇬🇧 Doim Ingliz</option>
+              </select>
+            </div>
+            <div style="background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px;">
+              <div style="color: var(--hint-color); margin-bottom: 4px;">📎 Qabul qiladigan xabarlar</div>
+              <select id="my-agent-accept-media" class="form-input" onchange="myAgentSaveSettings()" style="padding: 6px; font-size: 12px;">
+                <option value="all">📎 Barchasi (matn + rasm + ovoz)</option>
+                <option value="text_photo">📷 Matn va rasmlar</option>
+                <option value="text_voice">🎙 Matn va ovozlar</option>
+                <option value="text_only">📝 Faqat matn</option>
+              </select>
+            </div>
           </div>
           <div style="margin-top: 10px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px;">
             <div style="font-size: 12.5px; font-weight: 700; color: #34d399; margin-bottom: 6px;">⚡ Agentga buyruq (Telegramingizni boshqaradi)</div>
@@ -1499,9 +1535,10 @@
               🛡 Boshqa odamlar agentga buyruq bera olmaydi — ular faqat biznesingiz doirasida javob oladi.
             </div>
           </div>
-          <div style="display: flex; gap: 8px; margin-top: 10px;">
-            <button class="btn btn-secondary" onclick="myAgentStop()" style="width: auto; padding: 6px 12px; font-size: 12px; color: #fca5a5;">⏹ Agentni to'xtatish</button>
+          <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+            <button class="btn btn-secondary" onclick="myAgentStop()" style="width: auto; padding: 6px 12px; font-size: 12px; color: #fca5a5;">⏹ To'xtatish</button>
             <button class="btn btn-secondary" onclick="loadMyAgent()" style="width: auto; padding: 6px 12px; font-size: 12px;">🔄 Yangilash</button>
+            <button class="btn btn-secondary" onclick="myAgentClearHistory()" style="width: auto; padding: 6px 12px; font-size: 12px; color: #fb923c;" title="Barcha suhbat tarixini o'chirish">🗑 Tarixni tozalash</button>
           </div>
         </div>
 
@@ -3389,6 +3426,10 @@
       if (gm && set.group_reply_mode) gm.value = set.group_reply_mode;
       const op = document.getElementById("my-agent-owner-pause");
       if (op && set.owner_pause_seconds !== undefined) op.value = String(set.owner_pause_seconds);
+      const rl = document.getElementById("my-agent-reply-lang");
+      if (rl && set.reply_language) rl.value = set.reply_language;
+      const am = document.getElementById("my-agent-accept-media");
+      if (am && set.accept_media) am.value = set.accept_media;
 
       const prof = d.profile || {};
       const setVal = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v || ""; };
@@ -3515,10 +3556,19 @@
         escalate_to_owner: document.getElementById("my-agent-escalate").checked,
         group_reply_mode: document.getElementById("my-agent-group-mode").value,
         owner_pause_seconds: parseInt(document.getElementById("my-agent-owner-pause").value || "600"),
+        reply_language: document.getElementById("my-agent-reply-lang")?.value || "auto",
+        accept_media: document.getElementById("my-agent-accept-media")?.value || "all",
       };
       const d = await apiRequest("/api/my/agent/settings", "POST", body);
       if (d && d.ok) { showToast("✅ Saqlandi", "success"); renderMyAgent(d); }
       else showToast("❌ Saqlanmadi: " + ((d && d.error) || "server xatosi"), "error");
+    }
+
+    async function myAgentClearHistory() {
+      haptic();
+      const d = await apiRequest("/api/my/agent/clear_history", "POST", {});
+      if (d && d.ok) showToast("✅ Suhbat tarixi tozalandi (" + (d.cleared || 0) + " ta xabar)", "success");
+      else showToast("❌ " + ((d && d.error) || "Xatolik"), "error");
     }
 
     async function myAgentCommand() {
@@ -3651,6 +3701,8 @@
       }
 
       // Role-Based Navigation: Only Super Admin sees full management tabs
+      if (isSuper) document.body.classList.add("super-nav");
+      else document.body.classList.remove("super-nav");
       const navClients = document.getElementById("nav-clients");
       if (navClients) navClients.style.display = isSuper ? "flex" : "none";
 
