@@ -1118,11 +1118,18 @@
       color: var(--hint-color);
       text-align: center;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
     .stat-chip-val {
-      font-size: 17px;
+      font-size: clamp(12px, 4vw, 17px);
       font-weight: 800;
       line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
     /* PULL TO REFRESH */
     #pull-indicator {

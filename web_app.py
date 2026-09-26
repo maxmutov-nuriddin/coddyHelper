@@ -2450,7 +2450,7 @@ self.addEventListener('fetch', (event) => {
             memory_service.set_setting(f"reply_language_{uid}", val if val in ("auto", "uz", "ru", "en") else "auto")
         if "accept_media" in data:
             val = str(data["accept_media"]).strip().lower()
-            memory_service.set_setting("accept_media", val if val in ("all", "photo_only", "voice_only", "text_only") else "all")
+            memory_service.set_setting("accept_media", val if val in ("all", "text_photo", "text_voice", "text_only") else "all")
         return await handle_api_my_agent(request)
 
     async def handle_api_my_agent_clear_history(request: web.Request):

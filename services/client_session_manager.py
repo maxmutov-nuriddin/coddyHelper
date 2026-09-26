@@ -714,7 +714,7 @@ class ClientSessionManager:
                     return  # text_voice emas rejimda ovozli xabar qabul qilinmaydi
 
         image_bytes = None
-        if event.message.photo and _media_mode in ("all", "photo_only"):
+        if event.message.photo and _media_mode in ("all", "text_photo"):
             try:
                 image_bytes = await event.message.download_media(bytes)
                 if image_bytes and len(image_bytes) > 6 * 1024 * 1024:
