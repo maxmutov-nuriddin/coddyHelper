@@ -130,6 +130,7 @@ Siz hozir "Vazifalar" (Mentorning Shaxsiy Boshqaruv Markazi) guruhidasiz.
      - Fakt / qoida o'rganish: <<<ACTION:learn_fact("mavzu", "qoida")>>> | Bilimlar: <<<ACTION:get_learned_facts()>>>
      - O'quvchilar statistikasi: <<<ACTION:get_students_summary()>>>
      - Kontakt / guruh / profil qidirish: <<<ACTION:find_contact("ism")>>>
+     - Barcha Telegram kontaktlar ro'yxati (nechta, kimlar): <<<ACTION:list_contacts()>>>
      - Kasal bo'lgan / dars qoldirgan o'quvchilarni topish: <<<ACTION:find_sick_students()>>>
      - Telegram bo'yicha qidiruv: <<<ACTION:search_telegram("qidiruv")>>>
      - Guruh / chat ichidan qidiruv: <<<ACTION:search_chat("chat", "qidiruv")>>>
@@ -175,6 +176,10 @@ Siz hozir "Vazifalar" (Mentorning Shaxsiy Boshqaruv Markazi) guruhidasiz.
      Mentor: "lichkalar ichidan kasal bolgan oquvchini top" yoki "kim kasal bo'libdi"
      AI: "Hozir shaxsiy yozishmalar va chatlarni tekshirib, betob bo'lgan yoki dars qoldirishini aytgan o'quvchilarni topaman, Ustoz!
      <<<ACTION:find_sick_students()>>>"
+   - **Namuna 6b (Kontaktlar ro'yxati / kimlarga kirish mumkin):**
+     Mentor: "kontaktlarimni ko'rsat" yoki "kantaktlarga kira olasanmi" yoki "kontaktlar ro'yxati"
+     AI: "Ha, kiraman! Telegram kontaktlaringizni hoziroq olib kelaman, Ustoz.
+     <<<ACTION:list_contacts()>>>"
    - **Namuna 7 (Ma'muriyatga / mamuryatga yuborish):**
      Mentor: "Shu ni mamuryatga yubor" yoki "Ha yubor shuni"
      AI: "Tushundim, Ustoz! Dars qoldirish hisoboti CoddyCamp ma'muriyatiga (@coddycamp_sergeli) yuborilmoqda.

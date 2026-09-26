@@ -3193,6 +3193,8 @@ class AIService:
             "Mavjud Tizim Amallari:\n"
             "• O'quvchi, profil, kontakt, lichka, nomer yoki uydagilarini qidirish/topish:\n"
             "  <<<ACTION:find_contact(\"ism\")>>>\n"
+            "• Barcha Telegram kontaktlarni ro'yxat qilish (nechta bor, kimlar bor):\n"
+            "  <<<ACTION:list_contacts()>>>\n"
             "• Shaxsiy yozishmalar (lichkalar) yoki guruhlardan kasal bo'lgan / dars qoldirgan / betob o'quvchilarni topish:\n"
             "  <<<ACTION:find_sick_students()>>>\n"
             "• Xabar yuborish (shaxsga, botga, guruhga):\n"

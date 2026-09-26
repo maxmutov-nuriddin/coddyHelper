@@ -1088,6 +1088,42 @@ async def find_student_or_contact(client, name_or_query: str) -> dict[str, Any]:
         except Exception as e:
             logger.error("Telegram dialoglarini qidirishda xatolik: %s", e)
 
+    # 2b. Telegram kontaktlar ro'yxatidan qidirish (GetContactsRequest — telefon raqamlari bilan)
+    if client and len(tg_matches) < 5:
+        try:
+            from telethon.tl.functions.contacts import GetContactsRequest
+            contacts_res = await client(GetContactsRequest(hash=0))
+            contacts_list = getattr(contacts_res, "users", []) or []
+            for u in contacts_list:
+                if getattr(u, "bot", False) or getattr(u, "is_self", False):
+                    continue
+                c_first = getattr(u, "first_name", "") or ""
+                c_last  = getattr(u, "last_name", "") or ""
+                c_full  = f"{c_first} {c_last}".strip()
+                c_uname = getattr(u, "username", "") or ""
+                c_phone = getattr(u, "phone", "") or ""
+                p_digits = re.sub(r"\D", "", c_phone) if c_phone else ""
+
+                matched = (
+                    match_text(raw_q, c_full) or match_text(target_q, c_full)
+                    or match_text(raw_q, c_uname) or match_text(target_q, c_uname)
+                    or (p_digits and q_digits and len(q_digits) >= 7 and (q_digits in p_digits or p_digits.endswith(q_digits)))
+                )
+                if matched:
+                    already = any(m.get("id") == u.id for m in tg_matches)
+                    if not already:
+                        tg_matches.append({
+                            "id": u.id,
+                            "name": c_full or "Noma'lum",
+                            "type": "user",
+                            "username": f"@{c_uname}" if c_uname else None,
+                            "phone": f"+{c_phone}" if c_phone else None,
+                            "link": f"https://t.me/{c_uname}" if c_uname else f"tg://user?id={u.id}",
+                            "source": "contacts",
+                        })
+        except Exception as ce:
+            logger.debug("Kontaktlar ro'yxatidan qidirishda ogohlantirish: %s", ce)
+
     # 3. Guruhlar ichidagi ishtirokchilar (Group Participants) orasidan qidirish
     group_members = []
     if client and group_dialogs_to_inspect:
@@ -2521,6 +2557,7 @@ async def check_group_schedule_and_announcements(
 
 ACTION_GROUP_INFO = re.compile(r'<<<ACTION:get_group_info\(["\']?(.*?)["\']?\)>>>', re.IGNORECASE)
 ACTION_STUDENTS_SUM = re.compile(r'<<<ACTION:get_students_summary\(\)>>>', re.IGNORECASE)
+ACTION_LIST_CONTACTS = re.compile(r'<<<ACTION:list_contacts\(\)>>>', re.IGNORECASE)
 ACTION_SEARCH = re.compile(r'<<<ACTION:search_telegram\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
 ACTION_FIND_CONTACT = re.compile(r'<<<ACTION:find_contact\(["\'](.*?)["\']\)>>>', re.IGNORECASE)
 ACTION_SEND_MSG = re.compile(r'<<<ACTION:send_message\(["\'](.*?)["\'],\s*["\'](.*?)["\']\)>>>', re.IGNORECASE | re.DOTALL)
@@ -3007,6 +3044,45 @@ async def execute_agent_action(
             lines.append("")
 
         return "\n".join(lines).strip()
+
+    # 1b. Action: list_contacts (Barcha Telegram kontaktlarni ro'yxat qilish)
+    m_list_contacts = ACTION_LIST_CONTACTS.search(reply_text)
+    if not m_list_contacts:
+        if re.search(
+            r"\b(?:barcha\s+)?kontakt(?:lar(?:ni|im)?)?(?:\s+ro[''`]?yxati|\s+ko[''`]?rsat|\s+list\b|\s+chiqar|\s+ber)?(?:\s+(?:nechta|bor|qancha))?\b",
+            orig_msg, re.I
+        ) or re.search(
+            r"\b(?:все\s+)?контакт(?:ы|ов|ами|и)?\s*(?:список|показать|вывести|есть)?\b",
+            orig_msg, re.I
+        ):
+            m_list_contacts = True
+
+    if m_list_contacts and client:
+        try:
+            from telethon.tl.functions.contacts import GetContactsRequest
+            contacts_res = await client(GetContactsRequest(hash=0))
+            users = [u for u in (getattr(contacts_res, "users", []) or []) if not getattr(u, "bot", False) and not getattr(u, "is_self", False)]
+            if not users:
+                return "📱 Kontaktlar ro'yxati bo'sh yoki Telegram kontaktlariga ruxsat berilmagan." if not is_ru else "📱 Список контактов пуст или доступ к контактам запрещён."
+            lines = [f"📱 **Telegram kontaktlaringiz ({len(users)} ta):**\n"] if not is_ru else [f"📱 **Ваши Telegram контакты ({len(users)} шт):**\n"]
+            for i, u in enumerate(users[:80], 1):
+                c_first = getattr(u, "first_name", "") or ""
+                c_last  = getattr(u, "last_name", "") or ""
+                c_full  = f"{c_first} {c_last}".strip() or "Noma'lum"
+                c_uname = getattr(u, "username", "") or ""
+                c_phone = getattr(u, "phone", "") or ""
+                parts = [f"{i}. **{c_full}**"]
+                if c_uname:
+                    parts.append(f"@{c_uname}")
+                if c_phone:
+                    parts.append(f"+{c_phone}")
+                lines.append(" — ".join(parts))
+            if len(users) > 80:
+                lines.append(f"\n_...va yana {len(users)-80} ta kontakt_")
+            return "\n".join(lines)
+        except Exception as lc_err:
+            logger.warning("list_contacts xatolik: %s", lc_err)
+            return "⚠️ Kontaktlar ro'yxatini olishda xatolik yuz berdi." if not is_ru else "⚠️ Ошибка при получении списка контактов."
 
     # 2. Action: get_students_summary (Jami o'quvchilar statistikasi / Сколько всего учеников)
     m_sum = ACTION_STUDENTS_SUM.search(reply_text)
