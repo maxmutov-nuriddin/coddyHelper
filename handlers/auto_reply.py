@@ -1903,6 +1903,7 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
         # Ovozli xabar bo'lsa darhol yuklab o'girish
         input_text = message_text
         if has_voice:
+            _stt_ok = False
             try:
                 audio_bytes = await event.message.download_media(bytes)
                 if audio_bytes:
@@ -1910,8 +1911,20 @@ def register_auto_reply_handlers(client: TelegramClient) -> None:
                     if transcribed:
                         v_note = f"[Ovozli xabar (STT)]: {transcribed}"
                         input_text = f"{input_text}\n\n{v_note}".strip() if input_text else v_note
+                        _stt_ok = True
             except Exception as v_err:
                 logger.warning("Ovozli xabarni tahlil qilishda xatolik: %s", v_err)
+            if not _stt_ok and not input_text.strip():
+                try:
+                    sent = await event.reply(
+                        "🎙 Ovoz xabari eshitilmadi. Iltimos, qayta yuboring yoki yozib yuboring.\n"
+                        "_(Shovqin ko'p yoki signal zaif bo'lishi mumkin)_"
+                    )
+                    if sent:
+                        BOT_SENT_MESSAGE_IDS.add(sent.id)
+                except Exception:
+                    pass
+                return
 
         # 📋 O'QUVCHI ISM VA GURUHI HAQIDA JAVOB BERGANDA (PENDING ABSENCE CLARIFICATION):
         if is_private and sender_id in PENDING_ABSENCE_STUDENTS:

@@ -700,6 +700,7 @@ class ClientSessionManager:
             )
             if has_voice:
                 if _media_mode in ("all", "text_voice"):
+                    _stt_ok = False
                     try:
                         from services.ai_service import ai_service
                         audio_bytes = await msg.download_media(bytes)
@@ -708,8 +709,14 @@ class ClientSessionManager:
                             if transcribed:
                                 text = f"[Ovozli xabar]: {transcribed.strip()}"
                                 self._voice_chats.add((user_id, chat_id))
+                                _stt_ok = True
                     except Exception as v_err:
                         logger.debug("Mijoz ovozli xabarini STT qilishda xatolik: %s", v_err)
+                    if not _stt_ok:
+                        await self._send(user_id, client, chat_id,
+                            "🎙 Ovoz xabari eshitilmadi. Iltimos, qayta yuboring yoki yozib yuboring.\n"
+                            "_(Shovqin ko'p yoki signal zaif bo'lishi mumkin)_")
+                        return
                 else:
                     return  # text_voice emas rejimda ovozli xabar qabul qilinmaydi
 
