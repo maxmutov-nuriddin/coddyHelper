@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CoddyHelper Pitch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  :root{
+    --bg:#F8F9FB; --card:#FFFFFF; --soft:#F4F6F8; --soft2:#EDF0F4;
+    --ink:#15161A; --mut:#6F737D; --dim:#B4B8C0;
+    --or:#FF5C1C; --or-deep:#E84E0F; --or-soft:#FFEDE2;
+    --ok:#189D57; --ok-soft:#DFF3E6;
+    --sh:0 8px 22px -12px rgba(21,22,26,.16);
+    --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+    --sans:'Manrope',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:#E9ECF1;color:var(--ink);font-family:var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
+
+  /* 1280×720 sahna, ekranga moslab kattalashtiriladi */
+  #viewport{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+  #stage{width:1280px;height:720px;position:relative;transform-origin:center center;flex:none}
+  .slide{position:absolute;inset:0;background:var(--bg);border-radius:6px;padding:58px 72px 64px;
+    display:none;flex-direction:column;overflow:hidden;box-shadow:0 30px 60px -30px rgba(21,22,26,.35)}
+  .slide.on{display:flex}
+  .slide::after{content:"";position:absolute;right:-150px;top:-150px;width:440px;height:440px;border-radius:50%;pointer-events:none;
+    background:repeating-radial-gradient(circle at center, rgba(21,22,26,.045) 0 1px, transparent 1px 42px)}
+
+  .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px}
+  .kick{display:flex;align-items:center;gap:10px;font:700 13px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+  .kick i{width:10px;height:10px;border-radius:3px;background:var(--or)}
+  .tm{font:700 13px/1 var(--mono);color:var(--or-deep);background:var(--or-soft);border-radius:99px;padding:7px 12px}
+  h1{font-weight:800;font-size:58px;line-height:1.06;letter-spacing:-.025em}
+  h1 em,h2 em{font-style:normal;color:var(--or)}
+  h2{font-weight:800;font-size:44px;line-height:1.1;letter-spacing:-.02em}
+  .lead{font-size:22px;color:var(--mut);margin-top:16px;max-width:60ch;line-height:1.45}
+  .lead b{color:var(--ink)}
+  .foot{position:absolute;left:72px;right:72px;bottom:24px;display:flex;justify-content:space-between;
+    font:600 12px/1.4 var(--mono);color:var(--mut)}
+  .src{margin-top:auto;font-size:14px;color:var(--mut);line-height:1.5}
+  .card{background:var(--card);border-radius:18px;box-shadow:var(--sh);padding:22px 24px}
+  .row{display:grid;gap:16px}
+  .r3{grid-template-columns:repeat(3,1fr)} .r4{grid-template-columns:repeat(4,1fr)} .r2{grid-template-columns:1fr 1fr}
+  .num{font:700 12px/1 var(--mono);color:var(--dim)}
+  .card h3{font-size:21px;margin-top:10px;line-height:1.25}
+  .card p{font-size:16px;color:var(--mut);margin-top:8px;line-height:1.45}
+
+  /* 1 · haqiqiy xabarlar */
+  .chat{display:flex;flex-direction:column;gap:10px;margin-top:30px;max-width:760px}
+  .msg{align-self:flex-start;background:var(--card);box-shadow:var(--sh);border-radius:16px 16px 16px 4px;
+    padding:12px 16px;font-size:19px;line-height:1.35}
+  .msg small{display:block;font:600 11px/1 var(--mono);color:var(--dim);margin-bottom:6px;letter-spacing:.06em}
+  .msg:nth-child(2){margin-left:40px} .msg:nth-child(3){margin-left:80px} .msg:nth-child(4){margin-left:20px}
+  .side{position:absolute;right:72px;top:190px;width:340px}
+  .side .card{border-left:4px solid var(--or);border-radius:0 18px 18px 0}
+  .side p{font-size:19px;color:var(--ink);font-weight:700;margin:0;line-height:1.4}
+  .side p + p{margin-top:12px;color:var(--mut);font-weight:600;font-size:16px}
+
+  /* 2 · muqobillar */
+  .alt{margin-top:22px;background:var(--card);border-radius:18px;box-shadow:var(--sh);overflow:hidden}
+  .alt div{display:grid;grid-template-columns:300px 1fr;gap:18px;padding:11px 22px;font-size:16px;border-top:1px solid var(--soft2)}
+  .alt div:first-child{border-top:0}
+  .alt b{font-weight:700}
+  .alt span{color:var(--mut)}
+  .alt .us{background:var(--or-soft)} .alt .us span{color:#8A3A12;font-weight:700}
+
+  /* 3 · raqamlar */
+  .stat .n{font:700 64px/1 var(--mono);letter-spacing:-.04em}
+  .stat .d{font-size:16px;color:var(--mut);margin-top:10px;line-height:1.4}
+  .stat.hot{background:linear-gradient(135deg,#17181C,#26272B);color:#fff}
+  .stat.hot .n{color:#FF9256} .stat.hot .d{color:#B8BBC4}
+
+  /* 4 · metrikalar */
+  .mt{display:grid;grid-template-columns:200px 1fr 240px;gap:16px;align-items:center;background:var(--card);
+    border-radius:16px;box-shadow:var(--sh);padding:14px 20px}
+  .mt + .mt{margin-top:10px}
+  .mt .l{font:700 12px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--or-deep)}
+  .mt .t{font-size:17px;line-height:1.35}
+  .mt .v{font:700 15px/1.35 var(--mono);text-align:right}
+  .mt .v small{display:block;font:600 11.5px/1.4 var(--mono);color:var(--mut)}
+  .hyp{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+  .hyp .card{padding:16px 20px}
+  .hyp .lab{font:700 12px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+  .hyp .ok{color:var(--ok)} .hyp .todo{color:var(--or-deep)}
+  .hyp ul{list-style:none;margin-top:10px}
+  .hyp li{font-size:16px;line-height:1.4;padding-left:18px;position:relative}
+  .hyp li + li{margin-top:6px}
+  .hyp li::before{content:"";position:absolute;left:0;top:8px;width:7px;height:7px;border-radius:2px;background:var(--dim)}
+
+  /* 5 · tarif */
+  .plan .n{font:800 60px/1 var(--sans);letter-spacing:-.03em;margin-top:12px}
+  .plan .n small{font-size:20px;color:var(--mut);font-weight:600;letter-spacing:0}
+  .plan ul{list-style:none;margin-top:16px}
+  .plan li{font-size:16px;padding:6px 0;border-top:1px dashed var(--soft2)}
+  .plan.hot{outline:2px solid var(--or);outline-offset:-2px}
+  .pill{display:inline-block;border-radius:99px;padding:6px 12px;font:700 12px/1 var(--mono);background:var(--or-soft);color:var(--or-deep)}
+
+  /* 6 · demo */
+  .flow{display:grid;grid-template-columns:1fr 44px 1fr 44px 1fr;align-items:stretch;margin-top:28px}
+  .flow .ar{align-self:center;text-align:center;font:700 26px/1 var(--mono);color:var(--or)}
+  .flow .card h3{margin-top:6px}
+  .say{margin-top:12px;background:var(--soft);border-radius:12px;padding:10px 12px;font-size:15px;line-height:1.4}
+  .planb{margin-top:24px;border-left:4px solid var(--or);background:var(--card);border-radius:0 14px 14px 0;
+    padding:14px 18px;font-size:17px;box-shadow:var(--sh)}
+  .planb b{color:var(--or-deep)}
+
+  /* 7 · CTA */
+  .cta{margin-top:30px;background:var(--or);color:#fff;border-radius:20px;padding:30px 34px;
+    font-weight:800;font-size:40px;letter-spacing:-.015em;box-shadow:0 18px 36px -16px rgba(232,78,15,.6)}
+  .deal{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:22px}
+
+  /* ma'ruzachi izohlari va taymer */
+  #notes{position:fixed;left:0;right:0;bottom:0;max-height:38vh;overflow:auto;background:#17181C;color:#E8E9ED;
+    padding:16px 24px 20px;font:500 17px/1.55 var(--sans);display:none;z-index:20}
+  #notes.on{display:block}
+  #notes .h{font:700 12px/1 var(--mono);color:#FF9256;letter-spacing:.1em;margin-bottom:8px}
+  #hud{position:fixed;right:14px;top:12px;z-index:30;font:700 13px/1 var(--mono);color:var(--mut);
+    background:rgba(255,255,255,.85);border-radius:10px;padding:8px 11px;display:flex;gap:12px;align-items:center}
+  #hud .late{color:#E0474C}
+  #hud button{border:0;background:none;font:inherit;color:inherit;cursor:pointer}
+  .notes{display:none}
+
+  @media print{
+    @page{size:1280px 720px;margin:0}
+    body{background:#fff;overflow:visible}
+    #viewport{position:static;display:block}
+    #stage{transform:none!important;width:auto;height:auto}
+    .slide{position:relative;display:flex!important;width:1280px;height:720px;break-after:page;border-radius:0;box-shadow:none}
+    #notes,#hud{display:none!important}
+  }
+</style>
+</head>
+<body>
+<div id="viewport"><div id="stage">
+
+<!-- 1 · MUAMMO -->
+<section class="slide" data-end="30">
+  <div class="top"><div class="kick"><i></i>CoddyHelper · Muammo</div><div class="tm">0:00–0:30</div></div>
+  <h1>Men darsdaman.<br><em>Telegramim</em> esa to‘xtamaydi.</h1>
+  <div class="chat">
+    <div class="msg"><small>O‘QUVCHI</small>Python da IndexError: list index out of range xatosi nima degani?</div>
+    <div class="msg"><small>O‘QUVCHI</small>Html blan css ni qanday ulash mumku</div>
+    <div class="msg"><small>O‘QUVCHI</small>…netlify.app 🔗</div>
+    <div class="msg"><small>O‘QUVCHI</small>Assalomu alaykum ustoz</div>
+  </div>
+  <div class="side"><div class="card">
+    <p>Javob kechiksa — o‘quvchi uyga vazifada to‘xtab qoladi.</p>
+    <p>Darsda javob yozsam — oldimdagi guruh to‘xtaydi.</p>
+  </div></div>
+  <div class="foot"><span>Haqiqiy xabarlar · mening akkauntim · sentabr 2026 · ismlar olib tashlangan</span><span>01 / 07</span></div>
+  <div class="notes">Men CoddyCamp’da mentorman. Sentabrda bir kunda Telegramimga shunday xabarlar keldi: «IndexError nima degani?», «HTML bilan CSS qanday ulanadi?», loyiha havolasi, «Assalomu alaykum, ustoz». Men esa o‘sha paytda boshqa guruhda dars o‘tyapman. Javob kechiksa — o‘quvchi uyga vazifada to‘xtab qoladi. Darsda telefonga qarasam — oldimdagi guruh to‘xtaydi. Bu meni qiynagan muammo, shuning uchun uni o‘zim uchun yecha boshladim.</div>
+</section>
+
+<!-- 2 · YECHIM -->
+<section class="slide" data-end="55">
+  <div class="top"><div class="kick"><i></i>Yechim va muqobillar</div><div class="tm">0:30–0:55</div></div>
+  <h2>Biz buni <em>CoddyHelper</em> bilan yechamiz — Telegramingizdagi AI yordamchi</h2>
+  <div class="row r3" style="margin-top:24px">
+    <div class="card"><span class="num">01</span><h3>Sizning akkauntingizdan javob</h3><p>O‘quvchi ustoziga yozadi — javob siz kiritgan bilim asosida keladi.</p></div>
+    <div class="card"><span class="num">02</span><h3>Bilmasa — sizga yetkazadi</h3><p>Qaror kerak bo‘lgan savol boshqaruv guruhingizga tushadi.</p></div>
+    <div class="card"><span class="num">03</span><h3>Siz yozsangiz — jim turadi</h3><p>Suhbatga qo‘shilsangiz, yordamchi o‘sha chatda to‘xtaydi.</p></div>
+  </div>
+  <div class="alt">
+    <div><b>Qo‘lda javob yozish</b><span>Darsdan chalg‘itadi yoki javob soatlab kechikadi</span></div>
+    <div><b>Telegram Business tez javoblari</b><span>Tayyor shablon: «IndexError nima?» degan savolni tushunmaydi</span></div>
+    <div><b>Alohida chat-bot</b><span>O‘quvchilar baribir ustozning o‘ziga yozadi</span></div>
+    <div class="us"><b>CoddyHelper</b><span>Savolni tushunadi, o‘sha chatda javob beradi, bilmaganini sizga beradi</span></div>
+  </div>
+  <div class="foot"><span>Ustunlik pilotda tekshiriladi: javob tezligi va to‘g‘riligi</span><span>02 / 07</span></div>
+  <div class="notes">Biz buni CoddyHelper bilan yechamiz. Bu sizning Telegram akkauntingizda ishlaydigan AI yordamchi. O‘quvchi botga emas, ustozning o‘ziga yozadi — javob siz kiritgan bilim asosida keladi. Qaror kerak bo‘lgan savolni boshqaruv guruhingizga yuboradi. O‘zingiz yozsangiz — jim turadi. Hozir buni qo‘lda yoki Telegram Business shablonlari bilan qilish mumkin, lekin shablon savolni tushunmaydi, alohida botga esa o‘quvchilar baribir yozmaydi.</div>
+</section>
+
+<!-- 3 · DALIL -->
+<section class="slide" data-end="75">
+  <div class="top"><div class="kick"><i></i>Dalil</div><div class="tm">0:55–1:15</div></div>
+  <h2>14 kun o‘z akkauntimda ishlatdim</h2>
+  <p class="lead">12–25 sentabr 2026 · o‘quvchilar va boshqa odamlardan kelgan xabarlar</p>
+  <div class="row r4" style="margin-top:30px">
+    <div class="card stat"><div class="n">259</div><div class="d">kiruvchi xabar — kuniga ~18 ta</div></div>
+    <div class="card stat"><div class="n">38</div><div class="d">chat: 31 shaxsiy + 7 guruh</div></div>
+    <div class="card stat hot"><div class="n">239</div><div class="d">javobni yordamchi yozdi — men qo‘lda yozmadim</div></div>
+    <div class="card stat"><div class="n">~60</div><div class="d">kod savoli va loyiha havolasi (kalit so‘z bo‘yicha)</div></div>
+  </div>
+  <p class="src">Manba: CoddyHelper bazasi, egasining o‘z buyruqlari hisobga olinmagan. Javoblarning to‘g‘riligi hali alohida tekshirilmagan — buni pilotda o‘lchaymiz.</p>
+  <div class="foot"><span>Texnik holat: akkaunt ulash, bilimlar bazasi, eskalatsiya, tariflar — ishlaydi</span><span>03 / 07</span></div>
+  <div class="notes">Bu g‘oya emas — ishlaydigan mahsulot. 14 kun o‘z akkauntimda ishlatdim: 259 ta kiruvchi xabar, kuniga taxminan 18 ta, 38 ta chatdan. Ulardan 239 tasiga yordamchi javob berdi — men qo‘lda yozmadim. Taxminan 60 tasi kod savoli va loyiha havolalari. Ammo halol aytaman: javoblarning qanchasi to‘g‘ri bo‘lganini hali alohida tekshirmadim.</div>
+</section>
+
+<!-- 4 · METRIKALAR VA GIPOTEZALAR -->
+<section class="slide" data-end="95">
+  <div class="top"><div class="kick"><i></i>Metrikalar va gipotezalar</div><div class="tm">1:15–1:35</div></div>
+  <h2>Nimani o‘lchaymiz</h2>
+  <div style="margin-top:20px">
+    <div class="mt"><div class="l">North Star</div><div class="t">Ustoz tuzatmagan avtomatik javoblar — haftasiga</div><div class="v">239 javob / 14 kun<small>to‘g‘riligi hali tekshirilmagan</small></div></div>
+    <div class="mt"><div class="l">Jalb qilish</div><div class="t">7 kunda birinchi foydali javobgacha yetgan mentorlar / taklif qilinganlar</div><div class="v">1 / 1<small>hozircha faqat men</small></div></div>
+    <div class="mt"><div class="l">Ushlab qolish</div><div class="t">2-haftada ham foydalanganlar / 1-haftada foyda olganlar</div><div class="v">pilotda<small>5 mentor, 2 hafta</small></div></div>
+  </div>
+  <div class="hyp">
+    <div class="card"><div class="lab ok">✓ Tekshirildi · 1 mentor</div><ul>
+      <li>Mentorga savollar oqimi katta: 14 kunda 259 xabar</li>
+      <li>Yordamchi ularning 239 tasiga javob qaytardi</li></ul></div>
+    <div class="card"><div class="lab todo">→ Pilotda tekshiramiz</div><ul>
+      <li>Tekshirilgan javoblarning kamida 90% to‘g‘ri</li>
+      <li>Yozishmaga ketadigan vaqt kamida 30% kamayadi</li>
+      <li>5 mentordan kamida 2 tasi pul to‘lab davom etadi</li></ul></div>
+  </div>
+  <div class="foot"><span>Manba: CoddyHelper bazasi + pilotda mentor tekshiruv jadvali</span><span>04 / 07</span></div>
+  <div class="notes">Asosiy metrika — ustoz tuzatmagan avtomatik javoblar soni, haftasiga. Jalb qilishda: taklif qilingan mentorlardan nechtasi 7 kunda birinchi foydali javobgacha yetadi. Ushlab qolishda: ikkinchi haftada ham foydalanayotganlar. Tekshirilgan narsa — savollar oqimi haqiqatan katta. Pilotda uchtasini tekshiramiz: javoblar kamida 90% to‘g‘rimi, vaqt kamida 30% tejaladimi va kamida ikki mentor pul to‘lab davom etadimi.</div>
+</section>
+
+<!-- 5 · BIZNES-MODEL -->
+<section class="slide" data-end="110">
+  <div class="top"><div class="kick"><i></i>Biznes-model</div><div class="tm">1:35–1:50</div></div>
+  <h2>Oylik obuna. To‘laydi — mentor yoki o‘quv markazi</h2>
+  <div class="row r2" style="margin-top:28px">
+    <div class="card plan hot"><span class="pill">PRO</span>
+      <div class="n">99 000 <small>so‘m / oy</small></div>
+      <ul><li>Avtomatik javob va bilimlar bazasi</li><li>Noaniq savolni sizga yetkazish</li><li>Ovozli xabarlar, eslatmalar</li></ul></div>
+    <div class="card plan"><span class="pill" style="background:var(--soft2);color:var(--mut)">ULTRA</span>
+      <div class="n">179 000 <small>so‘m / oy</small></div>
+      <ul><li>Pro’dagi hammasi</li><li>Avtonom o‘rganish va suhbatdosh profili</li><li>Xavfli fayllarni avtomatik o‘chirish</li></ul></div>
+  </div>
+  <p class="src" style="margin-top:22px">Nima uchun to‘laydi: kuniga ~18 ta xabarni qo‘lda yozmaslik uchun. Bu narxda to‘lashga tayyorlik pilot oxirida haqiqiy to‘lov bilan tekshiriladi.</p>
+  <div class="foot"><span>Model: obuna (Subscription) · narxlar mahsulotda sozlangan</span><span>05 / 07</span></div>
+  <div class="notes">Model — oylik obuna. To‘laydi mentor yoki o‘quv markazi egasi. Pro — oyiga 99 ming so‘m, Ultra — 179 ming. Mentor kuniga o‘nlab xabarni qo‘lda yozmaslik uchun to‘laydi. Shu narxga tayyorlikni pilot oxirida haqiqiy to‘lov bilan tekshiramiz.</div>
+</section>
+
+<!-- 6 · DEMO -->
+<section class="slide" data-end="160">
+  <div class="top"><div class="kick"><i></i>Demo · bitta yo‘l</div><div class="tm">1:50–2:40</div></div>
+  <h2>O‘quvchi savoli → javob <em>yoki</em> ustozga</h2>
+  <div class="flow">
+    <div class="card"><span class="num">01</span><h3>O‘quvchi yozadi</h3><div class="say">«HTML bilan CSS qanday ulanadi?»</div></div>
+    <div class="ar">→</div>
+    <div class="card"><span class="num">02</span><h3>Yordamchi javob beradi</h3><div class="say">Ustoz nomidan, bir necha soniyada — men telefonga tegmayman</div></div>
+    <div class="ar">→</div>
+    <div class="card"><span class="num">03</span><h3>Bilmagan savol — ustozga</h3><div class="say">«Ertangi dars bo‘ladimi?» → boshqaruv guruhimga xabar keladi</div></div>
+  </div>
+  <div class="planb"><b>Natija:</b> oddiy savol hal bo‘ldi, qaror kerak bo‘lgani menga yetdi. Mentor qo‘lda hech narsa yozmadi.</div>
+  <div class="foot"><span>Sinov akkaunti · zaxira: oldindan yozilgan ekran videosi</span><span>06 / 07</span></div>
+  <div class="notes">Hozir bitta yo‘lni ko‘rsataman. [Sinov akkauntidan yozing: «HTML bilan CSS qanday ulanadi?»] Ko‘ryapsizmi — javob mening nomimdan keldi, telefonimga tegmadim. [Ikkinchi xabar: «Ertangi dars bo‘ladimi?»] Buni yordamchi bilmaydi va o‘ylab topmaydi — savol boshqaruv guruhimga keldi. [Guruhni ko‘rsating.] Oddiy savol hal bo‘ldi, qaror kerak bo‘lgani menga yetdi. Internet ishlamasa — darhol videoga o‘ting.</div>
+</section>
+
+<!-- 7 · CTA -->
+<section class="slide" data-end="180">
+  <div class="top"><div class="kick"><i></i>Keyingi qadam</div><div class="tm">2:40–3:00</div></div>
+  <h1>5 mentor. 2 hafta. <em>Bepul.</em></h1>
+  <div class="cta">Bugun menga Telegramda «pilot» deb yozing.</div>
+  <div class="deal">
+    <div class="card"><span class="num">SIZ</span><h3>10 daqiqada ulaysiz</h3><p>va eng ko‘p keladigan 5 ta savolingizni berasiz</p></div>
+    <div class="card"><span class="num">MEN</span><h3>Har hafta hisobot</h3><p>nechta savol hal bo‘ldi, nechtasi sizga yetdi, nechtasi xato</p></div>
+    <div class="card"><span class="num">2 HAFTADAN KEYIN</span><h3>Foyda bo‘lsa — Pro</h3><p>99 000 so‘m/oy. Bo‘lmasa — bir tugma bilan o‘chirasiz</p></div>
+  </div>
+  <div class="foot"><span>CoddyHelper · @coddyassistanstbot</span><span>07 / 07</span></div>
+  <div class="notes">Shu xonada Telegramdan savol oladigan mentorlar bor. Menga beshtangiz kerak: ikki hafta, bepul. Siz 10 daqiqada ulaysiz va eng ko‘p keladigan beshta savolingizni berasiz. Men har hafta hisobot beraman: nechta savol hal bo‘ldi, nechtasi sizga yetdi, nechtasi xato. Ikki haftadan keyin foyda bo‘lsa — Pro, bo‘lmasa — o‘chirasiz. Bugun menga Telegramda «pilot» deb yozing.</div>
+</section>
+
+</div></div>
+
+<div id="hud"><span id="pos">1/7</span><span id="clock" title="T — start/pauza, R — nol">0:00</span><button id="nbtn" type="button" title="N — izohlar">izoh</button></div>
+<div id="notes"><div class="h" id="nh"></div><div id="nt"></div></div>
+
+<script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var stage = document.getElementById('stage');
+  var notesBox = document.getElementById('notes');
+  var cur = 0, startedAt = 0, pausedAt = 0, ticking = null;
+
+  function fit(){
+    var notesH = notesBox.classList.contains('on') ? notesBox.offsetHeight : 0;
+    var k = Math.min(window.innerWidth / 1280, (window.innerHeight - notesH) / 720) * 0.97;
+    stage.style.transform = 'scale(' + k + ')';
+    stage.parentNode.style.bottom = notesH + 'px';
+  }
+  function fmt(s){ return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+  function show(i){
+    cur = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach(function(s, j){ s.classList.toggle('on', j === cur); });
+    document.getElementById('pos').textContent = (cur + 1) + '/' + slides.length;
+    var note = slides[cur].querySelector('.notes');
+    document.getElementById('nh').textContent = slides[cur].querySelector('.tm').textContent + ' · aytiladigan matn';
+    document.getElementById('nt').textContent = note ? note.textContent : '';
+    try{ history.replaceState(null, '', '#' + (cur + 1)); }catch(e){}
+    render();
+  }
+
+  function elapsed(){
+    if(!startedAt) return 0;
+    return Math.floor(((pausedAt || Date.now()) - startedAt) / 1000);
+  }
+  function render(){
+    var sec = elapsed(), clock = document.getElementById('clock');
+    var limit = parseInt(slides[cur].getAttribute('data-end'), 10);
+    clock.textContent = fmt(sec) + ' / ' + fmt(limit);
+    clock.classList.toggle('late', sec > limit);
+  }
+  function toggleTimer(){
+    if(!startedAt){ startedAt = Date.now(); ticking = setInterval(render, 500); }
+    else if(pausedAt){ startedAt += Date.now() - pausedAt; pausedAt = 0; ticking = setInterval(render, 500); }
+    else { pausedAt = Date.now(); clearInterval(ticking); }
+    render();
+  }
+  function resetTimer(){ clearInterval(ticking); startedAt = 0; pausedAt = 0; render(); }
+  function toggleNotes(){ notesBox.classList.toggle('on'); fit(); }
+
+  document.addEventListener('keydown', function(e){
+    var k = e.key;
+    if(k === 'ArrowRight' || k === ' ' || k === 'PageDown'){ e.preventDefault(); show(cur + 1); }
+    else if(k === 'ArrowLeft' || k === 'PageUp'){ e.preventDefault(); show(cur - 1); }
+    else if(k === 'Home'){ show(0); }
+    else if(k === 'End'){ show(slides.length - 1); }
+    else if(k === 'n' || k === 'N'){ toggleNotes(); }
+    else if(k === 't' || k === 'T'){ toggleTimer(); }
+    else if(k === 'r' || k === 'R'){ resetTimer(); }
+    else if(k === 'f' || k === 'F'){
+      try{ document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }catch(err){}
+    }
+  });
+  document.getElementById('viewport').addEventListener('click', function(e){
+    show(e.clientX > window.innerWidth / 3 ? cur + 1 : cur - 1);
+  });
+  document.getElementById('nbtn').addEventListener('click', toggleNotes);
+  document.getElementById('clock').addEventListener('click', toggleTimer);
+  window.addEventListener('resize', fit);
+
+  var fromHash = parseInt((location.hash || '').slice(1), 10);
+  show(isFinite(fromHash) ? fromHash - 1 : 0);
+  fit();
+})();
+</script>
+</body>
+</html>
