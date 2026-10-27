@@ -32,8 +32,7 @@
   .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px}
   .kick{display:flex;align-items:center;gap:10px;font:700 13px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
   .kick i{width:10px;height:10px;border-radius:3px;background:var(--or)}
-  .tm{font:700 13px/1 var(--mono);color:var(--or-deep);background:var(--or-soft);border-radius:99px;padding:7px 12px}
-  h1{font-weight:800;font-size:58px;line-height:1.06;letter-spacing:-.025em}
+    h1{font-weight:800;font-size:58px;line-height:1.06;letter-spacing:-.025em}
   h1 em,h2 em{font-style:normal;color:var(--or)}
   h2{font-weight:800;font-size:44px;line-height:1.1;letter-spacing:-.02em}
   .lead{font-size:22px;color:var(--mut);margin-top:16px;max-width:60ch;line-height:1.45}
@@ -119,7 +118,6 @@
   #notes .h{font:700 12px/1 var(--mono);color:#FF9256;letter-spacing:.1em;margin-bottom:8px}
   #hud{position:fixed;right:14px;top:12px;z-index:30;font:700 13px/1 var(--mono);color:var(--mut);
     background:rgba(255,255,255,.85);border-radius:10px;padding:8px 11px;display:flex;gap:12px;align-items:center}
-  #hud .late{color:#E0474C}
   #hud button{border:0;background:none;font:inherit;color:inherit;cursor:pointer}
   .notes{display:none}
 
@@ -137,8 +135,8 @@
 <div id="viewport"><div id="stage">
 
 <!-- 1 · MUAMMO -->
-<section class="slide" data-end="30">
-  <div class="top"><div class="kick"><i></i>CoddyHelper · Muammo</div><div class="tm">0:00–0:30</div></div>
+<section class="slide">
+  <div class="top"><div class="kick"><i></i>CoddyHelper · Muammo</div></div>
   <h1>Men darsdaman.<br><em>Telegramim</em> esa to‘xtamaydi.</h1>
   <div class="chat">
     <div class="msg"><small>O‘QUVCHI</small>Python da IndexError: list index out of range xatosi nima degani?</div>
@@ -151,69 +149,69 @@
     <p>Darsda javob yozsam — oldimdagi guruh to‘xtaydi.</p>
   </div></div>
   <div class="foot"><span>Haqiqiy xabarlar · mening akkauntim · sentabr 2026 · ismlar olib tashlangan</span><span>01 / 07</span></div>
-  <div class="notes">Men CoddyCamp’da mentorman. Sentabrda bir kunda Telegramimga shunday xabarlar keldi: «IndexError nima degani?», «HTML bilan CSS qanday ulanadi?», loyiha havolasi, «Assalomu alaykum, ustoz». Men esa o‘sha paytda boshqa guruhda dars o‘tyapman. Javob kechiksa — o‘quvchi uyga vazifada to‘xtab qoladi. Darsda telefonga qarasam — oldimdagi guruh to‘xtaydi. Bu meni qiynagan muammo, shuning uchun uni o‘zim uchun yecha boshladim.</div>
+  <div class="notes">Men CoddyCamp’da mentorman. Sentabrda bir kuni Telegramimga ketma-ket yozishdi: «IndexError nima degani?», «HTML bilan CSS qanday ulanadi?», loyiha linki, «Assalomu alaykum, ustoz». Men esa o‘sha payt boshqa guruhda dars o‘tyapman. Javob bermasam — bola uy vazifasida qotib qoladi. Telefonga qarasam — oldimdagi guruh kutib o‘tiradi. Shu narsa meni qiynadi, shuning uchun o‘zimga yordamchi yasadim.</div>
 </section>
 
 <!-- 2 · YECHIM -->
-<section class="slide" data-end="55">
-  <div class="top"><div class="kick"><i></i>Yechim va muqobillar</div><div class="tm">0:30–0:55</div></div>
-  <h2>Biz buni <em>CoddyHelper</em> bilan yechamiz — Telegramingizdagi AI yordamchi</h2>
+<section class="slide">
+  <div class="top"><div class="kick"><i></i>Yechim va muqobillar</div></div>
+  <h2>Shuning uchun <em>CoddyHelper</em>ni yasadim — Telegramimdagi AI yordamchi</h2>
   <div class="row r3" style="margin-top:24px">
     <div class="card"><span class="num">01</span><h3>Sizning akkauntingizdan javob</h3><p>O‘quvchi ustoziga yozadi — javob siz kiritgan bilim asosida keladi.</p></div>
-    <div class="card"><span class="num">02</span><h3>Bilmasa — sizga yetkazadi</h3><p>Qaror kerak bo‘lgan savol boshqaruv guruhingizga tushadi.</p></div>
-    <div class="card"><span class="num">03</span><h3>Siz yozsangiz — jim turadi</h3><p>Suhbatga qo‘shilsangiz, yordamchi o‘sha chatda to‘xtaydi.</p></div>
+    <div class="card"><span class="num">02</span><h3>Bilmasa — sizga tashlaydi</h3><p>Qaroringiz kerak bo‘lgan savol boshqaruv guruhingizga tushadi.</p></div>
+    <div class="card"><span class="num">03</span><h3>Siz yozsangiz — jim bo‘ladi</h3><p>Chatga o‘zingiz kirsangiz, yordamchi o‘sha yerda to‘xtaydi.</p></div>
   </div>
   <div class="alt">
-    <div><b>Qo‘lda javob yozish</b><span>Darsdan chalg‘itadi yoki javob soatlab kechikadi</span></div>
+    <div><b>Qo‘lda javob yozish</b><span>Darsdan chalg‘itadi yoki javob soatlab qolib ketadi</span></div>
     <div><b>Telegram Business tez javoblari</b><span>Tayyor shablon: «IndexError nima?» degan savolni tushunmaydi</span></div>
     <div><b>Alohida chat-bot</b><span>O‘quvchilar baribir ustozning o‘ziga yozadi</span></div>
-    <div class="us"><b>CoddyHelper</b><span>Savolni tushunadi, o‘sha chatda javob beradi, bilmaganini sizga beradi</span></div>
+    <div class="us"><b>CoddyHelper</b><span>Savolni tushunadi, o‘sha chatda javob beradi, bilmaganini sizga tashlaydi</span></div>
   </div>
   <div class="foot"><span>Ustunlik pilotda tekshiriladi: javob tezligi va to‘g‘riligi</span><span>02 / 07</span></div>
-  <div class="notes">Biz buni CoddyHelper bilan yechamiz. Bu sizning Telegram akkauntingizda ishlaydigan AI yordamchi. O‘quvchi botga emas, ustozning o‘ziga yozadi — javob siz kiritgan bilim asosida keladi. Qaror kerak bo‘lgan savolni boshqaruv guruhingizga yuboradi. O‘zingiz yozsangiz — jim turadi. Hozir buni qo‘lda yoki Telegram Business shablonlari bilan qilish mumkin, lekin shablon savolni tushunmaydi, alohida botga esa o‘quvchilar baribir yozmaydi.</div>
+  <div class="notes">Uning nomi — CoddyHelper. Bu Telegramimda o‘tirgan AI yordamchi. O‘quvchi hech qanday botga emas, to‘g‘ri menga yozadi. Javobni esa yordamchi men kiritgan ma’lumotdan olib yozadi. Bilmagan savolni menga tashlaydi. O‘zim chatga yozsam — jim bo‘ladi. Albatta, qo‘lda yozsa ham bo‘ladi, Telegram Business’ning tayyor javoblari ham bor. Lekin tayyor javob savolni tushunmaydi. Alohida botga esa bolalar baribir yozmaydi — ustozga yozadi.</div>
 </section>
 
 <!-- 3 · DALIL -->
-<section class="slide" data-end="75">
-  <div class="top"><div class="kick"><i></i>Dalil</div><div class="tm">0:55–1:15</div></div>
-  <h2>14 kun o‘z akkauntimda ishlatdim</h2>
+<section class="slide">
+  <div class="top"><div class="kick"><i></i>Dalil</div></div>
+  <h2>14 kun o‘z akkauntimda sinab ko‘rdim</h2>
   <p class="lead">12–25 sentabr 2026 · o‘quvchilar va boshqa odamlardan kelgan xabarlar</p>
   <div class="row r4" style="margin-top:30px">
     <div class="card stat"><div class="n">259</div><div class="d">kiruvchi xabar — kuniga ~18 ta</div></div>
     <div class="card stat"><div class="n">38</div><div class="d">chat: 31 shaxsiy + 7 guruh</div></div>
-    <div class="card stat hot"><div class="n">239</div><div class="d">javobni yordamchi yozdi — men qo‘lda yozmadim</div></div>
+    <div class="card stat hot"><div class="n">239</div><div class="d">javobni yordamchi yozdi — men bitta harf ham yozmadim</div></div>
     <div class="card stat"><div class="n">~60</div><div class="d">kod savoli va loyiha havolasi (kalit so‘z bo‘yicha)</div></div>
   </div>
-  <p class="src">Manba: CoddyHelper bazasi, egasining o‘z buyruqlari hisobga olinmagan. Javoblarning to‘g‘riligi hali alohida tekshirilmagan — buni pilotda o‘lchaymiz.</p>
+  <p class="src">Manba: CoddyHelper bazasi, egasining o‘z buyruqlari hisobga olinmagan. Javoblarning to‘g‘riligini hali bittalab tekshirmadim — buni pilotda o‘lchayman.</p>
   <div class="foot"><span>Texnik holat: akkaunt ulash, bilimlar bazasi, eskalatsiya, tariflar — ishlaydi</span><span>03 / 07</span></div>
-  <div class="notes">Bu g‘oya emas — ishlaydigan mahsulot. 14 kun o‘z akkauntimda ishlatdim: 259 ta kiruvchi xabar, kuniga taxminan 18 ta, 38 ta chatdan. Ulardan 239 tasiga yordamchi javob berdi — men qo‘lda yozmadim. Taxminan 60 tasi kod savoli va loyiha havolalari. Ammo halol aytaman: javoblarning qanchasi to‘g‘ri bo‘lganini hali alohida tekshirmadim.</div>
+  <div class="notes">Bu shunchaki g‘oya emas — ishlab turibdi. 14 kun o‘z akkauntimda sinab ko‘rdim. 38 ta chatdan 259 ta xabar keldi, kuniga 18 tacha. 239 tasiga yordamchi javob berdi — men bitta harf ham yozmadim. 60 tachasi kod savoli va loyiha linklari. To‘g‘risini aytsam: javoblarning qanchasi to‘g‘ri bo‘lganini hali bittalab tekshirib chiqmadim.</div>
 </section>
 
 <!-- 4 · METRIKALAR VA GIPOTEZALAR -->
-<section class="slide" data-end="95">
-  <div class="top"><div class="kick"><i></i>Metrikalar va gipotezalar</div><div class="tm">1:15–1:35</div></div>
-  <h2>Nimani o‘lchaymiz</h2>
+<section class="slide">
+  <div class="top"><div class="kick"><i></i>Metrikalar va gipotezalar</div></div>
+  <h2>Nimani o‘lchayman</h2>
   <div style="margin-top:20px">
-    <div class="mt"><div class="l">North Star</div><div class="t">Ustoz tuzatmagan avtomatik javoblar — haftasiga</div><div class="v">239 javob / 14 kun<small>to‘g‘riligi hali tekshirilmagan</small></div></div>
+    <div class="mt"><div class="l">North Star</div><div class="t">Men tuzatmagan avtomatik javoblar — haftasiga</div><div class="v">239 javob / 14 kun<small>to‘g‘riligi hali tekshirilmagan</small></div></div>
     <div class="mt"><div class="l">Jalb qilish</div><div class="t">7 kunda birinchi foydali javobgacha yetgan mentorlar / taklif qilinganlar</div><div class="v">1 / 1<small>hozircha faqat men</small></div></div>
     <div class="mt"><div class="l">Ushlab qolish</div><div class="t">2-haftada ham foydalanganlar / 1-haftada foyda olganlar</div><div class="v">pilotda<small>5 mentor, 2 hafta</small></div></div>
   </div>
   <div class="hyp">
-    <div class="card"><div class="lab ok">✓ Tekshirildi · 1 mentor</div><ul>
-      <li>Mentorga savollar oqimi katta: 14 kunda 259 xabar</li>
-      <li>Yordamchi ularning 239 tasiga javob qaytardi</li></ul></div>
-    <div class="card"><div class="lab todo">→ Pilotda tekshiramiz</div><ul>
+    <div class="card"><div class="lab ok">✓ O‘zimda tekshirdim · 14 kun</div><ul>
+      <li>Savol ko‘p keladi: 14 kunda 259 ta xabar</li>
+      <li>239 tasiga yordamchi javob berdi</li></ul></div>
+    <div class="card"><div class="lab todo">→ Pilotda tekshiraman</div><ul>
       <li>Tekshirilgan javoblarning kamida 90% to‘g‘ri</li>
-      <li>Yozishmaga ketadigan vaqt kamida 30% kamayadi</li>
-      <li>5 mentordan kamida 2 tasi pul to‘lab davom etadi</li></ul></div>
+      <li>Yozishmaga ketadigan vaqt kamida 30% tejaladi</li>
+      <li>5 mentordan kamida 2 tasi pul to‘lab qoladi</li></ul></div>
   </div>
   <div class="foot"><span>Manba: CoddyHelper bazasi + pilotda mentor tekshiruv jadvali</span><span>04 / 07</span></div>
-  <div class="notes">Asosiy metrika — ustoz tuzatmagan avtomatik javoblar soni, haftasiga. Jalb qilishda: taklif qilingan mentorlardan nechtasi 7 kunda birinchi foydali javobgacha yetadi. Ushlab qolishda: ikkinchi haftada ham foydalanayotganlar. Tekshirilgan narsa — savollar oqimi haqiqatan katta. Pilotda uchtasini tekshiramiz: javoblar kamida 90% to‘g‘rimi, vaqt kamida 30% tejaladimi va kamida ikki mentor pul to‘lab davom etadimi.</div>
+  <div class="notes">Men uchun eng muhim raqam — haftasiga men tuzatmagan javoblar soni. Yangi mentor kelsa, 7 kun ichida birinchi foydali javobni oldimi — shuni qarayman. Ikkinchi haftada ham ishlatyaptimi — shuni ham. Savol ko‘p kelishini o‘zimda ko‘rdim. Endi pilotda uchta narsani tekshiraman: javoblarning kamida 90 foizi to‘g‘rimi, vaqt kamida 30 foiz tejaldimi va kamida ikkita mentor pul to‘lab qoladimi.</div>
 </section>
 
 <!-- 5 · BIZNES-MODEL -->
-<section class="slide" data-end="110">
-  <div class="top"><div class="kick"><i></i>Biznes-model</div><div class="tm">1:35–1:50</div></div>
+<section class="slide">
+  <div class="top"><div class="kick"><i></i>Biznes-model</div></div>
   <h2>Oylik obuna. To‘laydi — mentor yoki o‘quv markazi</h2>
   <div class="row r2" style="margin-top:28px">
     <div class="card plan hot"><span class="pill">PRO</span>
@@ -223,44 +221,44 @@
       <div class="n">179 000 <small>so‘m / oy</small></div>
       <ul><li>Pro’dagi hammasi</li><li>Avtonom o‘rganish va suhbatdosh profili</li><li>Xavfli fayllarni avtomatik o‘chirish</li></ul></div>
   </div>
-  <p class="src" style="margin-top:22px">Nima uchun to‘laydi: kuniga ~18 ta xabarni qo‘lda yozmaslik uchun. Bu narxda to‘lashga tayyorlik pilot oxirida haqiqiy to‘lov bilan tekshiriladi.</p>
+  <p class="src" style="margin-top:22px">Nega to‘laydi: kuniga ~18 ta xabarga o‘zi o‘tirib javob yozmasligi uchun. Shu narxga rozi bo‘lishadimi — pilot oxirida pul so‘rab tekshiraman.</p>
   <div class="foot"><span>Model: obuna (Subscription) · narxlar mahsulotda sozlangan</span><span>05 / 07</span></div>
-  <div class="notes">Model — oylik obuna. To‘laydi mentor yoki o‘quv markazi egasi. Pro — oyiga 99 ming so‘m, Ultra — 179 ming. Mentor kuniga o‘nlab xabarni qo‘lda yozmaslik uchun to‘laydi. Shu narxga tayyorlikni pilot oxirida haqiqiy to‘lov bilan tekshiramiz.</div>
+  <div class="notes">Pul oylik obunadan keladi. Mentor yoki o‘quv markazi to‘laydi. Pro — oyiga 99 ming so‘m, Ultra — 179 ming. Nega to‘laydi? Kuniga o‘nlab xabarga o‘zi o‘tirib javob yozmasligi uchun. Shu narxga rozi bo‘lishadimi — pilot oxirida gap bilan emas, pul so‘rab tekshiraman.</div>
 </section>
 
 <!-- 6 · DEMO -->
-<section class="slide" data-end="160">
-  <div class="top"><div class="kick"><i></i>Demo · bitta yo‘l</div><div class="tm">1:50–2:40</div></div>
+<section class="slide">
+  <div class="top"><div class="kick"><i></i>Demo · bitta yo‘l</div></div>
   <h2>O‘quvchi savoli → javob <em>yoki</em> ustozga</h2>
   <div class="flow">
     <div class="card"><span class="num">01</span><h3>O‘quvchi yozadi</h3><div class="say">«HTML bilan CSS qanday ulanadi?»</div></div>
     <div class="ar">→</div>
-    <div class="card"><span class="num">02</span><h3>Yordamchi javob beradi</h3><div class="say">Ustoz nomidan, bir necha soniyada — men telefonga tegmayman</div></div>
+    <div class="card"><span class="num">02</span><h3>Yordamchi javob beradi</h3><div class="say">Mening nomimdan, bir necha soniyada — telefonimni ushlamayman</div></div>
     <div class="ar">→</div>
     <div class="card"><span class="num">03</span><h3>Bilmagan savol — ustozga</h3><div class="say">«Ertangi dars bo‘ladimi?» → boshqaruv guruhimga xabar keladi</div></div>
   </div>
-  <div class="planb"><b>Natija:</b> oddiy savol hal bo‘ldi, qaror kerak bo‘lgani menga yetdi. Mentor qo‘lda hech narsa yozmadi.</div>
+  <div class="planb"><b>Natija:</b> oddiy savol yopildi, qarorim kerak bo‘lgani menga keldi. Men qo‘lda hech narsa yozmadim.</div>
   <div class="foot"><span>Sinov akkaunti · zaxira: oldindan yozilgan ekran videosi</span><span>06 / 07</span></div>
-  <div class="notes">Hozir bitta yo‘lni ko‘rsataman. [Sinov akkauntidan yozing: «HTML bilan CSS qanday ulanadi?»] Ko‘ryapsizmi — javob mening nomimdan keldi, telefonimga tegmadim. [Ikkinchi xabar: «Ertangi dars bo‘ladimi?»] Buni yordamchi bilmaydi va o‘ylab topmaydi — savol boshqaruv guruhimga keldi. [Guruhni ko‘rsating.] Oddiy savol hal bo‘ldi, qaror kerak bo‘lgani menga yetdi. Internet ishlamasa — darhol videoga o‘ting.</div>
+  <div class="notes">Hozir ko‘rsataman. [Sinov akkauntidan yozing: «HTML bilan CSS qanday ulanadi?»] Mana, javob mening nomimdan keldi, telefonimni ushlamadim. [Ikkinchi xabar: «Ertangi dars bo‘ladimi?»] Buni yordamchi bilmaydi va o‘zidan to‘qib chiqarmaydi — savol boshqaruv guruhimga tushdi. [Guruhni ko‘rsating.] Oddiy savol yopildi, mening qarorim kerak bo‘lgani esa menga keldi. Internet ishlamasa — darhol videoga o‘ting.</div>
 </section>
 
 <!-- 7 · CTA -->
-<section class="slide" data-end="180">
-  <div class="top"><div class="kick"><i></i>Keyingi qadam</div><div class="tm">2:40–3:00</div></div>
-  <h1>5 mentor. 2 hafta. <em>Bepul.</em></h1>
-  <div class="cta">Bugun menga Telegramda «pilot» deb yozing.</div>
+<section class="slide">
+  <div class="top"><div class="kick"><i></i>Keyingi qadam</div></div>
+  <h1>5 mentor. 2 hafta. <em>Tekin.</em></h1>
+  <div class="cta">Bugun Telegramimga «pilot» deb yozing.</div>
   <div class="deal">
-    <div class="card"><span class="num">SIZ</span><h3>10 daqiqada ulaysiz</h3><p>va eng ko‘p keladigan 5 ta savolingizni berasiz</p></div>
-    <div class="card"><span class="num">MEN</span><h3>Har hafta hisobot</h3><p>nechta savol hal bo‘ldi, nechtasi sizga yetdi, nechtasi xato</p></div>
-    <div class="card"><span class="num">2 HAFTADAN KEYIN</span><h3>Foyda bo‘lsa — Pro</h3><p>99 000 so‘m/oy. Bo‘lmasa — bir tugma bilan o‘chirasiz</p></div>
+    <div class="card"><span class="num">SIZ</span><h3>10 daqiqada ulaysiz</h3><p>va eng ko‘p so‘raladigan 5 ta savolingizni berasiz</p></div>
+    <div class="card"><span class="num">MEN</span><h3>Har hafta hisobot tashlayman</h3><p>nechta savol yopildi, nechtasi sizga keldi, nechtasi xato</p></div>
+    <div class="card"><span class="num">2 HAFTADAN KEYIN</span><h3>Foyda bo‘lsa — Pro</h3><p>99 000 so‘m/oy. Bo‘lmasa — bir tugma bilan o‘chirib qo‘yasiz</p></div>
   </div>
   <div class="foot"><span>CoddyHelper · @coddyassistanstbot</span><span>07 / 07</span></div>
-  <div class="notes">Shu xonada Telegramdan savol oladigan mentorlar bor. Menga beshtangiz kerak: ikki hafta, bepul. Siz 10 daqiqada ulaysiz va eng ko‘p keladigan beshta savolingizni berasiz. Men har hafta hisobot beraman: nechta savol hal bo‘ldi, nechtasi sizga yetdi, nechtasi xato. Ikki haftadan keyin foyda bo‘lsa — Pro, bo‘lmasa — o‘chirasiz. Bugun menga Telegramda «pilot» deb yozing.</div>
+  <div class="notes">Shu yerda Telegramdan savol ko‘p oladigan mentorlar bor. Menga beshtangiz kerak: ikki hafta, tekin. Siz 10 daqiqada ulaysiz va eng ko‘p so‘raladigan beshta savolingizni berasiz. Men har hafta hisobot tashlab turaman: nechta savol yopildi, nechtasi sizga keldi, nechtasi xato bo‘ldi. Ikki haftadan keyin foydasi bo‘lsa — Pro’ga o‘tasiz, bo‘lmasa — o‘chirib qo‘yasiz. Bugun Telegramimga «pilot» deb yozing.</div>
 </section>
 
 </div></div>
 
-<div id="hud"><span id="pos">1/7</span><span id="clock" title="T — start/pauza, R — nol">0:00</span><button id="nbtn" type="button" title="N — izohlar">izoh</button></div>
+<div id="hud"><span id="pos">1/7</span><button id="nbtn" type="button" title="N — izohlar">izoh</button></div>
 <div id="notes"><div class="h" id="nh"></div><div id="nt"></div></div>
 
 <script>
@@ -268,7 +266,7 @@
   var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
   var stage = document.getElementById('stage');
   var notesBox = document.getElementById('notes');
-  var cur = 0, startedAt = 0, pausedAt = 0, ticking = null;
+  var cur = 0;
 
   function fit(){
     var notesH = notesBox.classList.contains('on') ? notesBox.offsetHeight : 0;
@@ -276,36 +274,17 @@
     stage.style.transform = 'scale(' + k + ')';
     stage.parentNode.style.bottom = notesH + 'px';
   }
-  function fmt(s){ return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 
   function show(i){
     cur = Math.max(0, Math.min(slides.length - 1, i));
     slides.forEach(function(s, j){ s.classList.toggle('on', j === cur); });
     document.getElementById('pos').textContent = (cur + 1) + '/' + slides.length;
     var note = slides[cur].querySelector('.notes');
-    document.getElementById('nh').textContent = slides[cur].querySelector('.tm').textContent + ' · aytiladigan matn';
+    document.getElementById('nh').textContent = slides[cur].querySelector('.kick').textContent + ' · aytiladigan matn';
     document.getElementById('nt').textContent = note ? note.textContent : '';
     try{ history.replaceState(null, '', '#' + (cur + 1)); }catch(e){}
-    render();
   }
 
-  function elapsed(){
-    if(!startedAt) return 0;
-    return Math.floor(((pausedAt || Date.now()) - startedAt) / 1000);
-  }
-  function render(){
-    var sec = elapsed(), clock = document.getElementById('clock');
-    var limit = parseInt(slides[cur].getAttribute('data-end'), 10);
-    clock.textContent = fmt(sec) + ' / ' + fmt(limit);
-    clock.classList.toggle('late', sec > limit);
-  }
-  function toggleTimer(){
-    if(!startedAt){ startedAt = Date.now(); ticking = setInterval(render, 500); }
-    else if(pausedAt){ startedAt += Date.now() - pausedAt; pausedAt = 0; ticking = setInterval(render, 500); }
-    else { pausedAt = Date.now(); clearInterval(ticking); }
-    render();
-  }
-  function resetTimer(){ clearInterval(ticking); startedAt = 0; pausedAt = 0; render(); }
   function toggleNotes(){ notesBox.classList.toggle('on'); fit(); }
 
   document.addEventListener('keydown', function(e){
@@ -315,8 +294,6 @@
     else if(k === 'Home'){ show(0); }
     else if(k === 'End'){ show(slides.length - 1); }
     else if(k === 'n' || k === 'N'){ toggleNotes(); }
-    else if(k === 't' || k === 'T'){ toggleTimer(); }
-    else if(k === 'r' || k === 'R'){ resetTimer(); }
     else if(k === 'f' || k === 'F'){
       try{ document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }catch(err){}
     }
@@ -325,7 +302,6 @@
     show(e.clientX > window.innerWidth / 3 ? cur + 1 : cur - 1);
   });
   document.getElementById('nbtn').addEventListener('click', toggleNotes);
-  document.getElementById('clock').addEventListener('click', toggleTimer);
   window.addEventListener('resize', fit);
 
   var fromHash = parseInt((location.hash || '').slice(1), 10);
