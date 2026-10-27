@@ -8,26 +8,27 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
   :root{
-    --bg:#F8F9FB; --card:#FFFFFF; --soft:#F4F6F8; --soft2:#EDF0F4;
-    --ink:#15161A; --mut:#6F737D; --dim:#B4B8C0;
-    --or:#FF5C1C; --or-deep:#E84E0F; --or-soft:#FFEDE2;
-    --ok:#189D57; --ok-soft:#DFF3E6;
-    --sh:0 8px 22px -12px rgba(21,22,26,.16);
+    /* ranglar templates/admin_app.html (Mini App) bilan bir xil */
+    --bg:#0e1621; --card:#1f2b38; --soft:#273748; --soft2:rgba(255,255,255,.08);
+    --ink:#f5f5f5; --mut:#7e8e9f; --dim:#4f6072;
+    --or:#2ea6ff; --or-deep:#2ea6ff; --or-soft:rgba(46,166,255,.14);
+    --ok:#22c55e; --ok-soft:rgba(34,197,94,.14);
+    --sh:0 4px 16px rgba(0,0,0,.3);
     --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
     --sans:'Manrope',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
-  body{background:#E9ECF1;color:var(--ink);font-family:var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
+  body{background:#0a1018;color:var(--ink);font-family:var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
 
   /* 1280×720 sahna, ekranga moslab kattalashtiriladi */
   #viewport{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
   #stage{width:1280px;height:720px;position:relative;transform-origin:center center;flex:none}
   .slide{position:absolute;inset:0;background:var(--bg);border-radius:6px;padding:58px 72px 64px;
-    display:none;flex-direction:column;overflow:hidden;box-shadow:0 30px 60px -30px rgba(21,22,26,.35)}
+    display:none;flex-direction:column;overflow:hidden;box-shadow:0 30px 60px -30px rgba(0,0,0,.6)}
   .slide.on{display:flex}
   .slide::after{content:"";position:absolute;right:-150px;top:-150px;width:440px;height:440px;border-radius:50%;pointer-events:none;
-    background:repeating-radial-gradient(circle at center, rgba(21,22,26,.045) 0 1px, transparent 1px 42px)}
+    background:repeating-radial-gradient(circle at center, rgba(255,255,255,.05) 0 1px, transparent 1px 42px)}
 
   .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px}
   .kick{display:flex;align-items:center;gap:10px;font:700 13px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
@@ -64,13 +65,13 @@
   .alt div:first-child{border-top:0}
   .alt b{font-weight:700}
   .alt span{color:var(--mut)}
-  .alt .us{background:var(--or-soft)} .alt .us span{color:#8A3A12;font-weight:700}
+  .alt .us{background:var(--or-soft)} .alt .us span{color:var(--or);font-weight:700}
 
   /* 3 · raqamlar */
   .stat .n{font:700 64px/1 var(--mono);letter-spacing:-.04em}
   .stat .d{font-size:16px;color:var(--mut);margin-top:10px;line-height:1.4}
-  .stat.hot{background:linear-gradient(135deg,#17181C,#26272B);color:#fff}
-  .stat.hot .n{color:#FF9256} .stat.hot .d{color:#B8BBC4}
+  .stat.hot{background:linear-gradient(135deg,#2ea6ff,#1c92e3);color:#fff}
+  .stat.hot .n{color:#fff} .stat.hot .d{color:rgba(255,255,255,.85)}
 
   /* 4 · metrikalar */
   .mt{display:grid;grid-template-columns:200px 1fr 240px;gap:16px;align-items:center;background:var(--card);
@@ -108,22 +109,22 @@
 
   /* 7 · CTA */
   .cta{margin-top:30px;background:var(--or);color:#fff;border-radius:20px;padding:30px 34px;
-    font-weight:800;font-size:40px;letter-spacing:-.015em;box-shadow:0 18px 36px -16px rgba(232,78,15,.6)}
+    font-weight:800;font-size:40px;letter-spacing:-.015em;box-shadow:0 18px 36px -16px rgba(46,166,255,.55)}
   .deal{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:22px}
 
   /* ma'ruzachi izohlari va taymer */
-  #notes{position:fixed;left:0;right:0;bottom:0;max-height:38vh;overflow:auto;background:#17181C;color:#E8E9ED;
+  #notes{position:fixed;left:0;right:0;bottom:0;max-height:38vh;overflow:auto;background:#17212b;color:#f5f5f5;border-top:1px solid var(--soft2);
     padding:16px 24px 20px;font:500 17px/1.55 var(--sans);display:none;z-index:20}
   #notes.on{display:block}
-  #notes .h{font:700 12px/1 var(--mono);color:#FF9256;letter-spacing:.1em;margin-bottom:8px}
+  #notes .h{font:700 12px/1 var(--mono);color:var(--or);letter-spacing:.1em;margin-bottom:8px}
   #hud{position:fixed;right:14px;top:12px;z-index:30;font:700 13px/1 var(--mono);color:var(--mut);
-    background:rgba(255,255,255,.85);border-radius:10px;padding:8px 11px;display:flex;gap:12px;align-items:center}
+    background:rgba(23,33,43,.85);border-radius:10px;padding:8px 11px;display:flex;gap:12px;align-items:center}
   #hud button{border:0;background:none;font:inherit;color:inherit;cursor:pointer}
   .notes{display:none}
 
   @media print{
     @page{size:1280px 720px;margin:0}
-    body{background:#fff;overflow:visible}
+    body{background:var(--bg);overflow:visible;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     #viewport{position:static;display:block}
     #stage{transform:none!important;width:auto;height:auto}
     .slide{position:relative;display:flex!important;width:1280px;height:720px;break-after:page;border-radius:0;box-shadow:none}
@@ -217,7 +218,7 @@
     <div class="card plan hot"><span class="pill">PRO</span>
       <div class="n">99 000 <small>so‘m / oy</small></div>
       <ul><li>Avtomatik javob va bilimlar bazasi</li><li>Noaniq savolni sizga yetkazish</li><li>Ovozli xabarlar, eslatmalar</li></ul></div>
-    <div class="card plan"><span class="pill" style="background:var(--soft2);color:var(--mut)">ULTRA</span>
+    <div class="card plan"><span class="pill" style="background:var(--soft);color:var(--mut)">ULTRA</span>
       <div class="n">179 000 <small>so‘m / oy</small></div>
       <ul><li>Pro’dagi hammasi</li><li>Avtonom o‘rganish va suhbatdosh profili</li><li>Xavfli fayllarni avtomatik o‘chirish</li></ul></div>
   </div>
